@@ -1,0 +1,1407 @@
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import {
+  Box,
+  Typography,
+  Button,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  Breadcrumbs,
+  Link,
+  IconButton,
+  useTheme,
+  useMediaQuery,
+  TextField,
+  InputAdornment,
+} from '@mui/material';
+import { Folder, InsertDriveFile, MoreVert, Add, CreditCard, Lock, AccountBalance, Person, StickyNote2, Wifi, Extension, ArrowUpward, ArrowDownward, Search, Clear } from '@mui/icons-material';
+import NewFolderDialog from './NewFolderDialog';
+import ShareDialog from './ShareDialog';
+import ContextMenu from './ContextMenu';
+import RenameDialog from './RenameDialog';
+import MobileActionMenu from './MobileActionMenu';
+import { useAuth } from '../auth/AuthContext';
+import { usePassphrase } from '../auth/PassphraseContext';
+import { useClipboard } from '../context/ClipboardContext';
+import { useFolders } from '../hooks/useFolders';
+import { createFolder, getUserProfile, getUserByEmail, updateFolder, deleteFolder, addSharingHistory, shareFolder, getAllFilesRecursively, type Folder as FolderData } from '../firestore';
+import { collection, query, where, onSnapshot, QuerySnapshot } from 'firebase/firestore';
+import { db } from '../firebase';
+import { ml_kem768 } from '@noble/post-quantum/ml-kem';
+import { encryptMetadata } from '../crypto/postQuantumCrypto';
+import { decryptFileMetadata, encryptWithPostQuantum } from '../crypto/migration';
+import { uploadFile, uploadFileData } from '../storage';
+import { createFileWithSharing, updateFile, deleteFile, type FileData } from '../files';
+import type { FormType } from '../utils/formFiles';
+import { isFormFile, getFormTypeFromFilename, createFormFromTemplate } from '../utils/formFiles';
+import FormFileViewer from './FormFileViewer';
+import FormFileEditor from './FormFileEditor';
+import FormInstanceFiller from './FormInstanceFiller';
+import NewFormDialog from './NewFormDialog';
+
+interface MainContentProps {
+  currentFolder: string | null;
+  setCurrentFolder: (folderId: string | null) => void;
+}
+
+const hexToBytes = (hex: string) => {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < hex.length; i += 2) {
+    bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
+  }
+  return bytes;
+};
+
+const bytesToHex = (bytes: Uint8Array) =>
+  bytes.reduce((str, byte) => str + byte.toString(16).padStart(2, '0'), '');
+
+// Format file size in human readable format
+const formatFileSize = (bytes: string | number): string => {
+  const numBytes = typeof bytes === 'string' ? parseInt(bytes, 10) : bytes;
+  
+  if (isNaN(numBytes) || numBytes === 0) return '0 B';
+  
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(numBytes) / Math.log(1024));
+  const size = numBytes / Math.pow(1024, i);
+  
+  return `${size.toFixed(i === 0 ? 0 : 1)} ${sizes[i]}`;
+};
+
+const MainContent: React.FC<MainContentProps> = ({ currentFolder, setCurrentFolder }) => {
+  const { user } = useAuth();
+  const { privateKey } = usePassphrase();
+  const { clipboardItem, cutItem, copyItem, clearClipboard } = useClipboard();
+  const { getFoldersByParent, buildFolderPath } = useFolders();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const [newFolderDialogOpen, setNewFolderDialogOpen] = useState(false);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [fileToShare, setFileToShare] = useState<FileData | null>(null);
+  const [folderToShare, setFolderToShare] = useState<FolderData | null>(null);
+  const [shareItemType, setShareItemType] = useState<'file' | 'folder'>('file');
+  const [files, setFiles] = useState<FileData[]>([]);
+  const [contextMenu, setContextMenu] = useState<{ mouseX: number; mouseY: number; item: FileData | FolderData; type: 'file' | 'folder' } | null>(null);
+  const [mobileActionMenu, setMobileActionMenu] = useState<{ open: boolean; item: FileData | FolderData | null; type: 'file' | 'folder' }>({ open: false, item: null, type: 'file' });
+  const [renameDialog, setRenameDialog] = useState<{ open: boolean; item: FileData | FolderData | null; type: 'file' | 'folder' }>({ open: false, item: null, type: 'file' });
+  const [longPressTimer, setLongPressTimer] = useState<NodeJS.Timeout | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Form-related state
+  const [newFormDialogOpen, setNewFormDialogOpen] = useState(false);
+  const [formViewerOpen, setFormViewerOpen] = useState(false);
+  const [formEditorOpen, setFormEditorOpen] = useState(false);
+  const [formFillerOpen, setFormFillerOpen] = useState(false);
+  const [selectedFormFile, setSelectedFormFile] = useState<FileData | null>(null);
+  const [selectedFormType, setSelectedFormType] = useState<FormType | null>(null);
+  const [selectedFormData, setSelectedFormData] = useState<any>(null); // For editing existing forms
+  const [isEditingForm, setIsEditingForm] = useState(false);
+
+  // Sorting state
+  const [sortField, setSortField] = useState<'name' | 'type' | 'size'>('name');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Drag and drop state
+  const [dragActive, setDragActive] = useState(false);
+
+  // Get folders for current directory from shared hook
+  const folders = getFoldersByParent(currentFolder);
+  const breadcrumbs = buildFolderPath(currentFolder);
+  
+
+  // Cleanup long press timer on unmount
+  useEffect(() => {
+    return () => {
+      if (longPressTimer) {
+        clearTimeout(longPressTimer);
+      }
+    };
+  }, [longPressTimer]);
+
+  useEffect(() => {
+    if (user && privateKey) {
+      const filesMap = new Map<string, FileData>();
+
+      const processSnapshot = async (snapshot: QuerySnapshot) => {
+        for (const doc of snapshot.docs) {
+          const data = doc.data() as FileData;
+          const encryptedKey = data.encryptedKeys[user.uid];
+          if (encryptedKey) {
+            const privateKeyBytes = hexToBytes(privateKey);
+            const ciphertext = hexToBytes(encryptedKey);
+            const sharedSecret = await ml_kem768.decapsulate(ciphertext, privateKeyBytes);
+            const decryptedName = await decryptFileMetadata(data.name, sharedSecret);
+            const decryptedSize = await decryptFileMetadata(data.size, sharedSecret);
+            filesMap.set(doc.id, { ...data, id: doc.id, name: decryptedName, size: decryptedSize });
+          } else {
+            filesMap.set(doc.id, { ...data, id: doc.id, name: '[Encrypted File]', size: '' });
+          }
+        }
+      };
+
+      const ownerQuery = query(
+        collection(db, 'files'),
+        where('owner', '==', user.uid),
+        where('parent', '==', currentFolder)
+      );
+
+      const sharedQuery = query(
+        collection(db, 'files'),
+        where('sharedWith', 'array-contains', user.uid),
+        where('parent', '==', currentFolder)
+      );
+
+      const unsubscribeOwned = onSnapshot(ownerQuery, async (snapshot) => {
+        await processSnapshot(snapshot);
+        setFiles(Array.from(filesMap.values()));
+      });
+
+      const unsubscribeShared = onSnapshot(sharedQuery, async (snapshot) => {
+        await processSnapshot(snapshot);
+        setFiles(Array.from(filesMap.values()));
+      });
+
+      return () => {
+        unsubscribeOwned();
+        unsubscribeShared();
+      };
+    }
+  }, [user, currentFolder, privateKey]);
+
+
+  const handleCreateFolder = async (name: string) => {
+    if (user && privateKey) {
+      const encryptedName = encryptWithPostQuantum(name, privateKey);
+      await createFolder(user.uid, encryptedName as any, currentFolder);
+      setNewFolderDialogOpen(false);
+    }
+  };
+
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (files && files.length > 0) {
+      handleMultipleFileUploads(Array.from(files));
+    }
+    // Reset the input value to allow uploading the same file again
+    event.target.value = '';
+  };
+
+  const handleFileUpload = async (file: File) => {
+    if (!user || !privateKey) return;
+
+    try {
+      const userProfile = await getUserProfile(user.uid);
+      if (!userProfile?.publicKey) {
+        console.error('Public key not found for the user.');
+        alert('Error: Public key not found.');
+        return;
+      }
+
+      const publicKey = hexToBytes(userProfile.publicKey);
+      const kemResult = await ml_kem768.encapsulate(publicKey);
+
+      if (!kemResult || !kemResult.cipherText || !kemResult.sharedSecret) {
+        console.error('KEM encapsulation failed');
+        alert('Error: Encryption key generation failed.');
+        return;
+      }
+
+      const { cipherText, sharedSecret } = kemResult;
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const key = await crypto.subtle.importKey('raw', sharedSecret, { name: 'AES-GCM' }, false, ['encrypt']);
+      const encryptedFile = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, await file.arrayBuffer());
+      const { encryptedName, encryptedSize, nonce } = encryptMetadata(
+        { name: file.name, size: file.size.toString() },
+        sharedSecret
+      );
+      const storagePath = `files/${user.uid}/${crypto.randomUUID()}`;
+
+      await uploadFileData(storagePath, encryptedFile);
+
+      await createFileWithSharing({
+        owner: user.uid,
+        name: { ciphertext: encryptedName, nonce: nonce },
+        parent: currentFolder,
+        size: { ciphertext: encryptedSize, nonce: nonce },
+        storagePath,
+        encryptedKeys: { [user.uid]: bytesToHex(cipherText) },
+        sharedWith: [user.uid],
+      });
+
+      alert('File uploaded successfully!');
+    } catch (error) {
+      console.error('File upload failed:', error);
+      alert('File upload failed. See console for details.');
+    }
+  };
+
+  const handleMultipleFileUploads = async (files: File[]) => {
+    if (files.length === 0) return;
+    
+    const totalFiles = files.length;
+    let successCount = 0;
+    let failCount = 0;
+    
+    console.log(`Starting upload of ${totalFiles} files...`);
+    
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      console.log(`Uploading file ${i + 1}/${totalFiles}: ${file.name}`);
+      
+      try {
+        await handleFileUpload(file);
+        successCount++;
+        console.log(`✓ Upload ${i + 1}/${totalFiles} completed: ${file.name}`);
+      } catch (error) {
+        failCount++;
+        console.error(`✗ Upload ${i + 1}/${totalFiles} failed: ${file.name}`, error);
+      }
+    }
+    
+    // Show summary
+    if (failCount === 0) {
+      alert(`Successfully uploaded ${successCount} file${successCount === 1 ? '' : 's'}!`);
+    } else {
+      alert(`Upload completed: ${successCount} successful, ${failCount} failed. Check console for details.`);
+    }
+  };
+
+  // Drag and drop handlers
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setDragActive(true);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const files = Array.from(e.dataTransfer.files);
+      handleMultipleFileUploads(files);
+    }
+  };
+
+  const handleCloseShareDialog = () => {
+    setFileToShare(null);
+    setFolderToShare(null);
+    setShareDialogOpen(false);
+  };
+
+  const handleShareWithEmail = async (recipients: string[]) => {
+    if (!user || !privateKey || !fileToShare || recipients.length === 0) return;
+
+    try {
+      for (const email of recipients) {
+        const recipient = await getUserByEmail(email);
+        if (!recipient || !recipient.profile.publicKey) {
+          alert(`User ${email} not found or does not have a public key.`);
+          continue;
+        }
+
+        const ownerEncryptedKey = fileToShare.encryptedKeys[user.uid];
+        const privateKeyBytes = hexToBytes(privateKey);
+        const ownerCiphertext = hexToBytes(ownerEncryptedKey);
+        await ml_kem768.decapsulate(ownerCiphertext, privateKeyBytes);
+
+        const recipientPublicKey = hexToBytes(recipient.profile.publicKey);
+        const { cipherText: recipientCipherText } = await ml_kem768.encapsulate(recipientPublicKey);
+
+        await updateFile(fileToShare.id!, {
+          [`encryptedKeys.${recipient.id}`]: bytesToHex(recipientCipherText),
+          sharedWith: [...fileToShare.sharedWith, recipient.id],
+        });
+
+        // Add to sharing history
+        await addSharingHistory(user.uid, email, 'user');
+      }
+
+      alert(`File shared with ${recipients.length} recipient${recipients.length !== 1 ? 's' : ''}`);
+    } catch (error) {
+      console.error('Failed to share file:', error);
+      alert('Failed to share file. See console for details.');
+    }
+  };
+
+
+  const handleRightClick = (event: React.MouseEvent, item: FileData | FolderData, type: 'file' | 'folder') => {
+    event.preventDefault();
+    setContextMenu({
+      mouseX: event.clientX + 2,
+      mouseY: event.clientY - 6,
+      item,
+      type,
+    });
+  };
+
+  const handleCloseContextMenu = () => {
+    setContextMenu(null);
+  };
+
+  const handleOpenMobileActionMenu = (item: FileData | FolderData, type: 'file' | 'folder') => {
+    setMobileActionMenu({ open: true, item, type });
+  };
+
+  const handleCloseMobileActionMenu = () => {
+    setMobileActionMenu({ open: false, item: null, type: 'file' });
+  };
+
+  const handleLongPressStart = (item: FileData | FolderData, type: 'file' | 'folder') => {
+    if (isMobile) {
+      const timer = setTimeout(() => {
+        setMobileActionMenu({ open: true, item, type });
+        // Add haptic feedback if available
+        if ('vibrate' in navigator) {
+          navigator.vibrate(50);
+        }
+      }, 500); // 500ms long press
+      setLongPressTimer(timer);
+    }
+  };
+
+  const handleLongPressEnd = () => {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      setLongPressTimer(null);
+    }
+  };
+
+  const handleRename = (item: FileData | FolderData, type: 'file' | 'folder') => {
+    setRenameDialog({ open: true, item, type });
+    handleCloseContextMenu();
+    handleCloseMobileActionMenu();
+  };
+
+  const handleCut = (item: FileData | FolderData, type: 'file' | 'folder') => {
+    cutItem(type, item);
+    handleCloseContextMenu();
+    handleCloseMobileActionMenu();
+  };
+
+  const handleCopy = (item: FileData | FolderData, type: 'file' | 'folder') => {
+    copyItem(type, item);
+    handleCloseContextMenu();
+    handleCloseMobileActionMenu();
+  };
+
+  const handleShare = (item: FileData | FolderData, type: 'file' | 'folder') => {
+    if (item.id) {
+      setShareItemType(type);
+      if (type === 'file') {
+        setFileToShare(item as FileData);
+        setFolderToShare(null);
+      } else {
+        setFolderToShare(item as FolderData);
+        setFileToShare(null);
+      }
+      setShareDialogOpen(true);
+    }
+    handleCloseContextMenu();
+    handleCloseMobileActionMenu();
+  };
+
+  const handleShareFolder = async (folder: FolderData, recipients: string[]) => {
+    if (!user || !privateKey || !folder.id || recipients.length === 0) return;
+
+    try {
+      console.log('Starting folder share process:', { folderId: folder.id, recipients });
+      
+      // Get all recipient user data
+      const recipientUsers = [];
+      for (const email of recipients) {
+        const recipient = await getUserByEmail(email);
+        if (!recipient || !recipient.profile.publicKey) {
+          alert(`User ${email} not found or does not have a public key.`);
+          return;
+        }
+        recipientUsers.push(recipient);
+      }
+      
+      // Get all files in the folder and subfolders recursively
+      const allFiles = await getAllFilesRecursively(folder.id, user.uid);
+      console.log(`Found ${allFiles.length} files to share in folder`);
+      
+      // Share each file with all recipients
+      for (const file of allFiles) {
+        const ownerEncryptedKey = file.encryptedKeys[user.uid];
+        if (!ownerEncryptedKey) {
+          console.warn('No encrypted key found for file:', file.id);
+          continue;
+        }
+        
+        const privateKeyBytes = hexToBytes(privateKey);
+        const ownerCiphertext = hexToBytes(ownerEncryptedKey);
+        await ml_kem768.decapsulate(ownerCiphertext, privateKeyBytes);
+        
+        const updatedSharedWith = [...file.sharedWith];
+        const updatedEncryptedKeys = { ...file.encryptedKeys };
+        
+        for (const recipient of recipientUsers) {
+          if (!updatedSharedWith.includes(recipient.id) && recipient.profile.publicKey) {
+            const recipientPublicKey = hexToBytes(recipient.profile.publicKey);
+            const { cipherText: recipientCipherText } = await ml_kem768.encapsulate(recipientPublicKey);
+            
+            updatedEncryptedKeys[recipient.id] = bytesToHex(recipientCipherText);
+            updatedSharedWith.push(recipient.id);
+          }
+        }
+        
+        await updateFile(file.id, {
+          encryptedKeys: updatedEncryptedKeys,
+          sharedWith: updatedSharedWith,
+        });
+      }
+      
+      // Update folder sharing permissions
+      const recipientUids = recipientUsers.map(r => r.id);
+      await shareFolder(folder.id, recipientUids);
+      
+      // Add to sharing history
+      for (const email of recipients) {
+        await addSharingHistory(user.uid, email, 'user');
+      }
+      
+      alert(`Folder and ${allFiles.length} files shared with ${recipients.length} recipient${recipients.length !== 1 ? 's' : ''}`);
+    } catch (error) {
+      console.error('Failed to share folder:', error);
+      alert('Failed to share folder. See console for details.');
+    }
+  };
+
+  const handleShareSubmit = async (recipients: string[]) => {
+    if (shareItemType === 'file' && fileToShare) {
+      await handleShareWithEmail(recipients);
+    } else if (shareItemType === 'folder' && folderToShare) {
+      await handleShareFolder(folderToShare, recipients);
+    }
+  };
+
+  const handleDelete = async (item: FileData | FolderData, type: 'file' | 'folder') => {
+    if (window.confirm(`Are you sure you want to delete this ${type}?`)) {
+      try {
+        if (type === 'folder' && item.id) {
+          await deleteFolder(item.id);
+        } else if (type === 'file' && item.id) {
+          await deleteFile(item.id);
+        }
+      } catch (error) {
+        console.error('Error deleting item:', error);
+        alert('Failed to delete item.');
+      }
+    }
+    handleCloseContextMenu();
+    handleCloseMobileActionMenu();
+  };
+
+  const handleRenameSubmit = async (newName: string) => {
+    if (!renameDialog.item || !privateKey || !user) {
+      console.error('Missing required data for rename:', { 
+        hasItem: !!renameDialog.item, 
+        hasPrivateKey: !!privateKey, 
+        hasUser: !!user 
+      });
+      return;
+    }
+
+    try {
+      console.log('Starting rename process:', { 
+        itemType: renameDialog.type, 
+        itemId: renameDialog.item.id, 
+        oldName: renameDialog.item.name,
+        newName,
+        itemData: renameDialog.item
+      });
+
+      if (renameDialog.type === 'folder' && renameDialog.item.id) {
+        console.log('Renaming folder...');
+        const encryptedName = encryptWithPostQuantum(newName, privateKey);
+        console.log('Encrypted name created, updating Firebase...');
+        await updateFolder(renameDialog.item.id, { name: encryptedName });
+        console.log('Folder renamed successfully');
+        alert('Folder renamed successfully!');
+      } else if (renameDialog.type === 'file' && renameDialog.item.id) {
+        console.log('Renaming file...');
+        const fileData = renameDialog.item as FileData;
+        const encryptedKey = fileData.encryptedKeys[user.uid];
+        
+        if (!encryptedKey) {
+          console.error('No encrypted key found for user:', user.uid);
+          alert('Error: No access key found for this file.');
+          return;
+        }
+
+        console.log('Decrypting file key...');
+        const privateKeyBytes = hexToBytes(privateKey);
+        const ciphertext = hexToBytes(encryptedKey);
+        const sharedSecret = await ml_kem768.decapsulate(ciphertext, privateKeyBytes);
+        const encryptedName = encryptWithPostQuantum(newName, bytesToHex(sharedSecret));
+        console.log('File name encrypted, updating Firebase...');
+        await updateFile(renameDialog.item.id, { name: encryptedName });
+        console.log('File renamed successfully');
+        alert('File renamed successfully!');
+      } else {
+        console.error('Invalid rename conditions:', {
+          type: renameDialog.type,
+          hasId: !!renameDialog.item.id
+        });
+        alert('Error: Invalid item for renaming.');
+      }
+    } catch (error) {
+      console.error('Error renaming item:', error);
+      alert(`Failed to rename item: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
+  const handlePaste = async () => {
+    if (!clipboardItem || !user || !privateKey) return;
+
+    try {
+      if (clipboardItem.type === 'folder') {
+        const folderData = clipboardItem.data as FolderData;
+        const encryptedName = encryptWithPostQuantum(folderData.name as string, privateKey);
+        
+        if (clipboardItem.operation === 'cut' && folderData.id) {
+          await updateFolder(folderData.id, { parent: currentFolder });
+        } else {
+          await createFolder(user.uid, encryptedName as any, currentFolder);
+        }
+      } else if (clipboardItem.type === 'file') {
+        const fileData = clipboardItem.data as FileData;
+        
+        if (clipboardItem.operation === 'cut' && fileData.id) {
+          await updateFile(fileData.id, { parent: currentFolder });
+        } else {
+          // For copy operation, we'd need to duplicate the file in storage too
+          // This is complex and might need additional implementation
+          alert('File copying is not yet implemented.');
+          return;
+        }
+      }
+      
+      if (clipboardItem.operation === 'cut') {
+        clearClipboard();
+      }
+    } catch (error) {
+      console.error('Error pasting item:', error);
+      alert('Failed to paste item.');
+    }
+  };
+
+  // Form handlers
+  const handleCreateForm = (formType: FormType) => {
+    if (!user || !privateKey) return;
+    
+    // Open the form instance filler (not editor) for template-based creation
+    setSelectedFormType(formType);
+    setFormFillerOpen(true);
+  };
+
+  const handleFormFileClick = (file: FileData) => {
+    if (!isFormFile(typeof file.name === 'string' ? file.name : '[Encrypted]')) return;
+    
+    setSelectedFormFile(file);
+    setFormViewerOpen(true);
+  };
+
+  const handleEditForm = async () => {
+    if (!selectedFormFile || !user || !privateKey) return;
+    
+    try {
+      setFormViewerOpen(false);
+      
+      // Load and decrypt the form data for editing (same as FormFileViewer)
+      const encryptedContent = await (await import('../storage')).getFile(selectedFormFile.storagePath);
+      const userEncryptedKey = selectedFormFile.encryptedKeys[user.uid];
+      
+      if (!userEncryptedKey) {
+        throw new Error('No access key found for this file');
+      }
+      
+      // Crypto imports and helpers
+      const { ml_kem768 } = await import('@noble/post-quantum/ml-kem');
+      const hexToBytes = (hex: string) => {
+        const bytes = new Uint8Array(hex.length / 2);
+        for (let i = 0; i < hex.length; i += 2) {
+          bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
+        }
+        return bytes;
+      };
+      
+      // Decrypt
+      const privateKeyBytes = hexToBytes(privateKey);
+      const ciphertext = hexToBytes(userEncryptedKey);
+      const sharedSecret = await ml_kem768.decapsulate(ciphertext, privateKeyBytes);
+      
+      const iv = encryptedContent.slice(0, 12);
+      const ciphertextData = encryptedContent.slice(12);
+      
+      const key = await crypto.subtle.importKey('raw', sharedSecret, { name: 'AES-GCM' }, false, ['decrypt']);
+      const decryptedContentBuffer = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: iv }, 
+        key, 
+        ciphertextData
+      );
+      
+      const decryptedContent = new TextDecoder().decode(decryptedContentBuffer);
+      const formData = JSON.parse(decryptedContent);
+      
+      // Set the form data and open editor
+      setSelectedFormData(formData);
+      setIsEditingForm(true);
+      setFormFillerOpen(true);
+      
+    } catch (error) {
+      console.error('Error loading form for editing:', error);
+      alert('Failed to load form for editing');
+    }
+  };
+
+  const handleFormSave = () => {
+    setFormEditorOpen(false);
+    setFormFillerOpen(false);
+    setSelectedFormFile(null);
+    setSelectedFormType(null);
+    setSelectedFormData(null);
+    setIsEditingForm(false);
+  };
+
+  const handleFormCancel = () => {
+    setFormEditorOpen(false);
+    setFormViewerOpen(false);
+    setFormFillerOpen(false);
+    setSelectedFormFile(null);
+    setSelectedFormType(null);
+    setSelectedFormData(null);
+    setIsEditingForm(false);
+  };
+
+  // Sorting functions
+  const handleSort = (field: 'name' | 'type' | 'size') => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const sortItems = <T extends { name: string | { ciphertext: string; nonce: string }; size?: string | { ciphertext: string; nonce: string } }>(
+    items: T[]
+  ): T[] => {
+    return [...items].sort((a, b) => {
+      let aValue: string | number;
+      let bValue: string | number;
+
+      switch (sortField) {
+        case 'name':
+          aValue = typeof a.name === 'string' ? a.name.toLowerCase() : '[encrypted]';
+          bValue = typeof b.name === 'string' ? b.name.toLowerCase() : '[encrypted]';
+          break;
+        case 'type':
+          // Check if items are folders (don't have size property) or files
+          const aIsFolder = !a.hasOwnProperty('size');
+          const bIsFolder = !b.hasOwnProperty('size');
+          
+          if (aIsFolder && bIsFolder) {
+            aValue = 'folder';
+            bValue = 'folder';
+          } else if (aIsFolder) {
+            aValue = 'folder';
+            bValue = 'file'; // This will sort folders before files
+          } else if (bIsFolder) {
+            aValue = 'file';
+            bValue = 'folder'; // This will sort folders before files
+          } else {
+            // Both are files, determine type based on whether it's a form
+            const aFileName = typeof a.name === 'string' ? a.name : '[encrypted]';
+            const bFileName = typeof b.name === 'string' ? b.name : '[encrypted]';
+            const aIsForm = isFormFile(aFileName);
+            const bIsForm = isFormFile(bFileName);
+            
+            if (aIsForm && bIsForm) {
+              const aFormType = getFormTypeFromFilename(aFileName);
+              const bFormType = getFormTypeFromFilename(bFileName);
+              aValue = aFormType || 'custom';
+              bValue = bFormType || 'custom';
+            } else {
+              aValue = aIsForm ? 'form' : 'file';
+              bValue = bIsForm ? 'form' : 'file';
+            }
+          }
+          break;
+        case 'size':
+          // Folders don't have sizes, treat them as 0 for sorting purposes
+          const aHasSize = a.hasOwnProperty('size') && a.size;
+          const bHasSize = b.hasOwnProperty('size') && b.size;
+          
+          if (aHasSize && bHasSize) {
+            aValue = typeof a.size === 'string' ? parseInt(a.size, 10) || 0 : 0;
+            bValue = typeof b.size === 'string' ? parseInt(b.size, 10) || 0 : 0;
+          } else {
+            aValue = aHasSize ? (typeof a.size === 'string' ? parseInt(a.size, 10) || 0 : 0) : -1;
+            bValue = bHasSize ? (typeof b.size === 'string' ? parseInt(b.size, 10) || 0 : 0) : -1;
+          }
+          break;
+        default:
+          aValue = '';
+          bValue = '';
+      }
+
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        const comparison = aValue.localeCompare(bValue);
+        return sortDirection === 'asc' ? comparison : -comparison;
+      } else {
+        const comparison = (aValue as number) - (bValue as number);
+        return sortDirection === 'asc' ? comparison : -comparison;
+      }
+    });
+  };
+
+  // Search functionality
+  const searchItems = async <T extends { name: string | { ciphertext: string; nonce: string }; size?: string | { ciphertext: string; nonce: string } }>(
+    items: T[],
+    query: string
+  ): Promise<T[]> => {
+    console.log('searchItems called with:', items.length, 'items and query:', query);
+    
+    if (!query.trim()) {
+      return items;
+    }
+
+    const searchTerm = query.toLowerCase();
+    const matchingItems: T[] = [];
+
+    for (const item of items) {
+      let matches = false;
+
+      // Search in file/folder name
+      const itemName = typeof item.name === 'string' ? item.name.toLowerCase() : '';
+      console.log('Checking item name:', itemName, 'for term:', searchTerm);
+      if (itemName.includes(searchTerm)) {
+        console.log('Name match found!');
+        matches = true;
+      }
+
+      // For files, also search in form content if it's a form
+      if (!matches && item.hasOwnProperty('size') && user && privateKey) {
+        const file = item as any as FileData;
+        const fileName = typeof file.name === 'string' ? file.name : '';
+        console.log('Checking file for form content:', fileName);
+        console.log('Is form file?', isFormFile(fileName));
+        
+        if (isFormFile(fileName)) {
+          console.log('Searching form file:', fileName);
+          try {
+            // Decrypt and search form content
+            const encryptedContent = await (await import('../storage')).getFile(file.storagePath);
+            const userEncryptedKey = file.encryptedKeys[user.uid];
+            console.log('Form encrypted key found:', !!userEncryptedKey);
+            
+            if (userEncryptedKey) {
+              const { ml_kem768 } = await import('@noble/post-quantum/ml-kem');
+              
+              const hexToBytes = (hex: string) => {
+                const bytes = new Uint8Array(hex.length / 2);
+                for (let i = 0; i < hex.length; i += 2) {
+                  bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
+                }
+                return bytes;
+              };
+              
+              const privateKeyBytes = hexToBytes(privateKey);
+              const ciphertext = hexToBytes(userEncryptedKey);
+              const sharedSecret = await ml_kem768.decapsulate(ciphertext, privateKeyBytes);
+              
+              let iv, ciphertextData;
+              if (encryptedContent.byteLength > 12) {
+                iv = encryptedContent.slice(0, 12);
+                ciphertextData = encryptedContent.slice(12);
+              } else {
+                console.log('Invalid encrypted content format for:', fileName);
+                continue; // Skip invalid format
+              }
+              
+              const key = await crypto.subtle.importKey('raw', sharedSecret, { name: 'AES-GCM' }, false, ['decrypt']);
+              const decryptedContentBuffer = await crypto.subtle.decrypt(
+                { name: 'AES-GCM', iv: iv }, 
+                key, 
+                ciphertextData
+              );
+              
+              const decryptedContent = new TextDecoder().decode(decryptedContentBuffer);
+              const formData = JSON.parse(decryptedContent);
+              console.log('Decrypted form data for search:', formData.name);
+              
+              // Search in form data
+              const searchableText = [
+                formData.name,
+                formData.formType,
+                ...(formData.tags || []),
+                ...formData.fields.map((field: any) => `${field.label} ${field.value}`)
+              ].join(' ').toLowerCase();
+              
+              console.log('Searchable text:', searchableText);
+              console.log('Search term:', searchTerm);
+              console.log('Match found:', searchableText.includes(searchTerm));
+              
+              if (searchableText.includes(searchTerm)) {
+                matches = true;
+              }
+            }
+          } catch (error) {
+            // Silently continue if decryption fails
+            console.log('Search: Could not decrypt form file for search', fileName, error);
+          }
+        }
+      }
+
+      if (matches) {
+        matchingItems.push(item);
+      }
+    }
+
+    return matchingItems;
+  };
+
+  // Memoize filtered folders (simple name-based filtering)
+  const filteredFolders = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return folders;
+    }
+
+    return folders.filter(folder => {
+      const folderName = typeof folder.name === 'string' ? folder.name.toLowerCase() : '';
+      return folderName.includes(searchQuery.toLowerCase());
+    });
+  }, [folders, searchQuery]);
+
+  // State for filtered files (async search)
+  const [filteredFiles, setFilteredFiles] = useState<FileData[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+
+  // Update filtered files when search query changes
+  useEffect(() => {
+    let isMounted = true;
+    
+    const updateFilteredFiles = async () => {
+      if (!searchQuery.trim()) {
+        // When no search query, show only current folder files
+        if (isMounted) {
+          setFilteredFiles(files);
+          setIsSearching(false);
+        }
+        return;
+      }
+
+      if (isMounted) {
+        setIsSearching(true);
+      }
+
+      try {
+        // For now, just search current folder files since recursive files have encrypted names
+        // TODO: Properly decrypt recursive file names for full recursive search
+        const filesToSearch = files;
+        console.log('Search query:', searchQuery);
+        console.log('Files to search:', filesToSearch.length);
+        
+        const matchingFiles = await searchItems(filesToSearch, searchQuery);
+        console.log('Matching files found:', matchingFiles.length);
+        
+        if (isMounted) {
+          setFilteredFiles(matchingFiles);
+          setIsSearching(false);
+        }
+      } catch (error) {
+        console.error('Search error:', error);
+        if (isMounted) {
+          setFilteredFiles([]);
+          setIsSearching(false);
+        }
+      }
+    };
+    
+    updateFilteredFiles();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [files, searchQuery, user?.uid, privateKey]);
+
+  return (
+    <Box 
+      sx={{ 
+        display: 'flex', 
+        flexDirection: 'column', 
+        height: 'calc(100vh - 64px - 48px)', // Subtract toolbar and padding 
+        width: '100%', 
+        minWidth: 0,
+        overflow: 'hidden',
+        position: 'relative',
+        backgroundColor: dragActive ? 'rgba(25, 118, 210, 0.08)' : 'transparent',
+        border: dragActive ? '2px dashed #1976d2' : 'none',
+        transition: 'all 0.2s ease-in-out',
+      }}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileChange} multiple />
+      
+      {/* Drag and Drop Overlay */}
+      {dragActive && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(25, 118, 210, 0.1)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            pointerEvents: 'none',
+          }}
+        >
+          <Box
+            sx={{
+              backgroundColor: 'white',
+              padding: 4,
+              borderRadius: 2,
+              boxShadow: 3,
+              textAlign: 'center',
+              border: '3px dashed #1976d2',
+            }}
+          >
+            <Typography variant="h5" color="primary" gutterBottom>
+              Drop files here to upload
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Multiple files supported
+            </Typography>
+          </Box>
+        </Box>
+      )}
+      <Box sx={{ 
+        display: 'flex', 
+        flexDirection: isMobile ? 'column' : 'row',
+        justifyContent: 'space-between', 
+        alignItems: isMobile ? 'stretch' : 'center',
+        mb: 2, 
+        flexShrink: 0,
+        gap: isMobile ? 1 : 0
+      }}>
+        <Breadcrumbs 
+          aria-label="breadcrumb"
+          sx={{ 
+            flexGrow: 1,
+            minWidth: 0, // Allow shrinking
+            '& .MuiBreadcrumbs-ol': {
+              flexWrap: isMobile ? 'wrap' : 'nowrap'
+            }
+          }}
+          maxItems={isMobile ? 2 : undefined}
+          itemsAfterCollapse={isMobile ? 1 : undefined}
+          itemsBeforeCollapse={isMobile ? 1 : undefined}
+        >
+          {breadcrumbs.map((crumb, index) => {
+            const isLast = index === breadcrumbs.length - 1;
+            return isLast ? (
+              <Typography key={crumb.id || 'home'} color="text.primary">
+                {crumb.name}
+              </Typography>
+            ) : (
+              <Link
+                key={crumb.id || 'home'}
+                underline="hover"
+                color="inherit"
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault();
+                  setCurrentFolder(crumb.id);
+                }}
+              >
+                {crumb.name}
+              </Link>
+            );
+          })}
+        </Breadcrumbs>
+
+        {/* Search Field - aligned with buttons */}
+        <Box sx={{ 
+          display: 'flex', 
+          flexDirection: isMobile ? 'column' : 'row',
+          alignItems: isMobile ? 'stretch' : 'center',
+          gap: 1,
+          width: isMobile ? '100%' : 'auto'
+        }}>
+          <TextField
+            placeholder="Search files and forms..."
+            variant="outlined"
+            size="small"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            sx={{ 
+              minWidth: isMobile ? '100%' : '250px',
+              maxWidth: isMobile ? '100%' : '300px'
+            }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Search color="action" />
+                </InputAdornment>
+              ),
+              endAdornment: searchQuery && (
+                <InputAdornment position="end">
+                  <IconButton 
+                    size="small" 
+                    onClick={() => setSearchQuery('')}
+                    edge="end"
+                  >
+                    <Clear />
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
+          />
+          <Button 
+            variant="contained" 
+            onClick={() => setNewFolderDialogOpen(true)}
+            size={isMobile ? 'large' : 'medium'}
+            fullWidth={isMobile}
+          >
+            New Folder
+          </Button>
+          <Button 
+            variant="contained" 
+            onClick={handleUploadClick}
+            size={isMobile ? 'large' : 'medium'}
+            fullWidth={isMobile}
+          >
+            Upload Files
+          </Button>
+          <Button 
+            variant="contained" 
+            onClick={() => setNewFormDialogOpen(true)}
+            size={isMobile ? 'large' : 'medium'}
+            fullWidth={isMobile}
+          >
+            New Form
+          </Button>
+          {clipboardItem && (
+            <Button 
+              variant="outlined" 
+              onClick={handlePaste}
+              size={isMobile ? 'large' : 'medium'}
+              fullWidth={isMobile}
+            >
+              Paste {clipboardItem.type}
+            </Button>
+          )}
+        </Box>
+      </Box>
+      <TableContainer 
+        component={Paper} 
+        sx={{ 
+          flexGrow: 1, 
+          overflow: 'auto', 
+          width: '100%',
+          maxHeight: 'calc(100vh - 200px)' // Ensure it doesn't overflow
+        }}
+      >
+        <Table 
+          stickyHeader 
+          sx={{ 
+            minWidth: isMobile ? 0 : 650, 
+            width: '100%', 
+            tableLayout: 'fixed'
+          }}
+        >
+          <TableHead>
+            <TableRow>
+              <TableCell 
+                sx={{ 
+                  width: isMobile ? '50%' : '60%', 
+                  cursor: 'pointer',
+                  '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' }
+                }}
+                onClick={() => handleSort('name')}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  Name
+                  {sortField === 'name' && (
+                    sortDirection === 'asc' ? <ArrowUpward fontSize="small" /> : <ArrowDownward fontSize="small" />
+                  )}
+                </Box>
+              </TableCell>
+              <TableCell 
+                sx={{ 
+                  width: '20%', 
+                  cursor: 'pointer',
+                  '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' }
+                }}
+                onClick={() => handleSort('type')}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  Type
+                  {sortField === 'type' && (
+                    sortDirection === 'asc' ? <ArrowUpward fontSize="small" /> : <ArrowDownward fontSize="small" />
+                  )}
+                </Box>
+              </TableCell>
+              <TableCell 
+                sx={{ 
+                  width: isMobile ? '30%' : '20%', 
+                  cursor: 'pointer',
+                  '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' }
+                }}
+                onClick={() => handleSort('size')}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  Size
+                  {sortField === 'size' && (
+                    sortDirection === 'asc' ? <ArrowUpward fontSize="small" /> : <ArrowDownward fontSize="small" />
+                  )}
+                </Box>
+              </TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {sortItems(filteredFolders).map((folder) => (
+              <TableRow 
+                key={folder.id} 
+                hover 
+                sx={{ cursor: 'pointer' }} 
+                onClick={() => setCurrentFolder(folder.id || null)}
+                onContextMenu={(e) => handleRightClick(e, folder, 'folder')}
+                onTouchStart={() => handleLongPressStart(folder, 'folder')}
+                onTouchEnd={handleLongPressEnd}
+                onTouchCancel={handleLongPressEnd}
+              >
+                <TableCell>
+                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                    <Folder sx={{ mr: 1 }} />
+                    <Typography variant="body1">
+                      {typeof folder.name === 'string' ? folder.name : '[Encrypted]'}
+                    </Typography>
+                  </Box>
+                </TableCell>
+                <TableCell>folder</TableCell>
+                <TableCell>
+                  {isMobile && (
+                    <IconButton
+                      size="small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleOpenMobileActionMenu(folder, 'folder');
+                      }}
+                      sx={{ float: 'right' }}
+                    >
+                      <MoreVert />
+                    </IconButton>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+            {sortItems(filteredFiles).map((file) => {
+              const fileName = typeof file.name === 'string' ? file.name : '[Encrypted]';
+              const isForm = isFormFile(fileName);
+              
+              // Get form-specific display data if it's a form file
+              let displayIcon = InsertDriveFile;
+              let displayType = 'file';
+              let displaySize = typeof file.size === 'string' ? formatFileSize(file.size) : '[Encrypted]';
+              
+              if (isForm) {
+                const formType = getFormTypeFromFilename(fileName);
+                const FormIconMap = {
+                  credit_card: CreditCard,
+                  password: Lock,
+                  bank_account: AccountBalance,
+                  identity: Person,
+                  secure_note: StickyNote2,
+                  wifi: Wifi,
+                  custom: Extension,
+                };
+                
+                displayIcon = formType ? FormIconMap[formType] : Extension;
+                displayType = formType ? formType.replace('_', ' ') : 'form';
+                // Show actual file size for forms too, not just "form"
+                displaySize = typeof file.size === 'string' ? formatFileSize(file.size) : '[Encrypted]';
+              }
+              
+              const Icon = displayIcon;
+              
+              return (
+                <TableRow 
+                  key={file.id} 
+                  hover
+                  sx={{ cursor: isForm ? 'pointer' : 'default' }}
+                  onClick={isForm ? () => handleFormFileClick(file) : undefined}
+                  onContextMenu={(e) => handleRightClick(e, file, 'file')}
+                  onTouchStart={() => handleLongPressStart(file, 'file')}
+                  onTouchEnd={handleLongPressEnd}
+                  onTouchCancel={handleLongPressEnd}
+                >
+                  <TableCell>
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      <Icon sx={{ mr: 1 }} />
+                      <Typography variant="body1">
+                        {isForm ? fileName.replace(/\.\w+\.form$/, '') : fileName}
+                      </Typography>
+                    </Box>
+                  </TableCell>
+                  <TableCell>{displayType}</TableCell>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Typography variant="body2">
+                        {displaySize}
+                      </Typography>
+                      {isMobile && (
+                        <IconButton
+                          size="small"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenMobileActionMenu(file, 'file');
+                          }}
+                        >
+                          <MoreVert />
+                        </IconButton>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </TableContainer>
+      <NewFolderDialog
+        open={newFolderDialogOpen}
+        onClose={() => setNewFolderDialogOpen(false)}
+        onCreate={handleCreateFolder}
+      />
+      {(fileToShare || folderToShare) && (
+        <ShareDialog
+          open={shareDialogOpen}
+          onClose={handleCloseShareDialog}
+          onShare={handleShareSubmit}
+          itemType={shareItemType}
+          itemName={(() => {
+            const name = shareItemType === 'file' ? fileToShare?.name : folderToShare?.name;
+            return typeof name === 'string' ? name : (name ? '[Encrypted]' : 'Unknown');
+          })()}
+        />
+      )}
+      <ContextMenu
+        open={Boolean(contextMenu)}
+        mouseX={contextMenu?.mouseX || 0}
+        mouseY={contextMenu?.mouseY || 0}
+        onClose={handleCloseContextMenu}
+        onRename={() => contextMenu && handleRename(contextMenu.item, contextMenu.type)}
+        onCut={() => contextMenu && handleCut(contextMenu.item, contextMenu.type)}
+        onCopy={() => contextMenu && handleCopy(contextMenu.item, contextMenu.type)}
+        onShare={() => contextMenu && handleShare(contextMenu.item, contextMenu.type)}
+        onDelete={() => contextMenu && handleDelete(contextMenu.item, contextMenu.type)}
+        itemType={contextMenu?.type || 'file'}
+      />
+      <RenameDialog
+        open={renameDialog.open}
+        onClose={() => setRenameDialog({ open: false, item: null, type: 'file' })}
+        onRename={handleRenameSubmit}
+        currentName={(() => {
+          const name = renameDialog.item?.name;
+          return typeof name === 'string' ? name : (name ? '[Encrypted]' : '');
+        })()}
+        itemType={renameDialog.type}
+      />
+      <MobileActionMenu
+        open={mobileActionMenu.open}
+        onClose={handleCloseMobileActionMenu}
+        itemName={(() => {
+          const name = mobileActionMenu.item?.name;
+          return typeof name === 'string' ? name : (name ? '[Encrypted]' : '');
+        })()}
+        itemType={mobileActionMenu.type}
+        onRename={() => mobileActionMenu.item && handleRename(mobileActionMenu.item, mobileActionMenu.type)}
+        onCut={() => mobileActionMenu.item && handleCut(mobileActionMenu.item, mobileActionMenu.type)}
+        onCopy={() => mobileActionMenu.item && handleCopy(mobileActionMenu.item, mobileActionMenu.type)}
+        onShare={() => mobileActionMenu.item && handleShare(mobileActionMenu.item, mobileActionMenu.type)}
+        onDelete={() => mobileActionMenu.item && handleDelete(mobileActionMenu.item, mobileActionMenu.type)}
+      />
+      
+      {/* Form Dialogs */}
+      <NewFormDialog
+        open={newFormDialogOpen}
+        onClose={() => setNewFormDialogOpen(false)}
+        onSelectTemplate={handleCreateForm}
+      />
+      
+      {selectedFormFile && formViewerOpen && privateKey && user && (
+        <FormFileViewer
+          file={selectedFormFile}
+          privateKey={privateKey}
+          userId={user.uid}
+          onEdit={handleEditForm}
+          onClose={handleFormCancel}
+        />
+      )}
+      
+      {formEditorOpen && user && privateKey && (
+        <FormFileEditor
+          file={selectedFormFile || undefined}
+          userId={user.uid}
+          privateKey={privateKey}
+          parentFolder={currentFolder}
+          formType={selectedFormType || undefined}
+          isNew={!selectedFormFile}
+          onSave={handleFormSave}
+          onCancel={handleFormCancel}
+        />
+      )}
+      
+      {formFillerOpen && user && privateKey && (selectedFormType || selectedFormData) && (
+        <FormInstanceFiller
+          formType={selectedFormType || undefined}
+          userId={user.uid}
+          privateKey={privateKey}
+          parentFolder={currentFolder}
+          existingFormData={selectedFormData || undefined}
+          existingFile={isEditingForm ? selectedFormFile : undefined}
+          onSave={handleFormSave}
+          onCancel={handleFormCancel}
+        />
+      )}
+    </Box>
+  );
+};
+
+export default MainContent;

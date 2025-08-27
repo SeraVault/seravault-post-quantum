@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__ide__getDiagnostics",
+      "Bash(npm run lint)",
+      "Bash(npm run build:*)",
+      "Bash(firebase projects:list:*)",
+      "Bash(firebase use:*)",
+      "Bash(npm run dev:*)",
+      "Bash(firebase deploy:*)",
+      "Bash(npm install:*)",
+      "Bash(grep:*)",
+      "Bash(gsutil cors:*)",
+      "Bash(npm uninstall:*)"
+    ],
+    "deny": []
+  }
+}
