@@ -6,6 +6,7 @@ import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
 import ProfilePage from './pages/ProfilePage';
 import CleanupPage from './pages/CleanupPage';
+import SecurityPage from './pages/SecurityPage';
 import ProtectedRoute from './auth/ProtectedRoute';
 import ProfileCheck from './auth/ProfileCheck';
 import { useAuth } from './auth/AuthContext';
@@ -13,6 +14,8 @@ import { usePassphrase } from './auth/PassphraseContext';
 import { Box, CircularProgress, Typography, useTheme, Dialog, DialogContent } from '@mui/material';
 import { ClipboardProvider } from './context/ClipboardContext';
 import { LoadingProvider, useGlobalLoading } from './context/LoadingContext';
+import { RecentsProvider } from './context/RecentsContext';
+import { FormTemplatesProvider } from './context/FormTemplatesContext';
 
 // Global Loading Component
 const GlobalLoadingSpinner: React.FC = () => {
@@ -85,18 +88,23 @@ const App: React.FC = () => {
   return (
     <ClipboardProvider>
       <LoadingProvider>
-        <GlobalLoadingSpinner />
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/signup" element={<SignupPage />} />
-          <Route element={<ProtectedRoute />}>
-            <Route element={<ProfileCheck />}>
-              <Route path="/" element={<HomePage />} />
-            </Route>
-            <Route path="/profile" element={<ProfilePage />} />
-            <Route path="/cleanup" element={<CleanupPage />} />
-          </Route>
-        </Routes>
+        <RecentsProvider>
+          <FormTemplatesProvider>
+            <GlobalLoadingSpinner />
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/signup" element={<SignupPage />} />
+              <Route element={<ProtectedRoute />}>
+                <Route element={<ProfileCheck />}>
+                  <Route path="/" element={<HomePage />} />
+                </Route>
+                <Route path="/profile" element={<ProfilePage />} />
+                <Route path="/cleanup" element={<CleanupPage />} />
+                <Route path="/security" element={<SecurityPage />} />
+              </Route>
+            </Routes>
+          </FormTemplatesProvider>
+        </RecentsProvider>
       </LoadingProvider>
     </ClipboardProvider>
   );

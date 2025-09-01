@@ -1,17 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Typography, CircularProgress, Button, TextField, Paper, Container, Alert, Switch, FormControlLabel } from '@mui/material';
-import { useNavigate } from 'react-router-dom';
+import { Box, Typography, CircularProgress, Button, TextField, Paper, Container, Alert, Switch, FormControlLabel, Chip } from '@mui/material';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { getUserProfile, createUserProfile, type UserProfile } from '../firestore';
-import { generateKeyPair, encryptString, bytesToHex } from '../crypto/postQuantumCrypto';
+import { generateKeyPair as generateHPKEKeyPair, bytesToHex } from '../crypto/hpkeCrypto';
+import { encryptString } from '../crypto/postQuantumCrypto';
 import AppLayout from '../components/AppLayout';
 import BiometricSetup from '../components/BiometricSetup';
 import DeviceCapabilityInfo from '../components/DeviceCapabilityInfo';
+import TemplateManager from '../components/TemplateManager';
+import { useFormTemplates } from '../context/FormTemplatesContext';
 import { useThemeContext } from '../theme/ThemeContext';
 
 const ProfilePage: React.FC = () => {
   const { user } = useAuth();
   const { setMode } = useThemeContext();
+  const { isAdmin } = useFormTemplates();
   const navigate = useNavigate();
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -22,6 +26,8 @@ const ProfilePage: React.FC = () => {
   const [displayName, setDisplayName] = useState('');
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [currentFolder, setCurrentFolder] = useState<string | null>(null);
+  const [templateManagerOpen, setTemplateManagerOpen] = useState(false);
+  const [showKeyRegeneration, setShowKeyRegeneration] = useState(false);
 
   // Handle folder navigation by redirecting to main documents page
   const handleFolderNavigation = (folderId: string | null) => {
@@ -62,7 +68,7 @@ const ProfilePage: React.FC = () => {
 
     try {
       setLoading(true);
-      const { publicKey, privateKey } = generateKeyPair();
+      const { publicKey, privateKey } = await generateHPKEKeyPair();
 
       const encryptedPrivateKey = encryptString(bytesToHex(privateKey), passphrase);
 
@@ -97,6 +103,44 @@ const ProfilePage: React.FC = () => {
     setUserProfile(updatedProfile);
     setMode(theme);
     setEditMode(false);
+  };
+
+  // Detect current encryption method
+  const getEncryptionMethod = (): 'HPKE' | 'ML-KEM768' | 'Legacy' => {
+    if (!userProfile) return 'Legacy';
+    
+    // Check if public key is HPKE format (32 bytes = 64 hex chars) vs ML-KEM768 (1184 bytes = 2368 hex chars)
+    if (userProfile.publicKey && userProfile.publicKey.length === 64) {
+      return 'HPKE';
+    } else if (userProfile.publicKey && userProfile.publicKey.length > 1000) {
+      return 'ML-KEM768';
+    }
+    return 'Legacy';
+  };
+
+  const handleRegenerateKeys = async () => {
+    if (!showKeyRegeneration) {
+      setShowKeyRegeneration(true);
+      return;
+    }
+    
+    try {
+      // Use the same key generation logic as the initial setup
+      await handleGenerateKeys();
+      setShowKeyRegeneration(false);
+      setPassphrase('');
+      setConfirmPassphrase('');
+    } catch (error) {
+      // Error is already handled in handleGenerateKeys
+      console.error('Key regeneration failed:', error);
+    }
+  };
+
+  const handleCancelRegeneration = () => {
+    setShowKeyRegeneration(false);
+    setPassphrase('');
+    setConfirmPassphrase('');
+    setError(null);
   };
 
   if (loading) {
@@ -208,11 +252,142 @@ const ProfilePage: React.FC = () => {
           )}
         </Paper>
 
+        {/* Encryption Status and Upgrade */}
+        <Paper elevation={2} sx={{ p: 3, mb: 3 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+            <Typography variant="h6">Encryption Settings</Typography>
+            <Button 
+              component={Link} 
+              to="/security" 
+              variant="outlined" 
+              size="small"
+            >
+              Learn More About Security
+            </Button>
+          </Box>
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              Current encryption method:
+            </Typography>
+            <Chip 
+              label={getEncryptionMethod()}
+              color={getEncryptionMethod() === 'HPKE' ? 'success' : getEncryptionMethod() === 'ML-KEM768' ? 'warning' : 'error'}
+              sx={{ mr: 1 }}
+            />
+            {getEncryptionMethod() === 'HPKE' && (
+              <Typography variant="body2" color="success.main" sx={{ mt: 1 }}>
+                ✓ You're using the latest HPKE encryption standard
+              </Typography>
+            )}
+            {getEncryptionMethod() === 'ML-KEM768' && (
+              <Typography variant="body2" color="warning.main" sx={{ mt: 1 }}>
+                Consider upgrading to HPKE for better file sharing capabilities
+              </Typography>
+            )}
+            {getEncryptionMethod() === 'Legacy' && (
+              <Typography variant="body2" color="error.main" sx={{ mt: 1 }}>
+                Your encryption keys need to be updated for security
+              </Typography>
+            )}
+          </Box>
+          
+          {getEncryptionMethod() !== 'HPKE' && (
+            <Box>
+              {!showKeyRegeneration ? (
+                <Button 
+                  variant="contained" 
+                  color={getEncryptionMethod() === 'Legacy' ? 'error' : 'warning'}
+                  onClick={() => setShowKeyRegeneration(true)}
+                >
+                  {getEncryptionMethod() === 'Legacy' ? 'Generate New Keys' : 'Upgrade to HPKE'}
+                </Button>
+              ) : (
+                <Box sx={{ p: 2, bgcolor: 'background.default', borderRadius: 1 }}>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    <strong>Important:</strong> Regenerating your keys will create new HPKE encryption keys. 
+                    You'll still be able to access your existing files, but you'll need to re-enter your passphrase.
+                  </Typography>
+                  <TextField
+                    margin="normal"
+                    required
+                    fullWidth
+                    name="passphrase"
+                    label="New Passphrase"
+                    type="password"
+                    value={passphrase}
+                    onChange={(e) => setPassphrase(e.target.value)}
+                    sx={{ mb: 1 }}
+                  />
+                  <TextField
+                    margin="normal"
+                    required
+                    fullWidth
+                    name="confirmPassphrase"
+                    label="Confirm New Passphrase"
+                    type="password"
+                    value={confirmPassphrase}
+                    onChange={(e) => setConfirmPassphrase(e.target.value)}
+                    sx={{ mb: 2 }}
+                  />
+                  <Box>
+                    <Button 
+                      variant="contained" 
+                      onClick={handleRegenerateKeys}
+                      sx={{ mr: 1 }}
+                    >
+                      Generate HPKE Keys
+                    </Button>
+                    <Button 
+                      variant="outlined"
+                      onClick={handleCancelRegeneration}
+                    >
+                      Cancel
+                    </Button>
+                  </Box>
+                </Box>
+              )}
+            </Box>
+          )}
+        </Paper>
+
         {/* Device Capability Information */}
         <DeviceCapabilityInfo />
 
         {/* Biometric Authentication Setup */}
         <BiometricSetup />
+
+        {/* Form Template Management - Admin Section */}
+        <Paper elevation={2} sx={{ p: 3, mb: 3 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+            <Typography variant="h6">Form Template Management</Typography>
+            {isAdmin && (
+              <Chip 
+                label="Admin" 
+                color="primary" 
+                size="small" 
+                sx={{ ml: 2 }} 
+              />
+            )}
+          </Box>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            {isAdmin ? 
+              'Manage form templates, migrate default templates, and configure public templates.' :
+              'View and manage your personal form templates.'
+            }
+          </Typography>
+          <Button 
+            variant="contained" 
+            onClick={() => setTemplateManagerOpen(true)}
+          >
+            {isAdmin ? 'Manage All Templates' : 'Manage My Templates'}
+          </Button>
+        </Paper>
+
+        {/* Template Manager Dialog */}
+        <TemplateManager 
+          open={templateManagerOpen}
+          onClose={() => setTemplateManagerOpen(false)}
+        />
       </Box>
     </AppLayout>
   );

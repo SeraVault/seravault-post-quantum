@@ -7,6 +7,7 @@ import { auth } from '../firebase';
 import { signOut } from 'firebase/auth';
 import SecurityStatusIndicator from './SecurityStatusIndicator';
 import LanguageSwitcher from './LanguageSwitcher';
+import ThemeSwitcher from './ThemeSwitcher';
 
 interface TopBarProps {
   handleDrawerToggle: () => void;
@@ -27,7 +28,7 @@ const TopBar: React.FC<TopBarProps> = ({ handleDrawerToggle }) => {
           aria-label="open drawer"
           edge="start"
           onClick={handleDrawerToggle}
-          sx={{ mr: 2, display: { sm: 'none' } }}
+          sx={{ mr: 2 }}
         >
           <MenuIcon />
         </IconButton>
@@ -35,22 +36,15 @@ const TopBar: React.FC<TopBarProps> = ({ handleDrawerToggle }) => {
           Seravault
         </Typography>
         {user ? (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <SecurityStatusIndicator />
-            <LanguageSwitcher variant="compact" />
-            <Button color="inherit" component={Link} to="/profile">
-              Profile
-            </Button>
-            <Button color="inherit" component={Link} to="/cleanup" size="small">
-              Cleanup
-            </Button>
-            <Button color="inherit" onClick={handleLogout}>
-              Logout
-            </Button>
+            <ThemeSwitcher />
+            <LanguageSwitcher />
           </Box>
         ) : (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <LanguageSwitcher variant="compact" />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <ThemeSwitcher />
+            <LanguageSwitcher />
             <Button color="inherit" component={Link} to="/login">
               Login
             </Button>

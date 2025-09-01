@@ -31,9 +31,7 @@ import {
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import type { SecureFormData, FormFieldDefinition } from '../utils/formFiles';
-import { validateForm, saveFormAsFile, updateFormData, getLocalizedField } from '../utils/formFiles';
-import { updateFile } from '../files';
-import { uploadFileData } from '../storage';
+import { validateForm, saveFormAsFile, updateFormFile, updateFormData, getLocalizedField } from '../utils/formFiles';
 import DualEditor from './DualEditor';
 import FileAttachmentField from './FileAttachmentField';
 import { addFileAttachment, removeFileAttachment, getFieldAttachments } from '../utils/formFiles';
@@ -105,64 +103,7 @@ const FormInstanceFiller: React.FC<FormInstanceFillerProps> = ({
           lastAccessed: new Date().toISOString(),
         };
 
-        // Create the updated JSON content and encrypt it
-        const jsonString = JSON.stringify(updatedFormData, null, 2);
-        
-        // Get user profile for encryption
-        const userProfile = await (await import('../firestore')).getUserProfile(userId);
-        if (!userProfile?.publicKey) {
-          throw new Error('Public key not found for the user.');
-        }
-
-        // Encrypt content
-        const { ml_kem768 } = await import('@noble/post-quantum/ml-kem');
-        const hexToBytes = (hex: string) => {
-          const bytes = new Uint8Array(hex.length / 2);
-          for (let i = 0; i < hex.length; i += 2) {
-            bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
-          }
-          return bytes;
-        };
-        const bytesToHex = (bytes: Uint8Array) =>
-          bytes.reduce((str, byte) => str + byte.toString(16).padStart(2, '0'), '');
-        
-        const publicKey = hexToBytes(userProfile.publicKey);
-        const kemResult = ml_kem768.encapsulate(publicKey);
-        const { cipherText, sharedSecret } = kemResult;
-        
-        const iv = crypto.getRandomValues(new Uint8Array(12));
-        const key = await crypto.subtle.importKey('raw', sharedSecret, { name: 'AES-GCM' }, false, ['encrypt']);
-        const encryptedContent = await crypto.subtle.encrypt(
-          { name: 'AES-GCM', iv }, 
-          key, 
-          new TextEncoder().encode(jsonString)
-        );
-        
-        // Combine IV and encrypted content
-        const combinedData = new Uint8Array(iv.length + encryptedContent.byteLength);
-        combinedData.set(iv, 0);
-        combinedData.set(new Uint8Array(encryptedContent), iv.length);
-        
-        // Upload updated content
-        const newStoragePath = `files/${userId}/${crypto.randomUUID()}`;
-        await uploadFileData(newStoragePath, combinedData);
-        
-        // Re-encrypt metadata with the new shared secret
-        const fileName = `${updatedFormData.metadata.name}.form`;
-        const { encryptMetadata } = await import('../crypto/postQuantumCrypto');
-        const { encryptedName, encryptedSize, nonce } = encryptMetadata(
-          { name: fileName, size: jsonString.length.toString() },
-          sharedSecret
-        );
-        
-        // Update file metadata with new storage path, encrypted key, and re-encrypted metadata
-        await updateFile(existingFile.id, {
-          storagePath: newStoragePath,
-          encryptedKeys: { ...existingFile.encryptedKeys, [userId]: bytesToHex(cipherText) },
-          name: { ciphertext: encryptedName, nonce: nonce },
-          size: { ciphertext: encryptedSize, nonce: nonce },
-        });
-        
+        await updateFormFile(existingFile.id, updatedFormData, userId, privateKey);
       } else {
         // Create new form file
         await saveFormAsFile(formData, userId, privateKey, parentFolder);
@@ -185,7 +126,24 @@ const FormInstanceFiller: React.FC<FormInstanceFillerProps> = ({
   };
 
   const updateFieldValue = (fieldId: string, value: string) => {
-    setFormData(prev => prev ? updateFormData(prev, fieldId, value) : null);
+    setFormData(prev => {
+      if (!prev) return null;
+      
+      let updatedFormData = updateFormData(prev, fieldId, value);
+      
+      // If the field is the template's title field, update the form name as well
+      if (fieldId === updatedFormData.template?.titleField && value.trim()) {
+        updatedFormData = {
+          ...updatedFormData,
+          metadata: {
+            ...updatedFormData.metadata,
+            name: value.trim()
+          }
+        };
+      }
+      
+      return updatedFormData;
+    });
   };
 
   const toggleFieldVisibility = (fieldId: string) => {

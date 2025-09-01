@@ -66,7 +66,7 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
         }
         
         // Import crypto functions
-        const { ml_kem768 } = await import('@noble/post-quantum/ml-kem');
+        const { decryptData } = await import('../crypto/hpkeCrypto');
         
         // Helper functions
         const hexToBytes = (hex: string) => {
@@ -77,10 +77,18 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
           return bytes;
         };
         
-        // Decrypt the shared secret
+        // Decrypt the shared secret using HPKE
         const privateKeyBytes = hexToBytes(privateKey);
-        const ciphertext = hexToBytes(userEncryptedKey);
-        const sharedSecret = await ml_kem768.decapsulate(ciphertext, privateKeyBytes);
+        const keyData = hexToBytes(userEncryptedKey);
+        
+        // HPKE encrypted keys contain: encapsulated_key (32 bytes) + ciphertext  
+        const encapsulatedKey = keyData.slice(0, 32);
+        const ciphertext = keyData.slice(32);
+        
+        const sharedSecret = await decryptData(
+          { encapsulatedKey, ciphertext },
+          privateKeyBytes
+        );
         
         // Debug logging
         console.log('Encrypted content length:', encryptedContent.byteLength);
@@ -182,7 +190,7 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
         }
         
         // Import crypto functions
-        const { ml_kem768 } = await import('@noble/post-quantum/ml-kem');
+        const { decryptData } = await import('../crypto/hpkeCrypto');
         
         // Helper functions
         const hexToBytes = (hex: string) => {
@@ -193,10 +201,18 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
           return bytes;
         };
         
-        // Decrypt the shared secret
+        // Decrypt the shared secret using HPKE
         const privateKeyBytes = hexToBytes(privateKey);
-        const ciphertext = hexToBytes(userEncryptedKey);
-        const sharedSecret = await ml_kem768.decapsulate(ciphertext, privateKeyBytes);
+        const keyData = hexToBytes(userEncryptedKey);
+        
+        // HPKE encrypted keys contain: encapsulated_key (32 bytes) + ciphertext  
+        const encapsulatedKey = keyData.slice(0, 32);
+        const ciphertext = keyData.slice(32);
+        
+        const sharedSecret = await decryptData(
+          { encapsulatedKey, ciphertext },
+          privateKeyBytes
+        );
         
         // Debug logging
         console.log('Encrypted content length:', encryptedContent.byteLength);

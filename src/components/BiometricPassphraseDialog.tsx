@@ -15,7 +15,7 @@ import {
   Tab,
   CircularProgress,
 } from '@mui/material';
-import { Security, Timer, Fingerprint, VpnKey } from '@mui/icons-material';
+import { Security, Timer, Fingerprint, VpnKey, Logout } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import {
@@ -37,7 +37,7 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
   onSubmit,
 }) => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState(0);
   const [passphrase, setPassphrase] = useState('');
   const [rememberChoice, setRememberChoice] = useState(false);
@@ -130,6 +130,19 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
   const handleKeyPress = (event: React.KeyboardEvent) => {
     if (event.key === 'Enter' && !loading && activeTab === 0) {
       handlePassphraseSubmit();
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      setLoading(true);
+      onClose(); // Close the dialog first
+      await logout(); // Then logout
+    } catch (error) {
+      console.error('Logout error:', error);
+      setError('Failed to log out. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -268,19 +281,30 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
           </Typography>
         </Alert>
       </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose} disabled={loading}>
-          Cancel
+      <DialogActions sx={{ justifyContent: 'space-between' }}>
+        <Button 
+          onClick={handleLogout} 
+          disabled={loading}
+          startIcon={<Logout />}
+          color="error"
+          variant="outlined"
+        >
+          Logout
         </Button>
-        {activeTab === 0 && (
-          <Button 
-            onClick={handlePassphraseSubmit} 
-            variant="contained" 
-            disabled={loading || !passphrase.trim()}
-          >
-            {loading ? 'Decrypting...' : 'Unlock'}
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button onClick={onClose} disabled={loading}>
+            Cancel
           </Button>
-        )}
+          {activeTab === 0 && (
+            <Button 
+              onClick={handlePassphraseSubmit} 
+              variant="contained" 
+              disabled={loading || !passphrase.trim()}
+            >
+              {loading ? 'Decrypting...' : 'Unlock'}
+            </Button>
+          )}
+        </Box>
       </DialogActions>
     </Dialog>
   );

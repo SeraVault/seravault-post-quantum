@@ -5,7 +5,7 @@ import { useAuth } from '../auth/AuthContext';
 import { usePassphrase } from '../auth/PassphraseContext';
 import { type Folder as FolderData, getUserProfile } from '../firestore';
 import { decryptString, base64ToBytes, decryptSymmetric, hexToBytes } from '../crypto/postQuantumCrypto';
-import { ml_kem768 } from '@noble/post-quantum/ml-kem';
+import { decryptData } from '../crypto/hpkeCrypto';
 
 export const useFolders = () => {
   const { user } = useAuth();
@@ -15,6 +15,7 @@ export const useFolders = () => {
   const [error, setError] = useState<string | null>(null);
   
   // Cache for decrypted folder names to avoid re-decrypting unchanged folders
+  // SECURITY: Only stored in memory, never in localStorage to prevent exposure of decrypted data
   const [decryptedNamesCache, setDecryptedNamesCache] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
@@ -33,6 +34,12 @@ export const useFolders = () => {
     const unsubscribe = onSnapshot(
       q,
       async (querySnapshot) => {
+        const startTime = Date.now();
+        console.log('Folders query started:', { 
+          fromCache: querySnapshot.metadata.fromCache,
+          hasPendingWrites: querySnapshot.metadata.hasPendingWrites,
+          size: querySnapshot.size 
+        });
         try {
           const newCache = new Map(decryptedNamesCache);
           
@@ -62,9 +69,17 @@ export const useFolders = () => {
                     throw new Error('No encrypted key found for user');
                   }
                   
-                  const encryptedKeyBytes = hexToBytes(userEncryptedKey);
                   const privateKeyBytes = hexToBytes(privateKey);
-                  const sharedSecret = ml_kem768.decapsulate(encryptedKeyBytes, privateKeyBytes);
+                  const keyData = hexToBytes(userEncryptedKey);
+                  
+                  // HPKE encrypted keys contain: encapsulated_key (32 bytes) + ciphertext  
+                  const encapsulatedKey = keyData.slice(0, 32);
+                  const ciphertext = keyData.slice(32);
+                  
+                  const sharedSecret = await decryptData(
+                    { encapsulatedKey, ciphertext },
+                    privateKeyBytes
+                  );
                   
                   // Decrypt the folder name (folders don't have size, so decrypt name directly)
                   const nonce = base64ToBytes(data.name.nonce);
@@ -109,6 +124,15 @@ export const useFolders = () => {
           // Update cache and folders
           setDecryptedNamesCache(newCache);
           setAllFolders(foldersData);
+          
+          const endTime = Date.now();
+          console.log('Folders processing completed:', {
+            totalTimeMs: endTime - startTime,
+            fromCache: querySnapshot.metadata.fromCache,
+            foldersCount: foldersData.length,
+            cacheHits: newCache.size - decryptedNamesCache.size
+          });
+          
           setLoading(false);
         } catch (error) {
           console.error('Error processing folders:', error);

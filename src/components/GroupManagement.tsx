@@ -24,7 +24,9 @@ import {
   Person,
 } from '@mui/icons-material';
 import { useAuth } from '../auth/AuthContext';
+import { usePassphrase } from '../auth/PassphraseContext';
 import { type Group, createGroup, updateGroup, deleteGroup, getUserGroups } from '../firestore';
+import { hexToBytes } from '../crypto/hpkeCrypto';
 
 interface GroupManagementProps {
   open: boolean;
@@ -39,6 +41,7 @@ interface GroupFormData {
 
 const GroupManagement: React.FC<GroupManagementProps> = ({ open, onClose }) => {
   const { user } = useAuth();
+  const { privateKey } = usePassphrase();
   const [groups, setGroups] = useState<Group[]>([]);
   const [editingGroup, setEditingGroup] = useState<Group | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -53,12 +56,14 @@ const GroupManagement: React.FC<GroupManagementProps> = ({ open, onClose }) => {
     if (user && open) {
       loadGroups();
     }
-  }, [user, open]);
+  }, [user, open, privateKey]);
 
   const loadGroups = async () => {
     if (!user) return;
     try {
-      const userGroups = await getUserGroups(user.uid);
+      // Convert private key string to Uint8Array if available
+      const privateKeyBytes = privateKey ? hexToBytes(privateKey) : undefined;
+      const userGroups = await getUserGroups(user.uid, privateKeyBytes);
       setGroups(userGroups);
     } catch (error) {
       console.error('Error loading groups:', error);
@@ -74,9 +79,9 @@ const GroupManagement: React.FC<GroupManagementProps> = ({ open, onClose }) => {
   const handleEditGroup = (group: Group) => {
     setEditingGroup(group);
     setFormData({
-      name: group.name,
-      description: group.description || '',
-      members: group.members,
+      name: typeof group.name === 'string' ? group.name : '[Encrypted]',
+      description: typeof group.description === 'string' ? (group.description || '') : '[Encrypted]',
+      members: Array.isArray(group.members) ? group.members : [],
     });
     setShowForm(true);
   };
@@ -257,19 +262,30 @@ const GroupManagement: React.FC<GroupManagementProps> = ({ open, onClose }) => {
               <React.Fragment key={group.id}>
                 <ListItem>
                   <ListItemText
-                    primary={group.name}
+                    primary={typeof group.name === 'string' ? group.name : '[Encrypted]'}
                     secondary={
                       <Box>
-                        {group.description && (
+                        {group.description && typeof group.description === 'string' && (
                           <Typography variant="body2" color="text.secondary">
                             {group.description}
                           </Typography>
                         )}
+                        {typeof group.description === 'object' && (
+                          <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                            [Encrypted Description]
+                          </Typography>
+                        )}
                         <Typography variant="caption" color="text.secondary">
-                          {group.members.length} member{group.members.length !== 1 ? 's' : ''}
-                          {group.members.length > 0 && ': '}
-                          {group.members.slice(0, 3).join(', ')}
-                          {group.members.length > 3 && ` and ${group.members.length - 3} more`}
+                          {Array.isArray(group.members) ? (
+                            <>
+                              {(group.members as string[]).length} member{(group.members as string[]).length !== 1 ? 's' : ''}
+                              {(group.members as string[]).length > 0 && ': '}
+                              {(group.members as string[]).slice(0, 3).join(', ')}
+                              {(group.members as string[]).length > 3 && ` and ${(group.members as string[]).length - 3} more`}
+                            </>
+                          ) : (
+                            '[Encrypted Members]'
+                          )}
                         </Typography>
                       </Box>
                     }

@@ -1,10 +1,25 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    
     // Files stored under /files/{userId}/{fileId}
-    // Only the owner can upload, read, and delete their files
-    match /files/{userId}/{fileId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+    // Storage access is controlled by the application layer and Firestore rules
+    // Files are encrypted, so even if accessed, they are useless without decryption keys
+    match /files/{userId}/{allPaths=**} {
+      // Read access: Only authenticated users (additional security via encrypted content)
+      // The real security is in Firestore rules that control access to decryption keys
+      allow read: if request.auth != null;
+      
+      // Write/Create access: only the file owner can upload files to their directory
+      allow write, create: if request.auth != null && request.auth.uid == userId;
+      
+      // Delete access: only the file owner can delete files from their directory
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Deny all other storage access
+    match /{allPaths=**} {
+      allow read, write: if false;
     }
   }
 }

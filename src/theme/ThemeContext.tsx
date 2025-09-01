@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useMemo, useEffect } from 'react';
 import { createTheme, ThemeProvider as MuiThemeProvider } from '@mui/material/styles';
 import { useAuth } from '../auth/AuthContext';
-import { getUserProfile } from '../firestore';
+import { getUserProfile, updateUserProfile } from '../firestore';
 
 interface ThemeContextType {
   toggleTheme: () => void;
@@ -43,8 +43,18 @@ export const AppThemeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     [mode]
   );
 
-  const toggleTheme = () => {
-    setMode((prevMode) => (prevMode === 'light' ? 'dark' : 'light'));
+  const toggleTheme = async () => {
+    const newMode = mode === 'light' ? 'dark' : 'light';
+    setMode(newMode);
+    
+    // Update user profile if logged in
+    if (user) {
+      try {
+        await updateUserProfile(user.uid, { theme: newMode });
+      } catch (error) {
+        console.error('Failed to update theme preference:', error);
+      }
+    }
   };
 
   return (

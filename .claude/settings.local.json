@@ -11,7 +11,22 @@
       "Bash(npm install:*)",
       "Bash(grep:*)",
       "Bash(gsutil cors:*)",
-      "Bash(npm uninstall:*)"
+      "Bash(npm uninstall:*)",
+      "Bash(firebase firestore:rules:get:*)",
+      "Bash(firebase firestore:indexes:*)",
+      "Bash(firebase firestore:collections:list:*)",
+      "Bash(firebase firestore:delete:*)",
+      "Bash(npx tsc:*)",
+      "Bash(sed:*)",
+      "Bash(FIREBASE_PROJECT_ID=seravault-8c764 node migrate-templates.js)",
+      "Bash(FIREBASE_PROJECT_ID=seravault-8c764 node migrate-templates.cjs)",
+      "Bash(firebase login:*)",
+      "Bash(gcloud auth:*)",
+      "Bash(firebase firestore:set:*)",
+      "Bash(firebase firestore:*)",
+      "Bash(node:*)",
+      "Bash(GOOGLE_APPLICATION_CREDENTIALS=./service-account-key.json node set-admin.cjs dguedry@gmail.com)",
+      "Bash(GOOGLE_APPLICATION_CREDENTIALS=./service-account-key.json node create-system-templates.cjs)"
     ],
     "deny": []
   }
