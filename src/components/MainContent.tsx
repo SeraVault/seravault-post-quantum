@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, forwardRef, useImperativeHandle } from 'react';
 import {
   Box,
   Typography,
@@ -7,11 +7,27 @@ import {
   useTheme,
   useMediaQuery,
   CircularProgress,
+  Chip,
+  IconButton,
+  Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
 } from '@mui/material';
+import { 
+  AccessTime,
+  Clear,
+  Delete,
+  Star,
+  Share,
+} from '@mui/icons-material';
 import { useAuth } from '../auth/AuthContext';
 import { usePassphrase } from '../auth/PassphraseContext';
 import { useClipboard } from '../context/ClipboardContext';
 import { useGlobalLoading } from '../context/LoadingContext';
+import { useRecents } from '../context/RecentsContext';
 import { useFolders } from '../hooks/useFolders';
 import { 
   createFolder, 
@@ -26,11 +42,12 @@ import {
 } from '../firestore';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
-import { ml_kem768 } from '@noble/post-quantum/ml-kem';
+import { encryptData, decryptData, hexToBytes as hpkeHexToBytes, bytesToHex as hpkeBytesToHex, encryptForMultipleRecipients } from '../crypto/hpkeCrypto';
 import { encryptMetadata } from '../crypto/postQuantumCrypto';
 import { decryptFileMetadata, encryptWithPostQuantum } from '../crypto/migration';
 import { updateFile, deleteFile, type FileData } from '../files';
-import { isFormFile } from '../utils/formFiles';
+import { isFormFile, toggleFormFavorite, type SecureFormData } from '../utils/formFiles';
+import { FileAccessService } from '../services/fileAccess';
 
 // New components
 import FileUploadArea from './FileUploadArea';
@@ -47,6 +64,7 @@ import FormFileViewer from './FormFileViewer';
 import FormFileEditor from './FormFileEditor';
 import FormInstanceFiller from './FormInstanceFiller';
 import FormBuilder from './FormBuilder';
+import FormTemplateDesigner from './FormTemplateDesigner';
 import CreationFAB from './CreationFAB';
 import FileViewer from './FileViewer';
 
@@ -55,6 +73,11 @@ interface MainContentProps {
   setCurrentFolder: (folderId: string | null) => void;
 }
 
+interface MainContentRef {
+  openTemplateDesigner: () => void;
+}
+
+// Legacy utility functions - prefer HPKE versions for new code
 const hexToBytes = (hex: string) => {
   const bytes = new Uint8Array(hex.length / 2);
   for (let i = 0; i < hex.length; i += 2) {
@@ -66,11 +89,12 @@ const hexToBytes = (hex: string) => {
 const bytesToHex = (bytes: Uint8Array) =>
   bytes.reduce((str, byte) => str + byte.toString(16).padStart(2, '0'), '');
 
-const MainContent: React.FC<MainContentProps> = ({ currentFolder, setCurrentFolder }) => {
+const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainContentComponent({ currentFolder, setCurrentFolder }, ref) {
   const { user } = useAuth();
   const { privateKey } = usePassphrase();
   const { clipboardItem, cutItem, copyItem, clearClipboard } = useClipboard();
   const { setIsDataLoading } = useGlobalLoading();
+  const { isRecentsView, setIsRecentsView, isFavoritesView, setIsFavoritesView, isSharedView, setIsSharedView, addRecentItem, recentItems, clearRecents } = useRecents();
   const { getFoldersByParent, buildFolderPath } = useFolders();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
@@ -80,6 +104,10 @@ const MainContent: React.FC<MainContentProps> = ({ currentFolder, setCurrentFold
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredFiles, setFilteredFiles] = useState<FileData[]>([]);
+  
+  // Bulk selection state
+  const [selectedFolders, setSelectedFolders] = useState<Set<string>>(new Set());
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
 
   // Dialog states
   const [newFolderDialogOpen, setNewFolderDialogOpen] = useState(false);
@@ -87,6 +115,9 @@ const MainContent: React.FC<MainContentProps> = ({ currentFolder, setCurrentFold
   const [fileToShare, setFileToShare] = useState<FileData | null>(null);
   const [folderToShare, setFolderToShare] = useState<FolderData | null>(null);
   const [shareItemType, setShareItemType] = useState<'file' | 'folder'>('file');
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [singleDeleteConfirmOpen, setSingleDeleteConfirmOpen] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<{ item: FileData | FolderData; type: 'file' | 'folder' } | null>(null);
 
 
   // Context menu and mobile action menu
@@ -112,7 +143,6 @@ const MainContent: React.FC<MainContentProps> = ({ currentFolder, setCurrentFold
   // Session timeout cleanup
   useEffect(() => {
     const handleSessionTimeout = (event: CustomEvent) => {
-      console.log('MainContent: Session timeout detected, clearing decrypted data');
       
       // Clear all decrypted file data
       setFiles([]);
@@ -132,6 +162,7 @@ const MainContent: React.FC<MainContentProps> = ({ currentFolder, setCurrentFold
       // Close any open dialogs
       setNewFolderDialogOpen(false);
       setFormBuilderOpen(false);
+      setTemplateDesignerOpen(false);
       setShareDialogOpen(false);
       setFileToShare(null);
       setFolderToShare(null);
@@ -142,7 +173,6 @@ const MainContent: React.FC<MainContentProps> = ({ currentFolder, setCurrentFold
       // Clear search
       setSearchQuery('');
       
-      console.log('MainContent: All decrypted data cleared due to session timeout');
     };
 
     // Listen for session timeout events
@@ -155,9 +185,18 @@ const MainContent: React.FC<MainContentProps> = ({ currentFolder, setCurrentFold
 
   // Form-related state
   const [formBuilderOpen, setFormBuilderOpen] = useState(false);
-  const [formViewerOpen, setFormViewerOpen] = useState(false);
+  const [templateDesignerOpen, setTemplateDesignerOpen] = useState(false);
   const [formEditorOpen, setFormEditorOpen] = useState(false);
+  const [unsavedFormData, setUnsavedFormData] = useState<SecureFormData | null>(null);
+  const [formViewerOpen, setFormViewerOpen] = useState(false);
   const [formFillerOpen, setFormFillerOpen] = useState(false);
+
+  // Expose methods to parent component via ref
+  useImperativeHandle(ref, () => ({
+    openTemplateDesigner: () => {
+      setTemplateDesignerOpen(true);
+    }
+  }));
   const [selectedFormFile, setSelectedFormFile] = useState<FileData | null>(null);
   const [selectedFormData, setSelectedFormData] = useState<any>(null);
   const [isEditingForm, setIsEditingForm] = useState(false);
@@ -198,8 +237,16 @@ const MainContent: React.FC<MainContentProps> = ({ currentFolder, setCurrentFold
           
           if (userEncryptedKey) {
             const privateKeyBytes = hexToBytes(privateKey);
-            const ciphertext = hexToBytes(userEncryptedKey);
-            const sharedSecret = await ml_kem768.decapsulate(ciphertext, privateKeyBytes);
+            const keyData = hexToBytes(userEncryptedKey);
+            
+            // HPKE encrypted keys contain: encapsulated_key (32 bytes) + ciphertext  
+            const encapsulatedKey = keyData.slice(0, 32);
+            const ciphertext = keyData.slice(32);
+            
+            const fileKey = await decryptData(
+              { encapsulatedKey, ciphertext },
+              privateKeyBytes
+            );
             
             let iv, ciphertextData;
             if (encryptedContent.byteLength > 12) {
@@ -209,7 +256,7 @@ const MainContent: React.FC<MainContentProps> = ({ currentFolder, setCurrentFold
               continue;
             }
             
-            const key = await crypto.subtle.importKey('raw', sharedSecret, { name: 'AES-GCM' }, false, ['decrypt']);
+            const key = await crypto.subtle.importKey('raw', fileKey, { name: 'AES-GCM' }, false, ['decrypt']);
             const decryptedContentBuffer = await crypto.subtle.decrypt(
               { name: 'AES-GCM', iv: iv }, 
               key, 
@@ -231,7 +278,6 @@ const MainContent: React.FC<MainContentProps> = ({ currentFolder, setCurrentFold
             }
           }
         } catch (error) {
-          console.log('Search: Could not decrypt form file for search', error);
         }
       }
 
@@ -295,9 +341,187 @@ const MainContent: React.FC<MainContentProps> = ({ currentFolder, setCurrentFold
     };
   }, [longPressTimer]);
 
+  // Bulk selection handlers
+  const toggleFolderSelection = (folderId: string) => {
+    setSelectedFolders(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(folderId)) {
+        newSet.delete(folderId);
+      } else {
+        newSet.add(folderId);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleFileSelection = (fileId: string) => {
+    setSelectedFiles(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(fileId)) {
+        newSet.delete(fileId);
+      } else {
+        newSet.add(fileId);
+      }
+      return newSet;
+    });
+  };
+
+  const selectAllFolders = () => {
+    const currentFolders = getFoldersByParent(currentFolder);
+    setSelectedFolders(new Set(currentFolders.map(f => f.id!)));
+  };
+
+  const clearAllSelections = () => {
+    setSelectedFolders(new Set());
+    setSelectedFiles(new Set());
+  };
+
+  const selectAll = () => {
+    const currentFolders = getFoldersByParent(currentFolder);
+    setSelectedFolders(new Set(currentFolders.map(f => f.id!)));
+    setSelectedFiles(new Set(filteredFiles.map(f => f.id!)));
+  };
+
+  // Bulk operations
+  const showDeleteConfirmation = () => {
+    const totalItems = selectedFolders.size + selectedFiles.size;
+    if (!user || totalItems === 0) return;
+    setDeleteConfirmOpen(true);
+  };
+
+  const confirmBulkDelete = async () => {
+    setDeleteConfirmOpen(false);
+    const totalItems = selectedFolders.size + selectedFiles.size;
+
+    try {
+      const promises = [];
+      
+      // Delete folders
+      if (selectedFolders.size > 0) {
+        const { deleteFolder } = await import('../firestore');
+        const folderPromises = Array.from(selectedFolders).map((folderId) => 
+          deleteFolder(folderId)
+        );
+        promises.push(...folderPromises);
+      }
+
+      // Delete files - need to also delete from storage
+      if (selectedFiles.size > 0) {
+        const { deleteDoc, doc } = await import('firebase/firestore');
+        const { deleteObject, ref } = await import('firebase/storage');
+        const { db } = await import('../firebase');
+        const { storage } = await import('../firebase');
+        
+        // Get file documents first to get storage paths
+        const fileDocs = await Promise.all(
+          Array.from(selectedFiles).map(async (fileId) => {
+            const { getDoc } = await import('firebase/firestore');
+            const docSnap = await getDoc(doc(db, 'files', fileId));
+            return { id: fileId, data: docSnap.data() };
+          })
+        );
+
+        // Delete from storage and firestore
+        const filePromises = fileDocs.map(async (fileDoc) => {
+          const promises = [];
+          
+          // Delete from firestore
+          promises.push(deleteDoc(doc(db, 'files', fileDoc.id)).then(() => {
+          }));
+          
+          // Delete from storage if storagePath exists
+          if (fileDoc.data?.storagePath) {
+            promises.push(deleteObject(ref(storage, fileDoc.data.storagePath)).then(() => {
+            }).catch((error) => {
+              console.warn(`Failed to delete storage file ${fileDoc.data.storagePath}:`, error);
+              // Don't fail the entire operation if storage deletion fails
+            }));
+          }
+          
+          return Promise.all(promises);
+        });
+        
+        promises.push(...filePromises);
+      }
+
+      await Promise.all(promises);
+      
+      // Immediately update local state to reflect the deletions
+      if (selectedFiles.size > 0) {
+        setFiles(prevFiles => prevFiles.filter(file => !selectedFiles.has(file.id!)));
+        setFilteredFiles(prevFiles => prevFiles.filter(file => !selectedFiles.has(file.id!)));
+      }
+      
+      // Clear selections after successful deletion
+      clearAllSelections();
+      
+      
+    } catch (error) {
+      console.error('Error deleting items:', error);
+      alert('Some items could not be deleted. Please try again.');
+    }
+  };
+
+  const showSingleDeleteConfirmation = (item: FileData | FolderData, type: 'file' | 'folder') => {
+    setItemToDelete({ item, type });
+    setSingleDeleteConfirmOpen(true);
+  };
+
+  const confirmSingleDelete = async () => {
+    if (!itemToDelete) return;
+    
+    setSingleDeleteConfirmOpen(false);
+    
+    try {
+      if (itemToDelete.type === 'file') {
+        await deleteFile(itemToDelete.item.id!);
+      } else {
+        await deleteFolder(itemToDelete.item.id!);
+      }
+      
+      // Clear any open menus
+      setContextMenu(null);
+      setMobileActionMenu({ open: false, item: null, type: 'file' });
+      
+    } catch (error) {
+      console.error('Delete operation failed:', error);
+      alert('Delete operation failed: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    } finally {
+      setItemToDelete(null);
+    }
+  };
+
+  const bulkUnshare = async () => {
+    const totalFiles = selectedFiles.size;
+    if (!user || totalFiles === 0) return;
+
+    const confirmUnshare = window.confirm(
+      `Are you sure you want to unshare ${totalFiles} file${totalFiles !== 1 ? 's' : ''}? This will revoke access for all shared users.`
+    );
+
+    if (!confirmUnshare) return;
+
+    try {
+      const { updateDoc, doc } = await import('firebase/firestore');
+      const { db } = await import('../firebase');
+      
+      const unsharePromises = Array.from(selectedFiles).map((fileId) => 
+        updateDoc(doc(db, 'files', fileId), {
+          sharedWith: [user.uid] // Only keep owner access
+        })
+      );
+
+      await Promise.all(unsharePromises);
+      clearAllSelections();
+    } catch (error) {
+      console.error('Error unsharing files:', error);
+      alert('Some files could not be unshared. Please try again.');
+    }
+  };
+
   // Load files for current folder
   useEffect(() => {
-    if (!user) {
+    if (!user || isRecentsView || isFavoritesView || isSharedView) {
       setLoading(false);
       setIsDataLoading(false);
       return;
@@ -306,17 +530,34 @@ const MainContent: React.FC<MainContentProps> = ({ currentFolder, setCurrentFold
     setLoading(true);
     setIsDataLoading(true);
     
-    const filesQuery = query(
+    // Query for files owned by user
+    const ownedFilesQuery = query(
+      collection(db, 'files'),
+      where('parent', '==', currentFolder),
+      where('owner', '==', user.uid)
+    );
+
+    // Query for files shared with user (with error handling for missing sharedWith field)
+    const sharedFilesQuery = query(
       collection(db, 'files'),
       where('parent', '==', currentFolder),
       where('sharedWith', 'array-contains', user.uid)
     );
 
-    const unsubscribe = onSnapshot(filesQuery, async (snapshot) => {
-      const filesMap = new Map<string, FileData>();
+    const filesMap = new Map<string, FileData>();
+    let completedQueries = 0;
+    let totalQueries = 2;
+    let ownedQuerySuccess = false;
+    let sharedQuerySuccess = false;
+    
+    // Skip shared files query if user is in root folder and has no shared files
+    // This helps avoid permission errors when no shared files exist
+    let skipSharedQuery = false;
 
+    const processQueryResults = async (snapshot: any, queryName: string) => {
       for (const doc of snapshot.docs) {
         const data = doc.data();
+
         if (!data.encryptedKeys || !data.encryptedKeys[user.uid]) {
           filesMap.set(doc.id, { ...data, id: doc.id, name: '[No Access]', size: '' });
           continue;
@@ -329,8 +570,16 @@ const MainContent: React.FC<MainContentProps> = ({ currentFolder, setCurrentFold
             continue;
           }
           const privateKeyBytes = hexToBytes(privateKey);
-          const ciphertext = hexToBytes(userEncryptedKey);
-          const sharedSecret = await ml_kem768.decapsulate(ciphertext, privateKeyBytes);
+          const keyData = hexToBytes(userEncryptedKey);
+          
+          // HPKE encrypted keys contain: encapsulated_key (32 bytes) + ciphertext  
+          const encapsulatedKey = keyData.slice(0, 32);
+          const ciphertext = keyData.slice(32);
+          
+          const sharedSecret = await decryptData(
+            { encapsulatedKey, ciphertext },
+            privateKeyBytes
+          );
 
           const decryptedName = await decryptFileMetadata(data.name, sharedSecret);
           const decryptedSize = await decryptFileMetadata(data.size, sharedSecret);
@@ -341,13 +590,300 @@ const MainContent: React.FC<MainContentProps> = ({ currentFolder, setCurrentFold
         }
       }
 
-      setFiles(Array.from(filesMap.values()));
+      completedQueries++;
+      
+      // Update UI immediately with current files
+      const finalFiles = Array.from(filesMap.values());
+      setFiles(finalFiles);
+      setFilteredFiles(finalFiles);
+      
+      if (completedQueries === totalQueries) {
+        setLoading(false);
+        setIsDataLoading(false);
+      }
+    };
+
+    const handleError = (error: any, queryName: string) => {
+      console.warn(`${queryName} query failed (this is normal if no shared files exist):`, error.message);
+      
+      // Mark this query as failed but continue
+      if (queryName === 'SharedFiles') {
+        sharedQuerySuccess = false;
+      } else {
+        ownedQuerySuccess = false;
+      }
+      
+      completedQueries++;
+      
+      // Update UI immediately with current files
+      const finalFiles = Array.from(filesMap.values());
+      setFiles(finalFiles);
+      setFilteredFiles(finalFiles);
+      
+      if (completedQueries === totalQueries) {
+        setLoading(false);
+        setIsDataLoading(false);
+      }
+    };
+
+    // Start both queries
+    const unsubscribe1 = onSnapshot(
+      ownedFilesQuery,
+      (snapshot) => {
+        ownedQuerySuccess = true;
+        processQueryResults(snapshot, 'OwnedFiles');
+      },
+      (error) => handleError(error, 'OwnedFiles')
+    );
+
+    // Skip SharedFiles query for now to avoid permission errors
+    // This can be re-enabled later when sharing functionality is needed
+    let unsubscribe2: (() => void) | null = null;
+    
+    // Manually handle the SharedFiles query completion
+    totalQueries = 1; // Only count the owned files query
+    sharedQuerySuccess = true; // Mark as "successful" (skipped)
+
+    return () => {
+      unsubscribe1();
+      if (unsubscribe2) {
+        unsubscribe2();
+      }
+    };
+  }, [currentFolder, user, privateKey, isRecentsView, isFavoritesView, isSharedView]);
+
+  // Load recent files when in recents view
+  useEffect(() => {
+    if (!isRecentsView || !user || !privateKey) {
+      return;
+    }
+
+    const loadRecentFiles = async () => {
+      setLoading(true);
+      setIsDataLoading(true);
+
+      try {
+        const recentFilePromises = recentItems.map(async (item) => {
+          try {
+            return await FileAccessService.loadFileById(item.id, user.uid, privateKey);
+          } catch (error) {
+            console.error(`Error loading recent file ${item.id}:`, error);
+            return null;
+          }
+        });
+
+        const recentFiles = await Promise.all(recentFilePromises);
+        const validFiles = recentFiles.filter((file): file is FileData => file !== null);
+        
+        setFiles(validFiles);
+      } catch (error) {
+        console.error('Error loading recent files:', error);
+        setFiles([]);
+      } finally {
+        setLoading(false);
+        setIsDataLoading(false);
+      }
+    };
+
+    loadRecentFiles();
+  }, [isRecentsView, recentItems, user, privateKey]);
+
+  // Load favorite files when in favorites view
+  useEffect(() => {
+    if (!isFavoritesView || !user || !privateKey) {
+      return;
+    }
+
+    setLoading(true);
+    setIsDataLoading(true);
+
+    // Query for favorite files owned by user
+    const ownedFavoritesQuery = query(
+      collection(db, 'files'),
+      where('owner', '==', user.uid),
+      where('isFavorite', '==', true)
+    );
+
+    // Query for favorite files shared with user
+    const sharedFavoritesQuery = query(
+      collection(db, 'files'),
+      where('sharedWith', 'array-contains', user.uid),
+      where('isFavorite', '==', true)
+    );
+
+    const favoritesMap = new Map<string, FileData>();
+    let completedQueries = 0;
+    const totalQueries = 1; // Only count the owned files query
+
+    const processFavoritesResults = async (snapshot: any, queryName: string) => {
+      for (const doc of snapshot.docs) {
+        const data = doc.data();
+
+        if (!data.encryptedKeys || !data.encryptedKeys[user.uid]) {
+          favoritesMap.set(doc.id, { ...data, id: doc.id, name: '[No Access]', size: '' });
+          continue;
+        }
+
+        try {
+          const userEncryptedKey = data.encryptedKeys[user.uid];
+          if (!userEncryptedKey || !privateKey) {
+            favoritesMap.set(doc.id, { ...data, id: doc.id, name: '[No Access]', size: '' });
+            continue;
+          }
+          const privateKeyBytes = hexToBytes(privateKey);
+          const keyData = hexToBytes(userEncryptedKey);
+          
+          // HPKE encrypted keys contain: encapsulated_key (32 bytes) + ciphertext  
+          const encapsulatedKey = keyData.slice(0, 32);
+          const ciphertext = keyData.slice(32);
+          
+          const sharedSecret = await decryptData(
+            { encapsulatedKey, ciphertext },
+            privateKeyBytes
+          );
+
+          const decryptedName = await decryptFileMetadata(data.name, sharedSecret);
+          const decryptedSize = await decryptFileMetadata(data.size, sharedSecret);
+          favoritesMap.set(doc.id, { ...data, id: doc.id, name: decryptedName, size: decryptedSize });
+        } catch (error) {
+          console.error('Error decrypting favorite file metadata:', error);
+          favoritesMap.set(doc.id, { ...data, id: doc.id, name: '[Encrypted File]', size: '' });
+        }
+      }
+
+      completedQueries++;
+      
+      // Update UI immediately with current files
+      const finalFiles = Array.from(favoritesMap.values());
+      setFiles(finalFiles);
+      setFilteredFiles(finalFiles);
+      
+      if (completedQueries === totalQueries) {
+        setLoading(false);
+        setIsDataLoading(false);
+      }
+    };
+
+    const handleFavoritesError = (error: any, queryName: string) => {
+      console.warn(`${queryName} query failed:`, error.message);
+      
+      completedQueries++;
+      
+      // Update UI immediately with current files
+      const finalFiles = Array.from(favoritesMap.values());
+      setFiles(finalFiles);
+      setFilteredFiles(finalFiles);
+      
+      if (completedQueries === totalQueries) {
+        setLoading(false);
+        setIsDataLoading(false);
+      }
+    };
+
+    // Start both queries
+    const unsubscribe1 = onSnapshot(
+      ownedFavoritesQuery,
+      (snapshot) => {
+        processFavoritesResults(snapshot, 'OwnedFavorites');
+      },
+      (error) => handleFavoritesError(error, 'OwnedFavorites')
+    );
+
+    // Skip shared favorites query for now to avoid permission errors
+    const unsubscribe2: (() => void) | null = null;
+
+    return () => {
+      unsubscribe1();
+      if (unsubscribe2) {
+        unsubscribe2();
+      }
+    };
+  }, [isFavoritesView, user, privateKey]);
+
+  // Load shared files when in shared view
+  useEffect(() => {
+    if (!isSharedView || !user || !privateKey) {
+      return;
+    }
+
+    setLoading(true);
+    setIsDataLoading(true);
+
+    // Query for files shared with user (but not owned by them)
+    const sharedFilesQuery = query(
+      collection(db, 'files'),
+      where('sharedWith', 'array-contains', user.uid)
+    );
+
+    const sharedFilesMap = new Map<string, FileData>();
+
+    const processSharedResults = async (snapshot: any) => {
+      for (const doc of snapshot.docs) {
+        const data = doc.data();
+
+        // Skip files owned by this user (they'll see those in regular folder view)
+        if (data.owner === user.uid) {
+          continue;
+        }
+
+        if (!data.encryptedKeys || !data.encryptedKeys[user.uid]) {
+          sharedFilesMap.set(doc.id, { ...data, id: doc.id, name: '[No Access]', size: '' });
+          continue;
+        }
+
+        try {
+          const userEncryptedKey = data.encryptedKeys[user.uid];
+          if (!userEncryptedKey || !privateKey) {
+            sharedFilesMap.set(doc.id, { ...data, id: doc.id, name: '[No Access]', size: '' });
+            continue;
+          }
+          const privateKeyBytes = hexToBytes(privateKey);
+          const keyData = hexToBytes(userEncryptedKey);
+          
+          // HPKE encrypted keys contain: encapsulated_key (32 bytes) + ciphertext  
+          const encapsulatedKey = keyData.slice(0, 32);
+          const ciphertext = keyData.slice(32);
+          
+          const sharedSecret = await decryptData(
+            { encapsulatedKey, ciphertext },
+            privateKeyBytes
+          );
+
+          const decryptedName = await decryptFileMetadata(data.name, sharedSecret);
+          const decryptedSize = await decryptFileMetadata(data.size, sharedSecret);
+          sharedFilesMap.set(doc.id, { ...data, id: doc.id, name: decryptedName, size: decryptedSize });
+        } catch (error) {
+          console.error('Error decrypting shared file metadata:', error);
+          sharedFilesMap.set(doc.id, { ...data, id: doc.id, name: '[Encrypted File]', size: '' });
+        }
+      }
+
+      // Update UI with shared files
+      const finalFiles = Array.from(sharedFilesMap.values());
+      setFiles(finalFiles);
+      setFilteredFiles(finalFiles);
       setLoading(false);
       setIsDataLoading(false);
-    });
+    };
 
-    return unsubscribe;
-  }, [currentFolder, user, privateKey]);
+    const handleSharedError = (error: any) => {
+      console.warn('Shared files query failed:', error.message);
+      setFiles([]);
+      setFilteredFiles([]);
+      setLoading(false);
+      setIsDataLoading(false);
+    };
+
+    const unsubscribe = onSnapshot(
+      sharedFilesQuery,
+      processSharedResults,
+      handleSharedError
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, [isSharedView, user, privateKey]);
 
   // Event handlers
   const handleCreateFolder = async (name: string) => {
@@ -356,136 +892,68 @@ const MainContent: React.FC<MainContentProps> = ({ currentFolder, setCurrentFold
     setNewFolderDialogOpen(false);
   };
 
-  const handleFormFileClick = async (file: FileData) => {
+  const handleFormFileClick = async (fileInfo: FileData | { id: string; name?: string; parent?: string | null }) => {
     // Don't allow file operations if private key isn't available
     if (!user || !privateKey) {
       console.warn('Cannot open file: User or private key not available');
       return;
     }
 
-    // Check if it's a form file
-    if (isFormFile(typeof file.name === 'string' ? file.name : '')) {
-      setSelectedFormFile(file);
-      
-      try {
-        // Load the form to check if it has data
-        const content = await loadFileContent(file);
+    // Track recent access (only store non-sensitive metadata)
+    const fileName = 'name' in fileInfo && fileInfo.name 
+      ? (typeof fileInfo.name === 'string' ? fileInfo.name : '')
+      : '';
+    
+    addRecentItem({
+      id: fileInfo.id,
+      type: isFormFile(fileName) ? 'form' : 'file',
+      parent: 'parent' in fileInfo ? fileInfo.parent : null,
+    });
+
+    // Set loading state for file content
+    setFileContentLoading(true);
+    
+    // Use centralized file access service
+    await FileAccessService.openFile(fileInfo, user.uid, privateKey, {
+      onFormOpen: (file: FileData, formData?: any) => {
+        setFileContentLoading(false); // Clear loading state for forms too
+        setSelectedFormFile(file);
         
-        // Convert ArrayBuffer to string if needed
-        let jsonString: string;
-        if (content instanceof ArrayBuffer) {
-          jsonString = new TextDecoder().decode(content);
-        } else if (typeof content === 'string') {
-          jsonString = content;
+        if (formData) {
+          // Check if form has any data - if all fields are empty, open in edit mode
+          const hasData = formData.data && Object.values(formData.data).some((value: any) => 
+            value !== null && value !== undefined && value !== ''
+          );
+          
+          if (!hasData) {
+            // Form is empty, open directly in edit mode
+            setSelectedFormData(formData);
+            setIsEditingForm(true);
+            setFormFillerOpen(true);
+          } else {
+            // Form has data, open in view mode
+            setFormViewerOpen(true);
+          }
         } else {
-          jsonString = String(content);
-        }
-        
-        const formData = JSON.parse(jsonString);
-        
-        console.log('Form data structure:', formData);
-        console.log('Form data.data:', formData.data);
-        console.log('Form data.data values:', formData.data ? Object.values(formData.data) : 'no data object');
-        
-        // Check if form has any data - if all fields are empty, open in edit mode
-        const hasData = formData.data && Object.values(formData.data).some((value: any) => 
-          value !== null && value !== undefined && value !== ''
-        );
-        
-        console.log('Has data?', hasData);
-        
-        if (!hasData) {
-          console.log('Opening form in edit mode (empty form)');
-          // Form is empty, open directly in edit mode
-          setSelectedFormData(formData);
-          setIsEditingForm(true);
-          setFormFillerOpen(true);
-        } else {
-          console.log('Opening form in view mode (has data)');
-          // Form has data, open in view mode
+          // Fallback to view mode if no form data
           setFormViewerOpen(true);
         }
-      } catch (error) {
-        console.error('Error loading form for checking data:', error);
-        // Fallback to view mode if loading fails
-        setFormViewerOpen(true);
+      },
+      onFileOpen: (file: FileData, content: ArrayBuffer) => {
+        // For regular files, open in file viewer
+        setSelectedFile(file);
+        setFileContent(content);
+        setFileContentLoading(false); // Ensure loading state is cleared
+        setFileViewerOpen(true);
+      },
+      onError: (error: string) => {
+        console.error('Error opening file:', error);
+        setFileContentLoading(false); // Clear loading state on error
+        alert(`Failed to open file: ${error}`);
       }
-      return;
-    }
-
-    // For regular files, open in file viewer
-    setSelectedFile(file);
-    setFileViewerOpen(true);
-    
-    // Load file content for viewing
-    setFileContentLoading(true);
-    try {
-      const content = await loadFileContent(file);
-      setFileContent(content);
-    } catch (error) {
-      console.error('Error loading file content:', error);
-      setFileContent(null);
-    } finally {
-      setFileContentLoading(false);
-    }
+    });
   };
 
-  const loadFileContent = async (file: FileData): Promise<ArrayBuffer> => {
-    if (!user || !privateKey) {
-      throw new Error('User or private key not available');
-    }
-
-    // Download encrypted file
-    const encryptedContent = await (await import('../storage')).getFile(file.storagePath);
-    const userEncryptedKey = file.encryptedKeys[user.uid];
-    
-    if (!userEncryptedKey) {
-      throw new Error('No access key found for this file');
-    }
-
-    // Decrypt the file
-    const { ml_kem768 } = await import('@noble/post-quantum/ml-kem');
-    
-    const hexToBytes = (hex: string) => {
-      const bytes = new Uint8Array(hex.length / 2);
-      for (let i = 0; i < hex.length; i += 2) {
-        bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
-      }
-      return bytes;
-    };
-    
-    const privateKeyBytes = hexToBytes(privateKey);
-    const ciphertext = hexToBytes(userEncryptedKey);
-    const sharedSecret = await ml_kem768.decapsulate(ciphertext, privateKeyBytes);
-    
-    // Files are encrypted with AES-GCM with IV prepended (same format as forms)
-    let decryptedContent: ArrayBuffer;
-    
-    try {
-      // Decrypt file content (AES-GCM with IV prepended)
-      if (encryptedContent.byteLength > 12) {
-        const iv = encryptedContent.slice(0, 12);
-        const ciphertextData = encryptedContent.slice(12);
-        
-        const key = await crypto.subtle.importKey('raw', sharedSecret, { name: 'AES-GCM' }, false, ['decrypt']);
-        decryptedContent = await crypto.subtle.decrypt(
-          { name: 'AES-GCM', iv: iv }, 
-          key, 
-          ciphertextData
-        );
-      } else {
-        throw new Error('Invalid encrypted content format');
-      }
-    } catch (error) {
-      // If new format fails, the file might be stored differently
-      // For now, just return the encrypted content as-is for files that aren't encrypted
-      // This is a fallback for files that were uploaded before encryption was implemented
-      console.warn('Failed to decrypt file, returning as-is:', error);
-      decryptedContent = encryptedContent;
-    }
-    
-    return decryptedContent;
-  };
 
   const handleDownloadFile = async () => {
     if (!selectedFile || !fileContent) return;
@@ -510,10 +978,10 @@ const MainContent: React.FC<MainContentProps> = ({ currentFolder, setCurrentFold
   };
 
   const handleDownloadFormFile = async () => {
-    if (!selectedFormFile) return;
+    if (!selectedFormFile || !user || !privateKey) return;
     
     try {
-      const content = await loadFileContent(selectedFormFile);
+      const content = await FileAccessService.loadFileContent(selectedFormFile, user.uid, privateKey);
       const fileName = typeof selectedFormFile.name === 'string' ? selectedFormFile.name : `form_${selectedFormFile.id}`;
       const blob = new Blob([content]);
       const url = URL.createObjectURL(blob);
@@ -544,33 +1012,8 @@ const MainContent: React.FC<MainContentProps> = ({ currentFolder, setCurrentFold
     try {
       setFormViewerOpen(false);
       
-      const encryptedContent = await (await import('../storage')).getFile(selectedFormFile.storagePath);
-      const userEncryptedKey = selectedFormFile.encryptedKeys[user.uid];
-      
-      if (!userEncryptedKey) {
-        throw new Error('No access key found for this file');
-      }
-      
-      const privateKeyBytes = hexToBytes(privateKey);
-      const ciphertext = hexToBytes(userEncryptedKey);
-      const sharedSecret = await ml_kem768.decapsulate(ciphertext, privateKeyBytes);
-      
-      let iv, ciphertextData;
-      if (encryptedContent.byteLength > 12) {
-        iv = encryptedContent.slice(0, 12);
-        ciphertextData = encryptedContent.slice(12);
-      } else {
-        throw new Error('Invalid encrypted content format');
-      }
-      
-      const key = await crypto.subtle.importKey('raw', sharedSecret, { name: 'AES-GCM' }, false, ['decrypt']);
-      const decryptedContentBuffer = await crypto.subtle.decrypt(
-        { name: 'AES-GCM', iv: iv }, 
-        key, 
-        ciphertextData
-      );
-      
-      const decryptedContent = new TextDecoder().decode(decryptedContentBuffer);
+      const content = await FileAccessService.loadFileContent(selectedFormFile, user.uid, privateKey);
+      const decryptedContent = new TextDecoder().decode(content);
       const formData = JSON.parse(decryptedContent);
       
       setSelectedFormData(formData);
@@ -665,6 +1108,123 @@ const MainContent: React.FC<MainContentProps> = ({ currentFolder, setCurrentFold
     }
   };
 
+  const handleToggleFavorite = async (fileId: string) => {
+    if (!user || !privateKey) return;
+    
+    try {
+      await toggleFormFavorite(fileId, privateKey, user.uid);
+      // The UI will update automatically through the real-time listeners
+    } catch (error) {
+      console.error('Error toggling favorite:', error);
+      alert('Failed to toggle favorite status');
+    }
+  };
+
+  const handleShareFile = async (recipients: string[]) => {
+    if (!user || !privateKey || !fileToShare || recipients.length === 0) {
+      console.error('Missing required parameters for sharing:', { user: !!user, privateKey: !!privateKey, fileToShare: !!fileToShare, recipients });
+      return;
+    }
+
+    try {
+      const recipientData: { id: string; encryptedKey: string }[] = [];
+
+      // Process each recipient by creating their key exchange
+      for (const email of recipients) {
+        try {
+          const recipient = await getUserByEmail(email);
+          if (!recipient || !recipient.profile.publicKey) {
+            console.warn(`User ${email} not found or does not have a public key`);
+            alert(`User ${email} not found or does not have encryption keys set up.`);
+            continue;
+          }
+
+          // Skip if already shared with this user
+          if (fileToShare.sharedWith.includes(recipient.id)) {
+            console.log(`File already shared with ${email}`);
+            continue;
+          }
+
+          // For now, only support sharing legacy ML-KEM768 files
+          // TODO: Implement proper HPKE file sharing architecture
+          const ownerEncryptedKey = fileToShare.encryptedKeys[user.uid];
+          if (!ownerEncryptedKey) {
+            throw new Error('Owner encrypted key not found');
+          }
+
+          // HPKE file sharing - decrypt the file key and re-encrypt for recipient
+          const ownerPrivateKey = hexToBytes(privateKey);
+          const keyData = hexToBytes(ownerEncryptedKey);
+          
+          // HPKE encrypted keys contain: encapsulated_key (32 bytes) + ciphertext  
+          const encapsulatedKey = keyData.slice(0, 32);
+          const ciphertext = keyData.slice(32);
+          
+          // Decrypt the file key using owner's private key
+          const fileKey = await decryptData(
+            { encapsulatedKey, ciphertext },
+            ownerPrivateKey
+          );
+
+          // Encrypt the file key for the recipient using HPKE
+          const recipientPublicKey = hexToBytes(recipient.profile.publicKey);
+          const encryptedKeyForRecipient = await encryptData(fileKey, recipientPublicKey);
+          
+          // Combine encapsulated key and ciphertext for storage
+          const recipientKeyData = new Uint8Array(
+            encryptedKeyForRecipient.encapsulatedKey.length + 
+            encryptedKeyForRecipient.ciphertext.length
+          );
+          recipientKeyData.set(encryptedKeyForRecipient.encapsulatedKey, 0);
+          recipientKeyData.set(
+            encryptedKeyForRecipient.ciphertext, 
+            encryptedKeyForRecipient.encapsulatedKey.length
+          );
+
+          recipientData.push({
+            id: recipient.id,
+            encryptedKey: bytesToHex(recipientKeyData)
+          });
+
+        } catch (error) {
+          console.error(`Error processing recipient ${email}:`, error);
+          alert(`Failed to process recipient ${email}. ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+      }
+
+      if (recipientData.length === 0) {
+        alert('No valid recipients found');
+        return;
+      }
+
+      // Update the file document
+      const updates: any = {
+        sharedWith: [...new Set([...fileToShare.sharedWith, ...recipientData.map(r => r.id)])],
+        lastModified: new Date().toISOString(),
+      };
+
+      // Add encrypted keys for each recipient
+      recipientData.forEach(({ id, encryptedKey }) => {
+        updates[`encryptedKeys.${id}`] = encryptedKey;
+      });
+
+      await updateFile(fileToShare.id!, updates);
+
+      // Add to sharing history
+      const historyPromises = recipients.map(email => 
+        addSharingHistory(user.uid, email, 'user')
+      );
+      await Promise.all(historyPromises);
+
+      alert(`File shared with ${recipientData.length} recipient${recipientData.length !== 1 ? 's' : ''}`);
+      setShareDialogOpen(false);
+      
+    } catch (error) {
+      console.error('Failed to share file:', error);
+      alert(`Failed to share file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
   return (
     <FileUploadArea
       currentFolder={currentFolder}
@@ -682,70 +1242,213 @@ const MainContent: React.FC<MainContentProps> = ({ currentFolder, setCurrentFold
         minWidth: 0,
         overflow: 'hidden'
       }}>
-        {/* Header with Breadcrumbs, Search, and Action Buttons */}
-        <Box sx={{ 
-          display: 'flex', 
-          flexDirection: isMobile ? 'column' : 'row',
-          justifyContent: 'space-between', 
-          alignItems: isMobile ? 'stretch' : 'center',
-          mb: 2, 
-          flexShrink: 0,
-          gap: isMobile ? 1 : 0
-        }}>
-          <Breadcrumbs 
-            aria-label="breadcrumb"
-            sx={{ 
-              flexGrow: 1,
-              minWidth: 0,
-              '& .MuiBreadcrumbs-ol': {
-                flexWrap: isMobile ? 'wrap' : 'nowrap'
-              }
-            }}
-            maxItems={isMobile ? 2 : undefined}
-            itemsAfterCollapse={isMobile ? 1 : undefined}
-            itemsBeforeCollapse={isMobile ? 1 : undefined}
-          >
-            {breadcrumbs.map((crumb, index) => {
-              const isLast = index === breadcrumbs.length - 1;
-              return isLast ? (
-                <Typography key={crumb.id || 'home'} color="text.primary">
-                  {crumb.name}
-                </Typography>
-              ) : (
-                <Link
-                  key={crumb.id || 'home'}
-                  underline="hover"
-                  color="inherit"
-                  href="#"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    setCurrentFolder(crumb.id);
-                  }}
-                >
-                  {crumb.name}
-                </Link>
-              );
-            })}
-          </Breadcrumbs>
-
-          {/* Search Field and Action Buttons */}
+        {/* Header - different for recents vs folder view */}
+        {isRecentsView && (
           <Box sx={{ 
             display: 'flex', 
-            flexDirection: isMobile ? 'column' : 'row',
-            alignItems: isMobile ? 'stretch' : 'center',
-            gap: 1,
-            width: isMobile ? '100%' : 'auto'
+            justifyContent: 'space-between', 
+            alignItems: 'center',
+            mb: 2, 
+            flexShrink: 0 
           }}>
-            <SearchBar
-              searchQuery={searchQuery}
-              onSearchChange={setSearchQuery}
-            />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <AccessTime color="primary" />
+              <Typography variant="h6" component="h1">
+                Recent Files
+              </Typography>
+              <Chip 
+                label={files.length} 
+                size="small" 
+                variant="outlined" 
+                sx={{ ml: 1 }}
+              />
+            </Box>
+            
+            {recentItems.length > 0 && (
+              <IconButton
+                onClick={() => {
+                  clearRecents();
+                  setFiles([]);
+                }}
+                size="small"
+                title="Clear all recents"
+                sx={{ color: 'text.secondary' }}
+              >
+                <Clear />
+              </IconButton>
+            )}
           </Box>
-        </Box>
+        )}
 
-        {/* File Table */}
+        {isFavoritesView && (
+          <Box sx={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center',
+            mb: 2, 
+            flexShrink: 0 
+          }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Star color="primary" />
+              <Typography variant="h6" component="h1">
+                Favorite Files
+              </Typography>
+              <Chip 
+                label={files.length} 
+                size="small" 
+                variant="outlined" 
+                sx={{ ml: 1 }}
+              />
+            </Box>
+          </Box>
+        )}
+
+        {isSharedView && (
+          <Box sx={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center',
+            mb: 2, 
+            flexShrink: 0 
+          }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Share color="primary" />
+              <Typography variant="h6" component="h1">
+                Shared with Me
+              </Typography>
+              <Chip 
+                label={files.length} 
+                size="small" 
+                variant="outlined" 
+                sx={{ ml: 1 }}
+              />
+            </Box>
+          </Box>
+        )}
+        
+        {!isRecentsView && !isFavoritesView && !isSharedView && (
+          <>
+            {/* Header with Breadcrumbs, Search, and Action Buttons */}
+            <Box sx={{ 
+              display: 'flex', 
+              flexDirection: isMobile ? 'column' : 'row',
+              justifyContent: 'space-between', 
+              alignItems: isMobile ? 'stretch' : 'center',
+              mb: 2, 
+              flexShrink: 0,
+              gap: isMobile ? 1 : 0
+            }}>
+              <Breadcrumbs 
+                aria-label="breadcrumb"
+                sx={{ 
+                  flexGrow: 1,
+                  minWidth: 0,
+                  '& .MuiBreadcrumbs-ol': {
+                    flexWrap: isMobile ? 'wrap' : 'nowrap'
+                  }
+                }}
+                maxItems={isMobile ? 2 : undefined}
+                itemsAfterCollapse={isMobile ? 1 : undefined}
+                itemsBeforeCollapse={isMobile ? 1 : undefined}
+              >
+                {breadcrumbs.map((crumb, index) => {
+                  const isLast = index === breadcrumbs.length - 1;
+                  return isLast ? (
+                    <Typography key={crumb.id || 'home'} color="text.primary">
+                      {crumb.name}
+                    </Typography>
+                  ) : (
+                    <Link
+                      key={crumb.id || 'home'}
+                      underline="hover"
+                      color="inherit"
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setCurrentFolder(crumb.id);
+                      }}
+                    >
+                      {crumb.name}
+                    </Link>
+                  );
+                })}
+              </Breadcrumbs>
+
+              {/* Search Field and Action Buttons */}
+              <Box sx={{ 
+                display: 'flex', 
+                flexDirection: isMobile ? 'column' : 'row',
+                alignItems: isMobile ? 'stretch' : 'center',
+                gap: 1,
+                width: isMobile ? '100%' : 'auto'
+              }}>
+                <SearchBar
+                  searchQuery={searchQuery}
+                  onSearchChange={setSearchQuery}
+                />
+              </Box>
+            </Box>
+          </>
+        )}
+
+        {/* Bulk Operations Toolbar */}
+        {(selectedFolders.size > 0 || selectedFiles.size > 0) && (
+          <Box sx={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'space-between',
+            backgroundColor: 'rgba(25, 118, 210, 0.08)',
+            border: '1px solid rgba(25, 118, 210, 0.2)',
+            borderRadius: 1,
+            p: 2,
+            mb: 2
+          }}>
+            <Typography variant="body2" color="primary">
+              {selectedFolders.size} folder{selectedFolders.size !== 1 ? 's' : ''} and {selectedFiles.size} file{selectedFiles.size !== 1 ? 's' : ''} selected
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={selectAll}
+              >
+                Select All
+              </Button>
+              {selectedFiles.size > 0 && (
+                <Button
+                  variant="outlined"
+                  color="warning"
+                  size="small"
+                  onClick={bulkUnshare}
+                  startIcon={<Clear />}
+                >
+                  Unshare
+                </Button>
+              )}
+              <Button
+                variant="outlined"
+                color="error"
+                size="small"
+                onClick={showDeleteConfirmation}
+                disabled={selectedFolders.size === 0 && selectedFiles.size === 0}
+                startIcon={<Delete />}
+              >
+                Delete
+              </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={clearAllSelections}
+              >
+                Clear
+              </Button>
+            </Box>
+          </Box>
+        )}
+
+        {/* File Table - shared between folder, recents, favorites, and shared view */}
         <FileTable
-          folders={filteredFolders}
+          folders={isRecentsView || isFavoritesView || isSharedView ? [] : filteredFolders}
           files={filteredFiles}
           onFolderClick={setCurrentFolder}
           onFileClick={handleFormFileClick}
@@ -753,6 +1456,11 @@ const MainContent: React.FC<MainContentProps> = ({ currentFolder, setCurrentFold
           onLongPressStart={handleLongPressStart}
           onLongPressEnd={handleLongPressEnd}
           onOpenMobileActionMenu={handleOpenMobileActionMenu}
+          onToggleFavorite={handleToggleFavorite}
+          selectedFolders={selectedFolders}
+          selectedFiles={selectedFiles}
+          onToggleFolderSelection={toggleFolderSelection}
+          onToggleFileSelection={toggleFileSelection}
         />
 
         {/* Dialogs */}
@@ -774,7 +1482,7 @@ const MainContent: React.FC<MainContentProps> = ({ currentFolder, setCurrentFold
                 ? (typeof folderToShare.name === 'string' ? folderToShare.name : '[Encrypted]')
                 : ''
             }
-            onShare={() => {}}
+            onShare={handleShareFile}
           />
         )}
 
@@ -817,19 +1525,9 @@ const MainContent: React.FC<MainContentProps> = ({ currentFolder, setCurrentFold
               setContextMenu(null);
             }
           }}
-          onDelete={async () => {
-            if (contextMenu?.item && window.confirm(`Are you sure you want to delete this ${contextMenu.type}?`)) {
-              try {
-                if (contextMenu.type === 'file') {
-                  await deleteFile(contextMenu.item.id!);
-                } else {
-                  await deleteFolder(contextMenu.item.id!);
-                }
-                setContextMenu(null);
-              } catch (error) {
-                console.error('Delete operation failed:', error);
-                alert('Delete operation failed');
-              }
+          onDelete={() => {
+            if (contextMenu?.item) {
+              showSingleDeleteConfirmation(contextMenu.item, contextMenu.type);
             }
           }}
           onEditForm={contextMenu?.type === 'file' && isFormFile(typeof contextMenu.item.name === 'string' ? contextMenu.item.name : '') ? handleEditForm : undefined}
@@ -848,10 +1546,10 @@ const MainContent: React.FC<MainContentProps> = ({ currentFolder, setCurrentFold
             handleFormFileClick(mobileActionMenu.item as FileData);
             setMobileActionMenu({ open: false, item: null, type: 'file' });
           } : undefined}
-          onDownload={mobileActionMenu.type === 'file' && mobileActionMenu.item ? async () => {
+          onDownload={mobileActionMenu.type === 'file' && mobileActionMenu.item && user && privateKey ? async () => {
             const file = mobileActionMenu.item as FileData;
             try {
-              const content = await loadFileContent(file);
+              const content = await FileAccessService.loadFileContent(file, user.uid, privateKey);
               const fileName = typeof file.name === 'string' ? file.name : `file_${file.id}`;
               const blob = new Blob([content]);
               const url = URL.createObjectURL(blob);
@@ -903,20 +1601,9 @@ const MainContent: React.FC<MainContentProps> = ({ currentFolder, setCurrentFold
               setMobileActionMenu({ open: false, item: null, type: 'file' });
             }
           }}
-          onDelete={async () => {
-            if (mobileActionMenu.item && window.confirm(`Are you sure you want to delete this ${mobileActionMenu.type}?`)) {
-              try {
-                if (mobileActionMenu.type === 'file') {
-                  await deleteFile(mobileActionMenu.item.id!);
-                } else {
-                  await deleteFolder(mobileActionMenu.item.id!);
-                }
-                setMobileActionMenu({ open: false, item: null, type: 'file' });
-              } catch (error) {
-                console.error('Delete operation failed:', error);
-                alert('Delete operation failed');
-                setMobileActionMenu({ open: false, item: null, type: 'file' });
-              }
+          onDelete={() => {
+            if (mobileActionMenu.item) {
+              showSingleDeleteConfirmation(mobileActionMenu.item, mobileActionMenu.type);
             }
           }}
         />
@@ -997,26 +1684,108 @@ const MainContent: React.FC<MainContentProps> = ({ currentFolder, setCurrentFold
           userId={user?.uid || ''}
           privateKey={privateKey || ''}
           parentFolder={currentFolder}
-          onFormCreated={() => {
-            // Form will be created and saved automatically by FormBuilder
-            // Files will refresh automatically via the snapshot listener
-            // Empty forms will automatically open in edit mode when clicked
+          onFormCreated={async (fileId: string | null, formData?: SecureFormData) => {
+            setFormBuilderOpen(false);
+            
+            if (formData && !fileId) {
+              // New behavior: Open form editor with unsaved form data
+              setUnsavedFormData(formData);
+              setFormEditorOpen(true);
+            } else if (fileId) {
+              // Old behavior: Open existing saved form
+              setTimeout(() => {
+                handleFormFileClick({ id: fileId });
+              }, 500);
+            }
           }}
         />
 
-        <CreationFAB
-          onCreateFolder={() => setNewFolderDialogOpen(true)}
-          onUploadFiles={handleUploadClick}
-          onCreateForm={() => {
-            console.log('Create form button clicked - opening FormBuilder');
-            setFormBuilderOpen(true);
+        <FormTemplateDesigner
+          open={templateDesignerOpen}
+          onClose={() => setTemplateDesignerOpen(false)}
+          onSave={(templateId) => {
+            // Template is now saved to Firestore and can be used in the FormBuilder
+            setTemplateDesignerOpen(false);
           }}
-          onPaste={handlePaste}
-          showPaste={!!clipboardItem}
         />
+
+        {formEditorOpen && unsavedFormData && (
+          <FormFileEditor
+            formData={unsavedFormData}
+            userId={user?.uid || ''}
+            privateKey={privateKey || ''}
+            parentFolder={currentFolder}
+            isNew={true}
+            onSave={() => {
+              setFormEditorOpen(false);
+              setUnsavedFormData(null);
+              // Real-time listeners will automatically show the newly saved form
+            }}
+            onCancel={() => {
+              setFormEditorOpen(false);
+              setUnsavedFormData(null);
+            }}
+          />
+        )}
+
+        {!isRecentsView && !isFavoritesView && !isSharedView && (
+          <CreationFAB
+            onCreateFolder={() => setNewFolderDialogOpen(true)}
+            onUploadFiles={handleUploadClick}
+            onCreateForm={() => {
+              setFormBuilderOpen(true);
+            }}
+            onPaste={handlePaste}
+            showPaste={!!clipboardItem}
+          />
+        )}
+
+        {/* Delete Confirmation Dialog */}
+        <Dialog open={deleteConfirmOpen} onClose={() => setDeleteConfirmOpen(false)}>
+          <DialogTitle>Confirm Delete</DialogTitle>
+          <DialogContent>
+            <DialogContentText>
+              Are you sure you want to delete {selectedFolders.size} folder{selectedFolders.size !== 1 ? 's' : ''} and {selectedFiles.size} file{selectedFiles.size !== 1 ? 's' : ''}?
+              <br /><br />
+              This action cannot be undone.
+            </DialogContentText>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setDeleteConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={confirmBulkDelete} color="error" variant="contained">
+              Delete
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Single Item Delete Confirmation Dialog */}
+        <Dialog open={singleDeleteConfirmOpen} onClose={() => setSingleDeleteConfirmOpen(false)}>
+          <DialogTitle>Confirm Delete</DialogTitle>
+          <DialogContent>
+            <DialogContentText>
+              Are you sure you want to delete this {itemToDelete?.type}?
+              <br />
+              <strong>{itemToDelete && typeof itemToDelete.item.name === 'string' ? itemToDelete.item.name : '[Encrypted]'}</strong>
+              <br /><br />
+              This action cannot be undone.
+            </DialogContentText>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setSingleDeleteConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={confirmSingleDelete} color="error" variant="contained">
+              Delete
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Box>
     </FileUploadArea>
   );
-};
+});
+
+MainContent.displayName = 'MainContent';
 
 export default MainContent;

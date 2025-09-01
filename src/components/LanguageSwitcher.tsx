@@ -1,16 +1,18 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
-  FormControl,
-  InputLabel,
-  Select,
+  IconButton,
+  Menu,
   MenuItem,
-  Box,
-  Typography,
+  ListItemIcon,
+  ListItemText,
+  Tooltip,
 } from '@mui/material';
 import {
   Language as LanguageIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
+import { useAuth } from '../auth/AuthContext';
+import { getUserProfile, updateUserProfile } from '../firestore';
 
 interface Language {
   code: string;
@@ -25,92 +27,102 @@ const languages: Language[] = [
   { code: 'es', name: 'Spanish', nativeName: 'Español', flag: '🇪🇸' },
 ];
 
-interface LanguageSwitcherProps {
-  variant?: 'select' | 'compact';
-  showIcon?: boolean;
-}
-
-const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({ 
-  variant = 'select', 
-  showIcon = true 
-}) => {
+const LanguageSwitcher: React.FC = () => {
   const { i18n } = useTranslation();
+  const { user } = useAuth();
+  const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
 
-  const handleLanguageChange = (languageCode: string) => {
+  // Load user's language preference on login
+  useEffect(() => {
+    const loadUserLanguage = async () => {
+      if (user) {
+        const profile = await getUserProfile(user.uid);
+        if (profile?.language && profile.language !== i18n.language) {
+          i18n.changeLanguage(profile.language);
+        }
+      }
+    };
+    loadUserLanguage();
+  }, [user, i18n]);
+
+  const handleLanguageChange = async (languageCode: string) => {
     i18n.changeLanguage(languageCode);
+    setAnchorEl(null);
+    
+    // Save to user profile if logged in
+    if (user) {
+      try {
+        await updateUserProfile(user.uid, { language: languageCode });
+      } catch (error) {
+        console.error('Failed to update language preference:', error);
+      }
+    }
+  };
+
+  const handleClick = (event: React.MouseEvent<HTMLElement>) => {
+    setAnchorEl(event.currentTarget);
+  };
+
+  const handleClose = () => {
+    setAnchorEl(null);
   };
 
   const currentLanguage = languages.find(lang => lang.code === i18n.language) || languages[0];
 
-  if (variant === 'compact') {
-    return (
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        {showIcon && <LanguageIcon sx={{ fontSize: 20, color: 'text.secondary' }} />}
-        <FormControl size="small" variant="outlined" sx={{ minWidth: 120 }}>
-          <Select
-            value={i18n.language}
-            onChange={(e) => handleLanguageChange(e.target.value)}
-            displayEmpty
-            sx={{ 
-              '& .MuiSelect-select': {
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1,
-                py: 1,
-              }
-            }}
-          >
-            {languages.map((language) => (
-              <MenuItem 
-                key={language.code} 
-                value={language.code}
-                sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
-              >
-                <span>{language.flag}</span>
-                <Typography variant="body2">{language.nativeName}</Typography>
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-      </Box>
-    );
-  }
-
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-      {showIcon && <LanguageIcon sx={{ fontSize: 20, color: 'text.secondary' }} />}
-      <FormControl fullWidth variant="outlined">
-        <InputLabel>Language</InputLabel>
-        <Select
-          value={i18n.language}
-          onChange={(e) => handleLanguageChange(e.target.value)}
-          label="Language"
-          sx={{ 
-            '& .MuiSelect-select': {
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1,
+    <>
+      <Tooltip title={`Language: ${currentLanguage.nativeName}`}>
+        <IconButton
+          onClick={handleClick}
+          color="inherit"
+          size="medium"
+          sx={{
+            transition: 'all 0.2s ease-in-out',
+            '&:hover': {
+              transform: 'scale(1.1)',
             }
           }}
         >
-          {languages.map((language) => (
-            <MenuItem 
-              key={language.code} 
-              value={language.code}
-              sx={{ display: 'flex', alignItems: 'center', gap: 2 }}
-            >
-              <span style={{ fontSize: '1.2em' }}>{language.flag}</span>
-              <Box>
-                <Typography variant="body1">{language.name}</Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {language.nativeName}
-                </Typography>
-              </Box>
-            </MenuItem>
-          ))}
-        </Select>
-      </FormControl>
-    </Box>
+          <span style={{ fontSize: '18px' }}>{currentLanguage.flag}</span>
+        </IconButton>
+      </Tooltip>
+      <Menu
+        anchorEl={anchorEl}
+        open={Boolean(anchorEl)}
+        onClose={handleClose}
+        anchorOrigin={{
+          vertical: 'bottom',
+          horizontal: 'right',
+        }}
+        transformOrigin={{
+          vertical: 'top',
+          horizontal: 'right',
+        }}
+        PaperProps={{
+          sx: {
+            mt: 1,
+            minWidth: 180,
+          }
+        }}
+      >
+        {languages.map((language) => (
+          <MenuItem
+            key={language.code}
+            onClick={() => handleLanguageChange(language.code)}
+            selected={language.code === i18n.language}
+            sx={{ gap: 2 }}
+          >
+            <ListItemIcon sx={{ minWidth: 'auto !important' }}>
+              <span style={{ fontSize: '18px' }}>{language.flag}</span>
+            </ListItemIcon>
+            <ListItemText
+              primary={language.nativeName}
+              secondary={language.name}
+            />
+          </MenuItem>
+        ))}
+      </Menu>
+    </>
   );
 };
 

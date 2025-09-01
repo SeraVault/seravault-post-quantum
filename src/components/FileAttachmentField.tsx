@@ -21,7 +21,7 @@ import { useTranslation } from 'react-i18next';
 import { uploadFileData } from '../storage';
 import { createFileWithSharing } from '../files';
 import { getUserProfile } from '../firestore';
-import { ml_kem768 } from '@noble/post-quantum/ml-kem';
+import { encryptData } from '../crypto/hpkeCrypto';
 import { encryptMetadata, hexToBytes, bytesToHex } from '../crypto/postQuantumCrypto';
 import type { FormFieldDefinition, AttachedFile } from '../utils/formFiles';
 
@@ -131,15 +131,28 @@ const FileAttachmentField: React.FC<FileAttachmentFieldProps> = ({
 
       setUploadProgress(40);
 
-      // Encrypt file using post-quantum crypto
+      // Encrypt file using HPKE
       const publicKey = hexToBytes(userProfile.publicKey);
-      const kemResult = ml_kem768.encapsulate(publicKey);
-
-      if (!kemResult || !kemResult.cipherText || !kemResult.sharedSecret) {
-        throw new Error('Encryption key generation failed.');
-      }
-
-      const { cipherText, sharedSecret } = kemResult;
+      
+      // Generate a random file key for AES encryption
+      const fileKey = crypto.getRandomValues(new Uint8Array(32));
+      
+      // Encrypt the file key using HPKE
+      const encryptedFileKey = await encryptData(fileKey, publicKey);
+      
+      // Combine encapsulated key and ciphertext for storage
+      const combinedKeyData = new Uint8Array(
+        encryptedFileKey.encapsulatedKey.length + 
+        encryptedFileKey.ciphertext.length
+      );
+      combinedKeyData.set(encryptedFileKey.encapsulatedKey, 0);
+      combinedKeyData.set(
+        encryptedFileKey.ciphertext, 
+        encryptedFileKey.encapsulatedKey.length
+      );
+      
+      const cipherText = combinedKeyData;
+      const sharedSecret = fileKey;
 
       setUploadProgress(60);
 

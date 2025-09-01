@@ -1,8 +1,9 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { getMessaging } from "firebase/messaging";
+import { getFunctions, connectFunctionsEmulator } from "firebase/functions";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
@@ -19,8 +20,28 @@ const app = initializeApp(firebaseConfig);
 
 // Export the necessary Firebase services
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+
+// Initialize Firestore with offline persistence (Firebase v10+ syntax)
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  })
+});
+
 export const storage = getStorage(app);
 export const messaging = getMessaging(app);
+export const functions = getFunctions(app);
+
+// Connect to Firebase Functions emulator if running locally
+if (import.meta.env.DEV) {
+  try {
+    connectFunctionsEmulator(functions, "localhost", 5001);
+  } catch (error) {
+    // Emulator connection might fail if already connected or not running
+    console.log('Functions emulator connection skipped');
+  }
+}
+
+console.log('✅ Firebase initialized with offline persistence');
 
 export default app;

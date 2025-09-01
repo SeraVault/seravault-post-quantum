@@ -12,6 +12,7 @@ export interface FileData {
   storagePath: string;
   encryptedKeys: { [uid: string]: string }; // uid -> encrypted key exchange result
   sharedWith: string[]; // Array of UIDs that have access
+  isFavorite?: boolean; // User's favorite status
 }
 
 export const createFile = async (fileData: Omit<FileData, 'createdAt'>) => {

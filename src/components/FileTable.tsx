@@ -12,6 +12,7 @@ import {
   IconButton,
   useTheme,
   useMediaQuery,
+  Checkbox,
 } from '@mui/material';
 import { 
   Folder, 
@@ -27,6 +28,8 @@ import {
   Assignment,
   ArrowUpward,
   ArrowDownward,
+  Star,
+  StarBorder,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import type { FileData } from '../files';
@@ -36,12 +39,22 @@ import { isFormFile, getFormDisplayName } from '../utils/formFiles';
 interface FileTableProps {
   folders: FolderData[];
   files: FileData[];
-  onFolderClick: (folderId: string) => void;
+  onFolderClick?: (folderId: string) => void;
   onFileClick?: (file: FileData) => void;
   onContextMenu?: (event: React.MouseEvent, item: FileData | FolderData, type: 'file' | 'folder') => void;
   onLongPressStart?: (item: FileData | FolderData, type: 'file' | 'folder') => void;
   onLongPressEnd?: () => void;
   onOpenMobileActionMenu?: (item: FileData | FolderData, type: 'file' | 'folder') => void;
+  showGoToFolder?: boolean; // Show "go to folder" button for files
+  onGoToFolder?: (folderId: string | null) => void; // Navigate to file's parent folder
+  loading?: boolean; // Show loading state
+  onToggleFavorite?: (fileId: string) => void; // Toggle favorite status for files
+  
+  // Bulk selection props
+  selectedFolders?: Set<string>;
+  selectedFiles?: Set<string>;
+  onToggleFolderSelection?: (folderId: string) => void;
+  onToggleFileSelection?: (fileId: string) => void;
 }
 
 type SortField = 'name' | 'type' | 'size';
@@ -56,6 +69,14 @@ const FileTable: React.FC<FileTableProps> = ({
   onLongPressStart,
   onLongPressEnd,
   onOpenMobileActionMenu,
+  showGoToFolder = false,
+  onGoToFolder,
+  loading = false,
+  onToggleFavorite,
+  selectedFolders = new Set(),
+  selectedFiles = new Set(),
+  onToggleFolderSelection,
+  onToggleFileSelection,
 }) => {
   const { t } = useTranslation();
   const theme = useTheme();
@@ -243,6 +264,32 @@ const FileTable: React.FC<FileTableProps> = ({
       >
         <TableHead>
           <TableRow>
+            <TableCell sx={{ width: '50px', padding: '8px' }}>
+              <Checkbox
+                indeterminate={
+                  (selectedFolders.size > 0 && selectedFolders.size < folders.length) ||
+                  (selectedFiles.size > 0 && selectedFiles.size < files.length) ||
+                  (selectedFolders.size > 0 && selectedFiles.size > 0 && 
+                   (selectedFolders.size < folders.length || selectedFiles.size < files.length))
+                }
+                checked={
+                  folders.length > 0 && selectedFolders.size === folders.length &&
+                  files.length > 0 && selectedFiles.size === files.length
+                }
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    // Select all folders and files
+                    folders.forEach(folder => folder.id && onToggleFolderSelection?.(folder.id));
+                    files.forEach(file => file.id && onToggleFileSelection?.(file.id));
+                  } else {
+                    // Deselect all
+                    selectedFolders.forEach(id => onToggleFolderSelection?.(id));
+                    selectedFiles.forEach(id => onToggleFileSelection?.(id));
+                  }
+                }}
+                size="small"
+              />
+            </TableCell>
             <TableCell 
               sx={{ 
                 width: isMobile ? '50%' : '60%', 
@@ -295,13 +342,33 @@ const FileTable: React.FC<FileTableProps> = ({
             <TableRow 
               key={folder.id} 
               hover 
-              sx={{ cursor: 'pointer' }}
-              onClick={() => onFolderClick(folder.id!)}
+              sx={{ 
+                cursor: 'pointer',
+                backgroundColor: selectedFolders.has(folder.id!) ? 'rgba(25, 118, 210, 0.08)' : undefined
+              }}
+              onClick={(e) => {
+                // Check if click is on checkbox area
+                const target = e.target as HTMLElement;
+                if (target.closest('input[type="checkbox"]')) {
+                  return; // Let checkbox handle it
+                }
+                onFolderClick?.(folder.id!);
+              }}
               onContextMenu={onContextMenu ? (e) => onContextMenu(e, folder, 'folder') : undefined}
               onTouchStart={onLongPressStart ? () => onLongPressStart(folder, 'folder') : undefined}
               onTouchEnd={onLongPressEnd}
               onTouchCancel={onLongPressEnd}
             >
+              <TableCell sx={{ padding: '8px' }}>
+                <Checkbox
+                  checked={selectedFolders.has(folder.id!)}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    onToggleFolderSelection?.(folder.id!);
+                  }}
+                  size="small"
+                />
+              </TableCell>
               <TableCell>
                 <Box sx={{ display: 'flex', alignItems: 'center' }}>
                   <Folder sx={{ mr: 1 }} />
@@ -349,19 +416,51 @@ const FileTable: React.FC<FileTableProps> = ({
               <TableRow 
                 key={file.id} 
                 hover
-                sx={{ cursor: 'pointer' }}
-                onClick={onFileClick ? () => onFileClick(file) : undefined}
+                sx={{ 
+                  cursor: 'pointer',
+                  backgroundColor: selectedFiles.has(file.id!) ? 'rgba(25, 118, 210, 0.08)' : undefined
+                }}
+                onClick={(e) => {
+                  // Check if click is on checkbox area
+                  const target = e.target as HTMLElement;
+                  if (target.closest('input[type="checkbox"]')) {
+                    return; // Let checkbox handle it
+                  }
+                  onFileClick?.(file);
+                }}
                 onContextMenu={onContextMenu ? (e) => onContextMenu(e, file, 'file') : undefined}
                 onTouchStart={onLongPressStart ? () => onLongPressStart(file, 'file') : undefined}
                 onTouchEnd={onLongPressEnd}
                 onTouchCancel={onLongPressEnd}
               >
+                <TableCell sx={{ padding: '8px' }}>
+                  <Checkbox
+                    checked={selectedFiles.has(file.id!)}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      onToggleFileSelection?.(file.id!);
+                    }}
+                    size="small"
+                  />
+                </TableCell>
                 <TableCell>
                   <Box sx={{ display: 'flex', alignItems: 'center' }}>
                     <Icon sx={{ mr: 1 }} />
-                    <Typography variant="body1">
+                    <Typography variant="body1" sx={{ flexGrow: 1 }}>
                       {isForm ? fileName.replace(/\.\w+\.form$/, '') : fileName}
                     </Typography>
+                    {onToggleFavorite && (
+                      <IconButton
+                        size="small"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onToggleFavorite(file.id!);
+                        }}
+                        sx={{ ml: 1, color: 'warning.main' }}
+                      >
+                        {file.isFavorite ? <Star fontSize="small" /> : <StarBorder fontSize="small" />}
+                      </IconButton>
+                    )}
                   </Box>
                 </TableCell>
                 <TableCell>{displayType}</TableCell>

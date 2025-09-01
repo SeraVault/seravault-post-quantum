@@ -1,8 +1,8 @@
 import React, { useState, useRef } from 'react';
-import { Box, Typography, LinearProgress, Paper, Fade, useTheme, Card, CardContent } from '@mui/material';
+import { Box, Typography, LinearProgress, Fade, useTheme, Card, CardContent } from '@mui/material';
 import { useAuth } from '../auth/AuthContext';
 import { getUserProfile } from '../firestore';
-import { ml_kem768 } from '@noble/post-quantum/ml-kem';
+import { encryptData, bytesToHex, hexToBytes } from '../crypto/hpkeCrypto';
 import { encryptMetadata } from '../crypto/postQuantumCrypto';
 import { uploadFileData } from '../storage';
 import { createFileWithSharing } from '../files';
@@ -39,8 +39,6 @@ const FileUploadArea: React.FC<FileUploadAreaProps> = ({
     return bytes;
   };
 
-  const bytesToHex = (bytes: Uint8Array) =>
-    bytes.reduce((str, byte) => str + byte.toString(16).padStart(2, '0'), '');
 
   const formatFileSize = (bytes: number): string => {
     if (bytes === 0) return '0 B';
@@ -61,58 +59,59 @@ const FileUploadArea: React.FC<FileUploadAreaProps> = ({
         throw new Error('Public key not found.');
       }
 
-      setUploadStage('Generating encryption keys...');
-      const publicKey = hexToBytes(userProfile.publicKey);
-      const kemResult = await ml_kem768.encapsulate(publicKey);
-
-      if (!kemResult || !kemResult.cipherText || !kemResult.sharedSecret) {
-        console.error('KEM encapsulation failed');
-        throw new Error('Encryption key generation failed.');
-      }
-
-      const { cipherText, sharedSecret } = kemResult;
-      
-      setUploadStage('Encrypting metadata...');
-      const { encryptedName, encryptedSize, nonce } = encryptMetadata(
-        { name: file.name, size: file.size.toString() },
-        sharedSecret
-      );
-
-      setUploadStage('Encrypting file content...');
-      // Encrypt the file content with AES-GCM
+      setUploadStage('Encrypting file with HPKE...');
       const fileBuffer = await file.arrayBuffer();
       const fileData = new Uint8Array(fileBuffer);
       
-      // Generate IV for AES-GCM encryption
-      const iv = crypto.getRandomValues(new Uint8Array(12));
-      
-      // Import the shared secret as AES-GCM key
-      const key = await crypto.subtle.importKey('raw', sharedSecret, { name: 'AES-GCM' }, false, ['encrypt']);
+      // Generate file key for AES encryption
+      const fileKey = crypto.getRandomValues(new Uint8Array(32));
       
       // Encrypt file content with AES-GCM
-      const encryptedFileData = await crypto.subtle.encrypt(
-        { name: 'AES-GCM', iv: iv },
-        key,
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const aesKey = await crypto.subtle.importKey('raw', fileKey, { name: 'AES-GCM' }, false, ['encrypt']);
+      const encryptedFileContent = await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv },
+        aesKey,
         fileData
       );
       
-      // Prepend IV to encrypted data (same format as decryption expects)
-      const encryptedFile = new Uint8Array(iv.length + encryptedFileData.byteLength);
-      encryptedFile.set(iv, 0);
-      encryptedFile.set(new Uint8Array(encryptedFileData), iv.length);
+      // Combine IV and encrypted content
+      const encryptedContent = new Uint8Array(12 + encryptedFileContent.byteLength);
+      encryptedContent.set(iv, 0);
+      encryptedContent.set(new Uint8Array(encryptedFileContent), 12);
+      
+      // Encrypt the file key for the user using HPKE
+      const publicKey = hexToBytes(userProfile.publicKey);
+      const encryptedKeyResult = await encryptData(fileKey, publicKey);
+      
+      // Store as: encapsulated_key + ciphertext
+      const keyData = new Uint8Array(encryptedKeyResult.encapsulatedKey.length + encryptedKeyResult.ciphertext.length);
+      keyData.set(encryptedKeyResult.encapsulatedKey, 0);
+      keyData.set(encryptedKeyResult.ciphertext, encryptedKeyResult.encapsulatedKey.length);
+      
+      const encryptedKeys = {
+        [user.uid]: bytesToHex(keyData)
+      };
+      
+      setUploadStage('Encrypting metadata...');
+      // Use the same file key for metadata encryption
+      const encryptedMetadata = await encryptMetadata(
+        { name: file.name, size: file.size.toString() },
+        fileKey
+      );
 
       setUploadStage('Uploading to secure storage...');
       const storagePath = `files/${user.uid}/${crypto.randomUUID()}`;
-      await uploadFileData(storagePath, encryptedFile);
+      await uploadFileData(storagePath, encryptedContent);
 
       setUploadStage('Creating file record...');
       await createFileWithSharing({
         owner: user.uid,
-        name: { ciphertext: encryptedName, nonce: nonce },
+        name: { ciphertext: encryptedMetadata.encryptedName, nonce: encryptedMetadata.nonce },
         parent: currentFolder,
-        size: { ciphertext: encryptedSize, nonce: nonce },
+        size: { ciphertext: encryptedMetadata.encryptedSize, nonce: encryptedMetadata.nonce },
         storagePath,
-        encryptedKeys: { [user.uid]: bytesToHex(cipherText) },
+        encryptedKeys,
         sharedWith: [user.uid],
       });
 

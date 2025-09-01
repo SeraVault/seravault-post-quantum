@@ -9,13 +9,26 @@ interface AppLayoutProps {
   children: React.ReactNode;
   currentFolder?: string | null;
   setCurrentFolder?: (folderId: string | null) => void;
+  onOpenTemplateDesigner?: () => void;
 }
 
-const AppLayout: React.FC<AppLayoutProps> = ({ children, currentFolder, setCurrentFolder }) => {
-  const [mobileOpen, setMobileOpen] = useState(false);
+const AppLayout: React.FC<AppLayoutProps> = ({ children, currentFolder, setCurrentFolder, onOpenTemplateDesigner }) => {
+  const [mobileOpen, setMobileOpen] = useState(false); // For mobile drawer overlay
+  const [desktopOpen, setDesktopOpen] = useState(true); // For desktop drawer visibility
+  const [collapsed, setCollapsed] = useState(false);
 
   const handleDrawerToggle = () => {
-    setMobileOpen(!mobileOpen);
+    // Toggle mobile drawer for mobile, desktop drawer for desktop
+    const isMobile = window.innerWidth < 600; // Same breakpoint as theme.breakpoints.down('sm')
+    if (isMobile) {
+      setMobileOpen(!mobileOpen);
+    } else {
+      setDesktopOpen(!desktopOpen);
+    }
+  };
+
+  const handleToggleCollapse = () => {
+    setCollapsed(!collapsed);
   };
 
   return (
@@ -25,9 +38,13 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children, currentFolder, setCurre
         <SideNav
           drawerWidth={drawerWidth}
           mobileOpen={mobileOpen}
+          desktopOpen={desktopOpen}
           handleDrawerToggle={handleDrawerToggle}
           currentFolder={currentFolder}
           setCurrentFolder={setCurrentFolder}
+          onOpenTemplateDesigner={onOpenTemplateDesigner}
+          collapsed={collapsed}
+          onToggleCollapse={handleToggleCollapse}
         />
       )}
       <Box
@@ -37,12 +54,15 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children, currentFolder, setCurre
           p: 3,
           display: 'flex',
           flexDirection: 'column',
-          overflow: 'hidden',
+          overflow: 'auto',
           position: 'relative',
+          minHeight: 0,
         }}
       >
         <Toolbar />
-        {children}
+        <Box sx={{ flexGrow: 1, overflow: 'auto' }}>
+          {children}
+        </Box>
       </Box>
     </Box>
   );

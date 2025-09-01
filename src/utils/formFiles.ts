@@ -2,12 +2,11 @@
  * Form utilities that treat forms as JSON files using existing file encryption/sharing
  */
 
-import { createFileWithSharing } from '../files';
+import { createFileWithSharing, updateFile } from '../files';
 import { uploadFileData } from '../storage';
 import { getUserProfile } from '../firestore';
-import { ml_kem768 } from '@noble/post-quantum/ml-kem';
+import { encryptForMultipleRecipients, encryptData } from '../crypto/hpkeCrypto';
 import { encryptMetadata } from '../crypto/postQuantumCrypto';
-import { useTranslation } from 'react-i18next';
 
 export interface FormFieldDefinition {
   id: string;
@@ -53,6 +52,7 @@ export interface FormMetadata {
   author?: string;
   created: string;
   modified: string;
+  isFavorite?: boolean; // Add favorites support
 }
 
 export interface FormLocalization {
@@ -64,11 +64,49 @@ export interface FormLocalization {
   };
 }
 
+export interface FormTemplate {
+  // Template identification
+  templateId?: string; // Optional template ID if created from a template
+  name: string;
+  description?: string;
+  category?: string;
+  icon?: string;
+  color?: string;
+  version: string;
+  author?: string; // User ID of template creator
+  isPublic?: boolean; // Whether this template can be shared publicly
+  isOfficial?: boolean; // Whether this is an official template
+  titleField?: string; // Field ID to use as document title/name
+  
+  // Template structure (same as schema)
+  schema: {
+    fields: FormFieldDefinition[];
+    sections?: {
+      id: string;
+      title: string;
+      fieldIds: string[];
+      collapsible?: boolean;
+    }[];
+  };
+  
+  // Default data structure for new instances
+  defaultData?: {
+    [fieldId: string]: string | string[];
+  };
+  
+  // Usage tracking (for templates)
+  usageCount?: number;
+  tags?: string[];
+}
+
 export interface SecureFormData {
   // Form metadata
   metadata: FormMetadata;
   
-  // Form structure definition
+  // Embedded template information - this travels with the form
+  template?: FormTemplate;
+  
+  // Form structure definition (can come from template or be custom)
   schema: {
     fields: FormFieldDefinition[];
     sections?: {
@@ -130,7 +168,7 @@ export function createBlankForm(name: string, author?: string): SecureFormData {
 /**
  * Create common form templates that users can use as starting points
  */
-export function getCommonFormTemplates(t?: (key: string, fallback?: string) => string): { [key: string]: SecureFormData } {
+export function getCommonFormTemplates(t?: (key: string, fallback?: string) => string): { [key: string]: FormTemplate } {
   const now = new Date().toISOString();
   
   // Fallback function if no translation is provided
@@ -142,16 +180,15 @@ export function getCommonFormTemplates(t?: (key: string, fallback?: string) => s
   
   return {
     credit_card: {
-      metadata: {
-        name: translate('forms.formTypes.creditCard', 'Credit Card'),
-        description: translate('forms.formDescriptions.creditCard', 'Store credit card information securely'),
-        category: 'Finance',
-        icon: 'CreditCard',
-        color: '#1976d2',
-        version: '1.0.0',
-        created: now,
-        modified: now,
-      },
+      templateId: 'credit_card',
+      name: translate('forms.formTypes.creditCard', 'Credit Card'),
+      description: translate('forms.formDescriptions.creditCard', 'Store credit card information securely'),
+      category: 'Finance',
+      icon: 'CreditCard',
+      color: '#1976d2',
+      version: '1.0.0',
+      isPublic: true,
+      isOfficial: true,
       schema: {
         fields: [
           { id: 'card_name', type: 'text', label: translate('forms.templateFields.creditCard.cardName', 'Card Name'), required: true, placeholder: 'e.g., Personal Visa' },
@@ -164,7 +201,7 @@ export function getCommonFormTemplates(t?: (key: string, fallback?: string) => s
           { id: 'notes', type: 'textarea', label: translate('forms.templateFields.creditCard.notes', 'Notes'), placeholder: 'Additional notes...' },
         ],
       },
-      data: {},
+      defaultData: {},
       tags: [],
     },
     
@@ -484,7 +521,7 @@ export function getCommonFormTemplates(t?: (key: string, fallback?: string) => s
 /**
  * Create a new form from template
  */
-export function createFormFromTemplate(templateKey: string, name?: string, t?: (key: string, fallback?: string) => string): SecureFormData {
+export function createFormFromTemplate(templateKey: string, name?: string, author?: string, t?: (key: string, fallback?: string) => string): SecureFormData {
   const templates = getCommonFormTemplates(t);
   const template = templates[templateKey];
   
@@ -492,16 +529,26 @@ export function createFormFromTemplate(templateKey: string, name?: string, t?: (
     throw new Error(`Template ${templateKey} not found`);
   }
   
-  const formData = JSON.parse(JSON.stringify(template)); // Deep clone
-  
-  if (name) {
-    formData.metadata.name = name;
-  }
-  
-  // Reset timestamps
   const now = new Date().toISOString();
-  formData.metadata.created = now;
-  formData.metadata.modified = now;
+  
+  const formData: SecureFormData = {
+    metadata: {
+      name: name || template.name,
+      description: `Created from template: ${template.name}`,
+      category: template.category,
+      icon: template.icon,
+      color: template.color,
+      version: '1.0.0',
+      author: author,
+      created: now,
+      modified: now,
+    },
+    template: JSON.parse(JSON.stringify(template)), // Embed the template
+    schema: JSON.parse(JSON.stringify(template.schema)), // Deep clone
+    data: JSON.parse(JSON.stringify(template.defaultData || {})), // Deep clone default data
+    attachments: {},
+    tags: [...(template.tags || [])],
+  };
   
   return formData;
 }
@@ -522,12 +569,12 @@ const bytesToHex = (bytes: Uint8Array) =>
  * Save form data as a JSON file using existing file encryption
  * @returns The file ID of the created form file
  */
-export async function saveFormAsFile(
+export async function updateFormFile(
+  fileId: string,
   formData: SecureFormData,
   userId: string,
-  _privateKey: string,
-  parentFolder: string | null = null
-): Promise<string> {
+  privateKey: string
+): Promise<void> {
   try {
     // Get user profile for public key
     const userProfile = await getUserProfile(userId);
@@ -547,20 +594,24 @@ export async function saveFormAsFile(
     // Create JSON content
     const jsonString = JSON.stringify(updatedFormData, null, 2);
     
-    // Encrypt the file content using the same pattern as regular files
+    // Encrypt the file content using HPKE
     const publicKey = hexToBytes(userProfile.publicKey);
-    const kemResult = ml_kem768.encapsulate(publicKey);
-
-    if (!kemResult || !kemResult.cipherText || !kemResult.sharedSecret) {
-      throw new Error('Encryption key generation failed.');
-    }
-
-    const { cipherText, sharedSecret } = kemResult;
+    
+    // Generate a random file key for AES encryption
+    const fileKey = crypto.getRandomValues(new Uint8Array(32));
+    
+    // Encrypt the file key using HPKE
+    const { encryptedContent: encryptedFileKey, encryptedKeys } = await encryptForMultipleRecipients(
+      new TextEncoder().encode(JSON.stringify({ key: Array.from(fileKey) })),
+      [{ userId, publicKey: hexToBytes(userProfile.publicKey) }]
+    );
+    
+    const sharedSecret = fileKey;
+    
     const iv = crypto.getRandomValues(new Uint8Array(12));
-    const key = await crypto.subtle.importKey('raw', sharedSecret, { name: 'AES-GCM' }, false, ['encrypt']);
     const encryptedContent = await crypto.subtle.encrypt(
-      { name: 'AES-GCM', iv }, 
-      key, 
+      { name: 'AES-GCM', iv },
+      await crypto.subtle.importKey('raw', sharedSecret, 'AES-GCM', false, ['encrypt']),
       new TextEncoder().encode(jsonString)
     );
 
@@ -582,21 +633,137 @@ export async function saveFormAsFile(
     // Upload encrypted content to storage
     await uploadFileData(storagePath, combinedData);
 
-    // Create file record using existing file sharing system
-    const fileId = await createFileWithSharing({
-      owner: userId,
+    // Update file record with new encrypted name and content
+    const updateData = {
       name: { ciphertext: encryptedName, nonce: nonce },
-      parent: parentFolder,
       size: { ciphertext: encryptedSize, nonce: nonce },
       storagePath,
-      encryptedKeys: { [userId]: bytesToHex(cipherText) },
+      encryptedKeys: encryptedKeys,
+    };
+
+    await updateFile(fileId, updateData);
+  } catch (error) {
+    console.error('Error updating form file:', error);
+    throw error;
+  }
+}
+
+export async function saveFormAsFile(
+  formData: SecureFormData,
+  userId: string,
+  _privateKey: string,
+  parentFolder: string | null = null
+): Promise<string> {
+  console.log('=== saveFormAsFile START ===');
+  console.log('Parameters:', { userId, parentFolder, formName: formData?.metadata?.name });
+  console.log('FormData structure:', { 
+    hasMetadata: !!formData?.metadata,
+    hasFields: !!formData?.fields,
+    fieldsLength: formData?.fields?.length 
+  });
+  
+  try {
+    console.log('Entering main try block');
+    
+    // Get user profile for public key  
+    console.log('About to call getUserProfile for userId:', userId);
+    const userProfile = await getUserProfile(userId);
+    console.log('getUserProfile result:', { exists: !!userProfile, hasPublicKey: !!userProfile?.publicKey });
+    if (!userProfile?.publicKey) {
+      throw new Error('Public key not found for the user.');
+    }
+    
+    console.log('User profile retrieved, publicKey exists:', !!userProfile.publicKey);
+
+    // Update timestamp
+    const updatedFormData = {
+      ...formData,
+      metadata: {
+        ...formData.metadata,
+        modified: new Date().toISOString(),
+      },
+    };
+
+    // Create JSON content
+    const jsonString = JSON.stringify(updatedFormData, null, 2);
+    console.log('JSON content created, length:', jsonString.length);
+    
+    // Generate a file key for AES encryption (same approach as FileUploadArea)
+    const fileKey = crypto.getRandomValues(new Uint8Array(32));
+    console.log('Generated file key for encryption');
+    
+    // Encrypt file content with AES-GCM
+    const content = new TextEncoder().encode(jsonString);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const aesKey = await crypto.subtle.importKey('raw', fileKey, { name: 'AES-GCM' }, false, ['encrypt']);
+    const encryptedFileContent = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv },
+      aesKey,
+      content
+    );
+    
+    // Combine IV and encrypted content
+    const encryptedContent = new Uint8Array(12 + encryptedFileContent.byteLength);
+    encryptedContent.set(iv, 0);
+    encryptedContent.set(new Uint8Array(encryptedFileContent), 12);
+    console.log('Content encrypted with AES-GCM successfully');
+    
+    // Encrypt the file key using HPKE
+    const publicKey = hexToBytes(userProfile.publicKey);
+    const encryptedKeyResult = await encryptData(fileKey, publicKey);
+    
+    // Store as: encapsulated_key + ciphertext
+    const keyData = new Uint8Array(encryptedKeyResult.encapsulatedKey.length + encryptedKeyResult.ciphertext.length);
+    keyData.set(encryptedKeyResult.encapsulatedKey, 0);
+    keyData.set(encryptedKeyResult.ciphertext, encryptedKeyResult.encapsulatedKey.length);
+    
+    const encryptedKeys = {
+      [userId]: bytesToHex(keyData)
+    };
+    console.log('File key encrypted with HPKE successfully');
+    
+    // Encrypt metadata with the same file key
+    const fileName = `${formData.metadata.name}.form`;
+    const encryptedMetadata = await encryptMetadata(
+      { name: fileName, size: jsonString.length.toString() },
+      fileKey
+    );
+    console.log('Metadata encrypted successfully');
+
+    // Use the same storage path pattern as regular files
+    const storagePath = `files/${userId}/${crypto.randomUUID()}`;
+    console.log('Storage path generated:', storagePath);
+    
+    // Upload encrypted content to storage
+    console.log('Uploading file data to storage...');
+    await uploadFileData(storagePath, encryptedContent);
+    console.log('File data uploaded successfully');
+
+    // Create file record using existing file sharing system with encrypted metadata
+    console.log('Creating file record in database...');
+    const fileId = await createFileWithSharing({
+      owner: userId,
+      name: { ciphertext: encryptedMetadata.encryptedName, nonce: encryptedMetadata.nonce },
+      parent: parentFolder,
+      size: { ciphertext: encryptedMetadata.encryptedSize, nonce: encryptedMetadata.nonce },
+      storagePath,
+      encryptedKeys: encryptedKeys,
       sharedWith: [userId],
     });
+    console.log('File record created successfully, fileId:', fileId);
 
     return fileId;
   } catch (error) {
-    console.error('Error saving form as file:', error);
-    throw error;
+    console.error('=== ERROR in saveFormAsFile ===');
+    console.error('Error details:', error);
+    console.error('Error message:', error instanceof Error ? error.message : String(error));
+    console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+    console.error('Parameters were:', { userId, parentFolder, formName: formData?.metadata?.name });
+    
+    // Re-throw with more context
+    const contextError = new Error(`Form save failed: ${error instanceof Error ? error.message : String(error)}`);
+    contextError.cause = error;
+    throw contextError;
   }
 }
 
@@ -911,4 +1078,47 @@ export function getLocalizedField(
     placeholder: localization.placeholder || field.placeholder,
     options: localization.options || field.options,
   };
+}
+
+/**
+ * Toggle favorite status of a form file
+ */
+export async function toggleFormFavorite(
+  fileId: string,
+  _privateKey: string,
+  userId: string
+): Promise<void> {
+  const { doc, updateDoc, getDoc } = await import('firebase/firestore');
+  const { db } = await import('../firebase');
+  
+  try {
+    // Get the current file document
+    const fileRef = doc(db, 'files', fileId);
+    const fileSnap = await getDoc(fileRef);
+    
+    if (!fileSnap.exists()) {
+      throw new Error('File not found');
+    }
+    
+    const fileData = fileSnap.data();
+    
+    // Check if user has access to this file
+    if (fileData.owner !== userId && !fileData.sharedWith?.includes(userId)) {
+      throw new Error('Access denied');
+    }
+    
+    // Toggle the favorite status directly in the file document
+    const currentFavorite = fileData.isFavorite || false;
+    
+    await updateDoc(fileRef, {
+      isFavorite: !currentFavorite,
+      lastModified: new Date().toISOString(),
+    });
+    
+    console.log(`✅ Toggled favorite status for file: ${fileData.name || '[Encrypted]'} -> ${!currentFavorite}`);
+    
+  } catch (error) {
+    console.error('Error toggling favorite status:', error);
+    throw error;
+  }
 }
