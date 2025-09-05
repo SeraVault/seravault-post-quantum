@@ -231,7 +231,7 @@ const FileViewer: React.FC<FileViewerProps> = ({
   const renderViewer = () => {
     if (loading || !objectUrl || !file) {
       return (
-        <Box display="flex" flexDirection="column" justifyContent="center" alignItems="center" minHeight={400}>
+        <Box display="flex" flexDirection="column" justifyContent="center" alignItems="center" flex={1}>
           <CircularProgress size={50} />
           <Typography variant="body1" sx={{ mt: 2 }}>
             {loading ? t('common.loading') : 'Processing file...'}
@@ -248,11 +248,12 @@ const FileViewer: React.FC<FileViewerProps> = ({
               display: 'flex',
               justifyContent: 'center',
               alignItems: 'center',
-              minHeight: 400,
-              maxHeight: '70vh',
+              flex: 1,
+              minHeight: 0, // Important: allows flex shrinking
               overflow: 'auto',
               backgroundColor: '#f5f5f5',
               borderRadius: 1,
+              position: 'relative',
             }}
           >
             <img
@@ -261,6 +262,9 @@ const FileViewer: React.FC<FileViewerProps> = ({
               style={{
                 maxWidth: '100%',
                 maxHeight: '100%',
+                width: 'auto',
+                height: 'auto',
+                objectFit: 'contain',
                 transform: `scale(${viewerState.zoom}) rotate(${viewerState.rotation}deg)`,
                 transition: 'transform 0.3s ease',
               }}
@@ -270,7 +274,15 @@ const FileViewer: React.FC<FileViewerProps> = ({
 
       case 'pdf':
         return (
-          <Box sx={{ minHeight: 400, maxHeight: '70vh', overflow: 'auto' }}>
+          <Box sx={{ 
+            flex: 1, 
+            minHeight: 0,
+            overflow: 'auto',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'flex-start',
+            p: 1,
+          }}>
             <Document
               file={objectUrl}
               onLoadSuccess={({ numPages }) => 
@@ -282,6 +294,8 @@ const FileViewer: React.FC<FileViewerProps> = ({
                 pageNumber={viewerState.currentPage}
                 scale={viewerState.zoom}
                 rotate={viewerState.rotation}
+                width={undefined}
+                height={undefined}
               />
             </Document>
           </Box>
@@ -321,8 +335,8 @@ const FileViewer: React.FC<FileViewerProps> = ({
               display: 'flex',
               justifyContent: 'center',
               alignItems: 'center',
-              minHeight: 400,
-              maxHeight: '70vh',
+              flex: 1,
+              minHeight: 0,
             }}
           >
             <video
@@ -333,6 +347,8 @@ const FileViewer: React.FC<FileViewerProps> = ({
               style={{
                 maxWidth: '100%',
                 maxHeight: '100%',
+                width: 'auto',
+                height: 'auto',
                 transform: `scale(${viewerState.zoom})`,
               }}
               controls
@@ -351,7 +367,7 @@ const FileViewer: React.FC<FileViewerProps> = ({
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              minHeight: 200,
+              flex: 1,
               gap: 2,
               p: 4,
             }}
@@ -387,7 +403,12 @@ const FileViewer: React.FC<FileViewerProps> = ({
     if (!showImageControls && !showPageControls) return null;
 
     return (
-      <Toolbar variant="dense" sx={{ gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
+      <Toolbar variant="dense" sx={{ 
+        gap: 1, 
+        justifyContent: 'center', 
+        flexWrap: 'wrap',
+        flexShrink: 0, // Prevent toolbar from shrinking
+      }}>
         {showImageControls && (
           <>
             <Tooltip title={t('fileViewer.zoomOut')}>
@@ -474,16 +495,27 @@ const FileViewer: React.FC<FileViewerProps> = ({
       ref={dialogRef}
       open={open}
       onClose={onClose}
-      maxWidth="lg"
+      maxWidth={viewerState.isFullscreen ? false : "xl"}
       fullWidth
       fullScreen={viewerState.isFullscreen}
       PaperProps={{
         sx: {
-          height: viewerState.isFullscreen ? '100vh' : '90vh',
+          height: viewerState.isFullscreen ? '100vh' : '95vh',
+          maxHeight: '100vh',
+          width: viewerState.isFullscreen ? '100vw' : undefined,
+          maxWidth: viewerState.isFullscreen ? 'none' : undefined,
+          display: 'flex',
+          flexDirection: 'column',
+          margin: viewerState.isFullscreen ? 0 : undefined,
         }
       }}
     >
-      <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <DialogTitle sx={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center',
+        flexShrink: 0, // Prevent header from shrinking
+      }}>
         <Box component="span" sx={{ fontSize: '1.25rem', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {fileName}
         </Box>
@@ -501,7 +533,14 @@ const FileViewer: React.FC<FileViewerProps> = ({
 
       {renderToolbar()}
 
-      <DialogContent sx={{ p: 0, overflow: 'hidden' }}>
+      <DialogContent sx={{ 
+        p: 0, 
+        overflow: 'hidden',
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: 0, // Important: allows flex child to shrink below content size
+      }}>
         {error ? (
           <Alert severity="error" sx={{ m: 2 }}>
             {error}
@@ -511,7 +550,13 @@ const FileViewer: React.FC<FileViewerProps> = ({
         )}
       </DialogContent>
 
-      <DialogActions sx={{ justifyContent: 'flex-end', gap: 1, px: 3, py: 2 }}>
+      <DialogActions sx={{ 
+        justifyContent: 'flex-end', 
+        gap: 1, 
+        px: 3, 
+        py: 2,
+        flexShrink: 0, // Prevent footer from shrinking
+      }}>
         {onDownload && (
           <Button 
             variant="outlined" 
@@ -568,7 +613,7 @@ const TextViewer: React.FC<{ objectUrl: string; fileName: string }> = ({ objectU
     <Box
       sx={{
         p: 2,
-        maxHeight: '60vh',
+        flex: 1,
         overflow: 'auto',
         backgroundColor: '#f8f9fa',
         borderRadius: 1,
