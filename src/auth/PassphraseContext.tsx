@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useAuth } from './AuthContext';
 import { getUserProfile } from '../firestore';
-import { decryptString } from '../crypto/postQuantumCrypto';
+import { decryptString } from '../crypto/hpkeCrypto';
 import { usePrivateKeyStorage } from '../utils/secureStorage';
 import BiometricPassphraseDialog from '../components/BiometricPassphraseDialog';
 
@@ -10,6 +10,7 @@ interface PassphraseContextType {
   clearPrivateKey: () => void;
   hasStoredKey: boolean;
   loading: boolean;
+  requestUnlock: () => void;
 }
 
 const PassphraseContext = createContext<PassphraseContextType>({
@@ -17,6 +18,7 @@ const PassphraseContext = createContext<PassphraseContextType>({
   clearPrivateKey: () => {},
   hasStoredKey: false,
   loading: false,
+  requestUnlock: () => {},
 });
 
 export const usePassphrase = () => useContext(PassphraseContext);
@@ -26,6 +28,7 @@ export const PassphraseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [privateKey, setPrivateKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [passphraseDialogOpen, setPassphraseDialogOpen] = useState(false);
+  const [userDismissed, setUserDismissed] = useState(false);
   const {
     storePrivateKey,
     getStoredPrivateKey,
@@ -39,6 +42,7 @@ export const PassphraseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const checkPrivateKey = async () => {
       if (!user) {
         setLoading(false);
+        setUserDismissed(false); // Reset dismissal when user logs out
         return;
       }
       
@@ -59,7 +63,9 @@ export const PassphraseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           if (profile) {
             if (profile.encryptedPrivateKey || profile.legacyEncryptedPrivateKey) {
               setLoading(false); // Stop loading, show passphrase dialog
-              setPassphraseDialogOpen(true);
+              if (!userDismissed) {
+                setPassphraseDialogOpen(true);
+              }
             } else if (profile.publicKey) {
               // User has a profile but no private key - this shouldn't happen
               console.error('User profile exists but has no encrypted private key');
@@ -77,7 +83,7 @@ export const PassphraseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
     };
     checkPrivateKey();
-  }, [user, privateKey, getStoredPrivateKey]);
+  }, [user, privateKey]);
 
   // Handle session timeout - clear decrypted data and show auth dialog
   useEffect(() => {
@@ -87,7 +93,8 @@ export const PassphraseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       console.log('Session timeout detected - clearing decrypted data');
       // Clear the private key from state
       setPrivateKey(null);
-      // Show passphrase dialog again
+      // Reset dismissal state and show passphrase dialog again
+      setUserDismissed(false);
       setPassphraseDialogOpen(true);
       // Broadcast timeout event for other components to clean up
       window.dispatchEvent(new CustomEvent('sessionTimeout', {
@@ -109,7 +116,7 @@ export const PassphraseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     clearStoredPrivateKey();
   };
 
-  const handlePassphraseSubmit = async (passphraseOrPrivateKey: string, rememberChoice = false, method: 'passphrase' | 'biometric' = 'passphrase') => {
+  const handlePassphraseSubmit = async (passphraseOrPrivateKey: string, rememberChoice = false, method: 'passphrase' | 'biometric' | 'keyfile' = 'passphrase') => {
     setLoading(true);
     // Dialog will stay open and show loading state while this executes
     
@@ -119,14 +126,17 @@ export const PassphraseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         try {
           let decryptedPrivateKey: string;
           
-          if (method === 'biometric') {
-            // Private key is already decrypted from biometric authentication
+          if (method === 'biometric' || method === 'keyfile') {
+            // Private key is already decrypted from biometric authentication or key file upload
             decryptedPrivateKey = passphraseOrPrivateKey;
           } else {
             // Decrypt using passphrase
             if (profile.encryptedPrivateKey && typeof profile.encryptedPrivateKey === 'object') {
               // New post-quantum format
-              decryptedPrivateKey = decryptString(profile.encryptedPrivateKey, passphraseOrPrivateKey);
+              console.log('Decrypting private key using HPKE decryptString...');
+              console.log('Encrypted private key object:', profile.encryptedPrivateKey);
+              decryptedPrivateKey = await decryptString(profile.encryptedPrivateKey, passphraseOrPrivateKey);
+              console.log('Decrypted private key length:', decryptedPrivateKey?.length || 0);
             } else if (profile.legacyEncryptedPrivateKey) {
               // Legacy AES format - migrate on next profile update
               const { AES, enc } = await import('crypto-js');
@@ -138,8 +148,9 @@ export const PassphraseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           
           setPrivateKey(decryptedPrivateKey);
           storePrivateKey(decryptedPrivateKey, rememberChoice);
+          setLoading(false); // Explicitly set loading to false
           setPassphraseDialogOpen(false); // Close dialog on success
-          // Loading will be set to false in the useEffect when privateKey is set
+          setUserDismissed(false); // Reset dismissal state on successful unlock
         } catch (error) {
           console.error('Failed to decrypt private key:', error);
           setLoading(false);
@@ -150,17 +161,28 @@ export const PassphraseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
+  const handleDialogClose = () => {
+    setPassphraseDialogOpen(false);
+    setUserDismissed(true);
+  };
+
+  const requestUnlock = () => {
+    setUserDismissed(false);
+    setPassphraseDialogOpen(true);
+  };
+
   return (
     <PassphraseContext.Provider value={{ 
       privateKey, 
       clearPrivateKey,
       hasStoredKey: hasStoredPrivateKey(),
       loading,
+      requestUnlock,
     }}>
       {children}
       <BiometricPassphraseDialog
         open={passphraseDialogOpen}
-        onClose={() => setPassphraseDialogOpen(false)}
+        onClose={handleDialogClose}
         onSubmit={handlePassphraseSubmit}
       />
     </PassphraseContext.Provider>

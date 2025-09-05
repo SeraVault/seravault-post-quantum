@@ -22,18 +22,20 @@ import {
   Person,
   Group as GroupIcon,
   Settings,
-  Email,
+  RemoveCircleOutline,
 } from '@mui/icons-material';
 import { useAuth } from '../auth/AuthContext';
-import { type Group, type SharingHistory, getUserGroups, getSharingHistory, addSharingHistory } from '../firestore';
+import { type Group, getUserGroups, getUserProfile } from '../firestore';
 import GroupManagement from './GroupManagement';
 
 interface ShareDialogProps {
   open: boolean;
   onClose: () => void;
   onShare: (recipients: string[]) => void;
+  onUnshare?: (recipients: string[]) => void;
   itemType?: 'file' | 'folder';
   itemName?: string;
+  currentSharedWith?: string[]; // User IDs currently shared with
 }
 
 interface TabPanelProps {
@@ -57,31 +59,64 @@ function TabPanel(props: TabPanelProps) {
   );
 }
 
-const ShareDialog: React.FC<ShareDialogProps> = ({ open, onClose, onShare, itemType = 'file', itemName = 'item' }) => {
+const ShareDialog: React.FC<ShareDialogProps> = ({ 
+  open, 
+  onClose, 
+  onShare, 
+  onUnshare,
+  itemType = 'file', 
+  itemName = 'item',
+  currentSharedWith = []
+}) => {
   const { user } = useAuth();
   const [tabValue, setTabValue] = useState(0);
   const [emailInput, setEmailInput] = useState('');
   const [selectedRecipients, setSelectedRecipients] = useState<string[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
-  const [sharingHistory, setSharingHistory] = useState<SharingHistory[]>([]);
   const [groupManagementOpen, setGroupManagementOpen] = useState(false);
+  const [currentShares, setCurrentShares] = useState<{id: string, email: string, displayName: string}[]>([]);
+  const [selectedToUnshare, setSelectedToUnshare] = useState<string[]>([]);
 
   useEffect(() => {
     if (user && open) {
       loadData();
     }
-  }, [user, open]);
+  }, [user, open, currentSharedWith]);
 
   const loadData = async () => {
     if (!user) return;
     try {
-      const [userGroups, history] = await Promise.all([
-        getUserGroups(user.uid),
-        getSharingHistory(user.uid),
-      ]);
+      const userGroups = await getUserGroups(user.uid);
       setGroups(userGroups);
-      setSharingHistory(history);
+      
+      // Load current share information
+      if (currentSharedWith.length > 0) {
+        const sharePromises = currentSharedWith
+          .filter(userId => userId !== user.uid) // Exclude owner
+          .map(async (userId) => {
+            try {
+              const profile = await getUserProfile(userId);
+              return {
+                id: userId,
+                email: profile?.email || 'Unknown',
+                displayName: profile?.displayName || 'Unknown User'
+              };
+            } catch (error) {
+              console.warn(`Failed to load profile for ${userId}:`, error);
+              return {
+                id: userId,
+                email: 'Unknown',
+                displayName: 'Unknown User'
+              };
+            }
+          });
+        
+        const shares = await Promise.all(sharePromises);
+        setCurrentShares(shares);
+      } else {
+        setCurrentShares([]);
+      }
     } catch (error) {
       console.error('Error loading sharing data:', error);
     }
@@ -89,10 +124,26 @@ const ShareDialog: React.FC<ShareDialogProps> = ({ open, onClose, onShare, itemT
 
   const handleAddEmail = () => {
     const email = emailInput.trim();
-    if (email && !selectedRecipients.includes(email)) {
-      setSelectedRecipients([...selectedRecipients, email]);
-      setEmailInput('');
+    
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    
+    if (!email) {
+      return; // Empty input
     }
+    
+    if (!emailRegex.test(email)) {
+      alert('Please enter a valid email address');
+      return;
+    }
+    
+    if (selectedRecipients.includes(email)) {
+      alert('This email is already added');
+      return;
+    }
+    
+    setSelectedRecipients([...selectedRecipients, email]);
+    setEmailInput('');
   };
 
   const handleRemoveRecipient = (email: string) => {
@@ -107,11 +158,28 @@ const ShareDialog: React.FC<ShareDialogProps> = ({ open, onClose, onShare, itemT
     );
   };
 
-  const handleHistorySelect = (email: string) => {
-    if (!selectedRecipients.includes(email)) {
-      setSelectedRecipients([...selectedRecipients, email]);
+  const handleUnshareToggle = (userId: string) => {
+    setSelectedToUnshare(prev => 
+      prev.includes(userId)
+        ? prev.filter(id => id !== userId)
+        : [...prev, userId]
+    );
+  };
+
+  const handleUnshare = async () => {
+    if (!onUnshare || selectedToUnshare.length === 0) {
+      alert('Please select at least one person to unshare with.');
+      return;
+    }
+
+    try {
+      onUnshare(selectedToUnshare);
+      handleClose();
+    } catch (error) {
+      console.error('Error unsharing:', error);
     }
   };
+
 
   const handleShare = async () => {
     if (!user) return;
@@ -132,13 +200,6 @@ const ShareDialog: React.FC<ShareDialogProps> = ({ open, onClose, onShare, itemT
     }
 
     try {
-      // Add to sharing history
-      const historyPromises = [
-        ...selectedRecipients.map(email => addSharingHistory(user.uid, email, 'user')),
-        ...selectedGroups.map(groupId => addSharingHistory(user.uid, groupId, 'group')),
-      ];
-      await Promise.all(historyPromises);
-
       onShare(allRecipients);
       handleClose();
     } catch (error) {
@@ -149,6 +210,7 @@ const ShareDialog: React.FC<ShareDialogProps> = ({ open, onClose, onShare, itemT
   const handleClose = () => {
     setSelectedRecipients([]);
     setSelectedGroups([]);
+    setSelectedToUnshare([]);
     setEmailInput('');
     setTabValue(0);
     onClose();
@@ -161,12 +223,6 @@ const ShareDialog: React.FC<ShareDialogProps> = ({ open, onClose, onShare, itemT
     }
   };
 
-  // Get unique emails from sharing history
-  const historyEmails = Array.from(new Set(
-    sharingHistory
-      .filter(h => h.type === 'user')
-      .map(h => h.sharedWith)
-  )).slice(0, 10); // Show last 10 unique emails
 
   const totalRecipients = selectedRecipients.length + 
     selectedGroups.reduce((acc, groupId) => {
@@ -178,12 +234,17 @@ const ShareDialog: React.FC<ShareDialogProps> = ({ open, onClose, onShare, itemT
     <>
       <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
         <DialogTitle>Share {itemType === 'file' ? 'File' : 'Folder'}{itemName && `: ${itemName}`}</DialogTitle>
-        <DialogContent>
+        <DialogContent sx={{ pb: 1 }}>
           <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
-            <Tabs value={tabValue} onChange={(_, newValue) => setTabValue(newValue)}>
-              <Tab label="People" icon={<Person />} />
-              <Tab label="Groups" icon={<GroupIcon />} />
-              <Tab label="Recent" icon={<Email />} />
+            <Tabs value={tabValue} onChange={(_, newValue) => setTabValue(newValue)} aria-label="share options">
+              <Tab label="People" icon={<Person />} id="share-tab-0" aria-controls="share-tabpanel-0" />
+              <Tab label="Groups" icon={<GroupIcon />} id="share-tab-1" aria-controls="share-tabpanel-1" />
+              <Tab 
+                label={`Current (${currentShares.length})`} 
+                icon={<RemoveCircleOutline />} 
+                id="share-tab-2" 
+                aria-controls="share-tabpanel-2"
+              />
             </Tabs>
           </Box>
 
@@ -204,17 +265,19 @@ const ShareDialog: React.FC<ShareDialogProps> = ({ open, onClose, onShare, itemT
               </Button>
             </Box>
 
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
-              {selectedRecipients.map((email) => (
-                <Chip
-                  key={email}
-                  label={email}
-                  onDelete={() => handleRemoveRecipient(email)}
-                  size="small"
-                  icon={<Person />}
-                />
-              ))}
-            </Box>
+            {selectedRecipients.length > 0 && (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+                {selectedRecipients.map((email) => (
+                  <Chip
+                    key={email}
+                    label={email}
+                    onDelete={() => handleRemoveRecipient(email)}
+                    size="small"
+                    icon={<Person />}
+                  />
+                ))}
+              </Box>
+            )}
           </TabPanel>
 
           <TabPanel value={tabValue} index={1}>
@@ -236,19 +299,26 @@ const ShareDialog: React.FC<ShareDialogProps> = ({ open, onClose, onShare, itemT
                 No groups created yet. Create groups to easily share with multiple people.
               </Typography>
             ) : (
-              <List dense>
+              <List dense sx={{ maxHeight: 300, overflow: 'auto' }}>
                 {groups.map((group) => (
-                  <ListItem key={group.id} dense>
+                  <ListItem 
+                    key={group.id} 
+                    dense 
+                    onClick={() => handleGroupToggle(group.id!)}
+                    sx={{ cursor: 'pointer', '&:hover': { backgroundColor: 'action.hover' } }}
+                  >
                     <ListItemIcon>
                       <Checkbox
                         edge="start"
                         checked={selectedGroups.includes(group.id!)}
                         onChange={() => handleGroupToggle(group.id!)}
+                        tabIndex={-1}
+                        disableRipple
                       />
                     </ListItemIcon>
                     <ListItemText
                       primary={group.name}
-                      secondary={`${group.members.length} member${group.members.length !== 1 ? 's' : ''}`}
+                      secondary={`${group.members.length} member${group.members.length !== 1 ? 's' : ''}: ${group.members.join(', ')}`}
                     />
                   </ListItem>
                 ))}
@@ -257,34 +327,58 @@ const ShareDialog: React.FC<ShareDialogProps> = ({ open, onClose, onShare, itemT
           </TabPanel>
 
           <TabPanel value={tabValue} index={2}>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Recently shared with
-            </Typography>
-            
-            {historyEmails.length === 0 ? (
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Typography variant="body2" color="text.secondary">
+                Currently shared with {currentShares.length} {currentShares.length === 1 ? 'person' : 'people'}
+              </Typography>
+            </Box>
+
+            {currentShares.length === 0 ? (
               <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
-                No sharing history yet
+                This {itemType} is not shared with anyone yet.
               </Typography>
             ) : (
-              <List dense>
-                {historyEmails.map((email) => (
+              <List dense sx={{ maxHeight: 300, overflow: 'auto' }}>
+                {currentShares.map((share) => (
                   <ListItem 
-                    key={email} 
+                    key={share.id} 
                     dense 
- 
-                    sx={{
-                      cursor: selectedRecipients.includes(email) ? 'default' : 'pointer',
-                      opacity: selectedRecipients.includes(email) ? 0.5 : 1
-                    }}
-                    onClick={() => !selectedRecipients.includes(email) && handleHistorySelect(email)}
+                    onClick={() => handleUnshareToggle(share.id)}
+                    sx={{ cursor: 'pointer', '&:hover': { backgroundColor: 'action.hover' } }}
                   >
                     <ListItemIcon>
-                      <Person />
+                      <Checkbox
+                        edge="start"
+                        checked={selectedToUnshare.includes(share.id)}
+                        onChange={() => handleUnshareToggle(share.id)}
+                        tabIndex={-1}
+                        disableRipple
+                      />
                     </ListItemIcon>
-                    <ListItemText primary={email} />
+                    <ListItemText
+                      primary={share.displayName}
+                      secondary={share.email}
+                    />
                   </ListItem>
                 ))}
               </List>
+            )}
+
+            {selectedToUnshare.length > 0 && (
+              <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="body2" color="text.secondary">
+                  {selectedToUnshare.length} selected to unshare
+                </Typography>
+                <Button 
+                  variant="outlined" 
+                  color="error" 
+                  size="small"
+                  onClick={handleUnshare}
+                  startIcon={<RemoveCircleOutline />}
+                >
+                  Unshare
+                </Button>
+              </Box>
             )}
           </TabPanel>
 

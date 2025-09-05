@@ -4,7 +4,6 @@
  */
 
 import type { FormTemplate } from './formFiles';
-import { getUserCustomTemplates, getPublicCustomTemplates, customTemplateToFormTemplate } from '../services/customTemplates';
 
 /**
  * Get built-in form templates that can be embedded in forms
@@ -236,6 +235,117 @@ export function getBuiltInFormTemplates(): { [key: string]: FormTemplate } {
       },
       tags: ['health', 'medical'],
     },
+
+    legal_document: {
+      templateId: 'legal_document',
+      name: 'Legal Document',
+      description: 'Store legal documents and contracts',
+      category: 'Legal',
+      icon: 'Gavel',
+      color: '#6a1b9a',
+      version: '1.0.0',
+      isPublic: true,
+      isOfficial: true,
+      titleField: 'document_title',
+      schema: {
+        fields: [
+          { id: 'document_title', type: 'text', label: 'Document Title', required: true },
+          { id: 'document_type', type: 'text', label: 'Document Type' },
+          { id: 'party_names', type: 'textarea', label: 'Party Names' },
+          { id: 'date_created', type: 'date', label: 'Date Created' },
+          { id: 'expiry_date', type: 'date', label: 'Expiry Date' },
+          { id: 'legal_firm', type: 'text', label: 'Legal Firm/Lawyer' },
+          { id: 'reference_number', type: 'text', label: 'Reference Number' },
+          { id: 'notes', type: 'textarea', label: 'Notes' },
+        ],
+      },
+      defaultData: {},
+      tags: ['legal', 'documents'],
+    },
+
+    software_license: {
+      templateId: 'software_license',
+      name: 'Software License',
+      description: 'Store software licenses and activation keys',
+      category: 'Software',
+      icon: 'License',
+      color: '#00695c',
+      version: '1.0.0',
+      isPublic: true,
+      isOfficial: true,
+      titleField: 'software_name',
+      schema: {
+        fields: [
+          { id: 'software_name', type: 'text', label: 'Software Name', required: true },
+          { id: 'license_key', type: 'password', label: 'License Key', sensitive: true, required: true },
+          { id: 'activation_code', type: 'password', label: 'Activation Code', sensitive: true },
+          { id: 'version', type: 'text', label: 'Version' },
+          { id: 'purchase_date', type: 'date', label: 'Purchase Date' },
+          { id: 'expiry_date', type: 'date', label: 'Expiry Date' },
+          { id: 'vendor', type: 'text', label: 'Vendor/Publisher' },
+          { id: 'notes', type: 'textarea', label: 'Notes', placeholder: 'Installation instructions, special requirements...' },
+        ],
+      },
+      defaultData: {},
+      tags: ['software', 'license'],
+    },
+
+    insurance_policy: {
+      templateId: 'insurance_policy',
+      name: 'Insurance Policy',
+      description: 'Store insurance policy information',
+      category: 'Finance',
+      icon: 'Security',
+      color: '#1565c0',
+      version: '1.0.0',
+      isPublic: true,
+      isOfficial: true,
+      titleField: 'policy_number',
+      schema: {
+        fields: [
+          { id: 'policy_number', type: 'text', label: 'Policy Number', sensitive: true, required: true },
+          { id: 'policy_type', type: 'text', label: 'Policy Type' },
+          { id: 'insurer', type: 'text', label: 'Insurance Company', required: true },
+          { id: 'policy_holder', type: 'text', label: 'Policy Holder' },
+          { id: 'coverage_amount', type: 'text', label: 'Coverage Amount' },
+          { id: 'premium', type: 'text', label: 'Premium' },
+          { id: 'deductible', type: 'text', label: 'Deductible' },
+          { id: 'expiry_date', type: 'date', label: 'Expiry Date' },
+          { id: 'agent_info', type: 'textarea', label: 'Agent Information' },
+          { id: 'notes', type: 'textarea', label: 'Notes', placeholder: 'Coverage details, exclusions, claims history...' },
+        ],
+      },
+      defaultData: {},
+      tags: ['finance', 'insurance'],
+    },
+
+    vehicle_info: {
+      templateId: 'vehicle_info',
+      name: 'Vehicle Info',
+      description: 'Store vehicle registration and insurance details',
+      category: 'Personal',
+      icon: 'DriveEta',
+      color: '#424242',
+      version: '1.0.0',
+      isPublic: true,
+      isOfficial: true,
+      titleField: 'make',
+      schema: {
+        fields: [
+          { id: 'make', type: 'text', label: 'Make', required: true },
+          { id: 'model', type: 'text', label: 'Model', required: true },
+          { id: 'year', type: 'text', label: 'Year', required: true },
+          { id: 'vin', type: 'text', label: 'VIN', sensitive: true, placeholder: 'Vehicle Identification Number' },
+          { id: 'license_plate', type: 'text', label: 'License Plate' },
+          { id: 'registration_number', type: 'text', label: 'Registration Number', sensitive: true },
+          { id: 'insurance_policy', type: 'text', label: 'Insurance Policy Number', sensitive: true },
+          { id: 'insurance_company', type: 'text', label: 'Insurance Company' },
+          { id: 'notes', type: 'textarea', label: 'Notes', placeholder: 'Maintenance records, modifications, accidents...' },
+        ],
+      },
+      defaultData: {},
+      tags: ['personal', 'vehicle'],
+    },
   };
 }
 
@@ -264,44 +374,11 @@ export function getTemplatesByCategory(category: string): FormTemplate[] {
 }
 
 /**
- * Get all templates (built-in + user's custom + public custom templates)
+ * Get all templates (only built-in templates now)
  */
 export async function getAllTemplates(userId?: string): Promise<{ [key: string]: FormTemplate }> {
   const builtInTemplates = getBuiltInFormTemplates();
-  const allTemplates = { ...builtInTemplates };
-
-  if (userId) {
-    try {
-      // Get user's custom templates
-      const customTemplates = await getUserCustomTemplates(userId);
-      customTemplates.forEach(customTemplate => {
-        const template = customTemplateToFormTemplate(customTemplate);
-        if (template.templateId) {
-          allTemplates[template.templateId] = template;
-        }
-      });
-      console.log(`✅ Loaded ${customTemplates.length} user custom templates`);
-    } catch (userError: any) {
-      console.warn('⚠️ User custom templates unavailable (index may still be building):', userError.message);
-    }
-
-    try {
-      // Get public custom templates (excluding user's own templates to avoid duplicates)
-      const publicTemplates = await getPublicCustomTemplates();
-      const filteredPublicTemplates = publicTemplates.filter(customTemplate => customTemplate.userId !== userId);
-      filteredPublicTemplates.forEach(customTemplate => {
-        const template = customTemplateToFormTemplate(customTemplate);
-        if (template.templateId) {
-          allTemplates[template.templateId] = template;
-        }
-      });
-      console.log(`✅ Loaded ${filteredPublicTemplates.length} public custom templates`);
-    } catch (publicError: any) {
-      console.warn('⚠️ Public custom templates unavailable (index may still be building):', publicError.message);
-    }
-  }
-
-  return allTemplates;
+  return { ...builtInTemplates };
 }
 
 /**

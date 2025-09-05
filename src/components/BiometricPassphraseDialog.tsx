@@ -15,7 +15,7 @@ import {
   Tab,
   CircularProgress,
 } from '@mui/material';
-import { Security, Timer, Fingerprint, VpnKey, Logout } from '@mui/icons-material';
+import { Security, Timer, Fingerprint, VpnKey, Logout, Upload } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import {
@@ -28,7 +28,7 @@ import {
 interface BiometricPassphraseDialogProps {
   open: boolean;
   onClose: () => void;
-  onSubmit: (privateKey: string, rememberChoice: boolean, method: 'passphrase' | 'biometric') => Promise<void>;
+  onSubmit: (privateKey: string, rememberChoice: boolean, method: 'passphrase' | 'biometric' | 'keyfile') => Promise<void>;
 }
 
 const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
@@ -45,6 +45,8 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
   const [loading, setLoading] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [hasBiometric, setHasBiometric] = useState(false);
+  const [selectedKeyFile, setSelectedKeyFile] = useState<File | null>(null);
+  const [keyFilePassphrase, setKeyFilePassphrase] = useState('');
 
   useEffect(() => {
     const checkBiometric = async () => {
@@ -66,6 +68,8 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
       setError(null);
       setPassphrase('');
       setRememberChoice(false);
+      setSelectedKeyFile(null);
+      setKeyFilePassphrase('');
     }
   }, [open, user]);
 
@@ -127,6 +131,79 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
     }
   };
 
+  const handleKeyFileUpload = async () => {
+    if (!selectedKeyFile) {
+      setError('Please select a key file');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Read the key file
+      const fileContent = await selectedKeyFile.text();
+      let privateKeyHex: string;
+
+      // Try to parse as JSON first (encrypted key file)
+      try {
+        const keyData = JSON.parse(fileContent);
+        
+        // Check for encrypted key file format
+        if (keyData.encryptedPrivateKey && keyData.keyType) {
+          if (keyData.keyType !== 'HPKE_X25519') {
+            throw new Error('Invalid or unsupported key file format');
+          }
+
+          if (!keyFilePassphrase.trim()) {
+            setError('This is an encrypted key file. Please enter the passphrase.');
+            return;
+          }
+
+          // Import decrypt function and decrypt the private key
+          const { decryptString } = await import('../crypto/hpkeCrypto');
+          privateKeyHex = await decryptString(keyData.encryptedPrivateKey, keyFilePassphrase);
+        }
+        // Check for decrypted key file format
+        else if (keyData.privateKeyHex && keyData.keyType === 'HPKE_X25519_DECRYPTED') {
+          privateKeyHex = keyData.privateKeyHex;
+          // Validate it's a proper hex string
+          if (!/^[a-fA-F0-9]{64}$/.test(privateKeyHex)) {
+            throw new Error('Invalid private key format in decrypted key file');
+          }
+        }
+        else {
+          throw new Error('Invalid key file structure');
+        }
+      } catch (jsonError) {
+        // If JSON parsing fails, treat as plain text private key
+        const trimmedContent = fileContent.trim();
+        
+        // Validate it looks like a hex private key (64 characters)
+        if (/^[a-fA-F0-9]{64}$/.test(trimmedContent)) {
+          privateKeyHex = trimmedContent;
+        } else {
+          throw new Error('Invalid file format. Please provide either an encrypted key file (JSON), a decrypted key file (JSON), or a plain text private key (64 hex characters).');
+        }
+      }
+      
+      // Submit the decrypted private key
+      await onSubmit(privateKeyHex, rememberChoice, 'keyfile');
+      setSelectedKeyFile(null);
+      setKeyFilePassphrase('');
+      setRememberChoice(false);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Key file processing failed';
+      if (errorMessage.includes('decrypt') && keyFilePassphrase.trim()) {
+        setError('Incorrect passphrase for encrypted key file. Please try again.');
+      } else {
+        setError(errorMessage);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleKeyPress = (event: React.KeyboardEvent) => {
     if (event.key === 'Enter' && !loading && activeTab === 0) {
       handlePassphraseSubmit();
@@ -180,14 +257,13 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
           </Alert>
         )}
 
-        {(biometricAvailable && hasBiometric) ? (
-          <Box sx={{ mb: 2 }}>
-            <Tabs value={activeTab} onChange={(_, value) => setActiveTab(value)} centered>
-              <Tab icon={<VpnKey />} label="Passphrase" />
-              <Tab icon={<Fingerprint />} label="Biometric" />
-            </Tabs>
-          </Box>
-        ) : null}
+        <Box sx={{ mb: 2 }}>
+          <Tabs value={activeTab} onChange={(_, value) => setActiveTab(value)} centered>
+            <Tab icon={<VpnKey />} label="Passphrase" />
+            {(biometricAvailable && hasBiometric) && <Tab icon={<Fingerprint />} label="Biometric" />}
+            <Tab icon={<Upload />} label="Key File" />
+          </Tabs>
+        </Box>
         
         {error && (
           <Alert 
@@ -250,7 +326,7 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
         )}
 
         {/* Biometric Tab */}
-        {activeTab === 1 && (
+        {activeTab === 1 && (biometricAvailable && hasBiometric) && (
           <Box sx={{ textAlign: 'center', py: 3 }}>
             <Fingerprint sx={{ fontSize: 64, color: 'primary.main', mb: 2 }} />
             <Typography variant="h6" gutterBottom>
@@ -270,6 +346,76 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
             >
               {loading ? 'Authenticating...' : 'Authenticate'}
             </Button>
+          </Box>
+        )}
+
+        {/* Key File Tab */}
+        {((activeTab === 1 && !(biometricAvailable && hasBiometric)) || (activeTab === 2 && (biometricAvailable && hasBiometric))) && (
+          <Box>
+            <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Upload />
+              Upload Key File
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Select one of the following:
+              <br />• Encrypted key backup (.json) - requires passphrase
+              <br />• Decrypted key backup (.json) - no passphrase needed
+              <br />• Plain text private key file (64 hex characters)
+            </Typography>
+            
+            <input
+              accept=".json,.txt,.key,application/json,text/plain"
+              style={{ display: 'none' }}
+              id="key-file-input"
+              type="file"
+              onChange={(e) => setSelectedKeyFile(e.target.files?.[0] || null)}
+            />
+            <label htmlFor="key-file-input">
+              <Button
+                variant="outlined"
+                component="span"
+                startIcon={<Upload />}
+                disabled={loading}
+                sx={{ mb: 2 }}
+              >
+                {selectedKeyFile ? `Selected: ${selectedKeyFile.name}` : 'Choose Key File'}
+              </Button>
+            </label>
+            
+            {selectedKeyFile && (
+              <>
+                <TextField
+                  margin="dense"
+                  label="Passphrase (if encrypted)"
+                  type="password"
+                  fullWidth
+                  variant="outlined"
+                  value={keyFilePassphrase}
+                  onChange={(e) => setKeyFilePassphrase(e.target.value)}
+                  disabled={loading}
+                  sx={{ mb: 2 }}
+                  helperText="Only required for encrypted key files. Leave empty for decrypted keys or plain text files."
+                />
+                
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={rememberChoice}
+                      onChange={(e) => setRememberChoice(e.target.checked)}
+                      disabled={loading}
+                    />
+                  }
+                  label={
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <Timer fontSize="small" />
+                      <Typography variant="body2">
+                        Keep unlocked longer (1 hour vs 15 minutes)
+                      </Typography>
+                    </Box>
+                  }
+                />
+              </>
+            )}
           </Box>
         )}
         
@@ -302,6 +448,15 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
               disabled={loading || !passphrase.trim()}
             >
               {loading ? 'Decrypting...' : 'Unlock'}
+            </Button>
+          )}
+          {((activeTab === 1 && !(biometricAvailable && hasBiometric)) || (activeTab === 2 && (biometricAvailable && hasBiometric))) && (
+            <Button 
+              onClick={handleKeyFileUpload} 
+              variant="contained" 
+              disabled={loading || !selectedKeyFile}
+            >
+              {loading ? 'Processing...' : 'Unlock with Key File'}
             </Button>
           )}
         </Box>

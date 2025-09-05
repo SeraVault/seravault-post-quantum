@@ -379,17 +379,22 @@ const FileTable: React.FC<FileTableProps> = ({
               </TableCell>
               <TableCell>{t('common.folder', 'folder')}</TableCell>
               <TableCell>
-                {onOpenMobileActionMenu && (
-                  <IconButton
-                    size="small"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onOpenMobileActionMenu(folder, 'folder');
-                    }}
-                  >
-                    <MoreVert />
-                  </IconButton>
-                )}
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Typography variant="body2" color="text.secondary">
+                    —
+                  </Typography>
+                  {onOpenMobileActionMenu && (
+                    <IconButton
+                      size="small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenMobileActionMenu(folder, 'folder');
+                      }}
+                    >
+                      <MoreVert />
+                    </IconButton>
+                  )}
+                </Box>
               </TableCell>
             </TableRow>
           ))}

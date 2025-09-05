@@ -35,16 +35,13 @@ import {
   getUserByEmail, 
   updateFolder, 
   deleteFolder, 
-  addSharingHistory, 
   shareFolder,
   renameFolderWithEncryption,
   type Folder as FolderData 
 } from '../firestore';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, deleteField } from 'firebase/firestore';
 import { db } from '../firebase';
-import { encryptData, decryptData, hexToBytes as hpkeHexToBytes, bytesToHex as hpkeBytesToHex, encryptForMultipleRecipients } from '../crypto/hpkeCrypto';
-import { encryptMetadata } from '../crypto/postQuantumCrypto';
-import { decryptFileMetadata, encryptWithPostQuantum } from '../crypto/migration';
+import { encryptData, decryptData, hexToBytes as hpkeHexToBytes, bytesToHex as hpkeBytesToHex, encryptForMultipleRecipients, decryptMetadata } from '../crypto/hpkeCrypto';
 import { updateFile, deleteFile, type FileData } from '../files';
 import { isFormFile, toggleFormFavorite, type SecureFormData } from '../utils/formFiles';
 import { FileAccessService } from '../services/fileAccess';
@@ -64,7 +61,6 @@ import FormFileViewer from './FormFileViewer';
 import FormFileEditor from './FormFileEditor';
 import FormInstanceFiller from './FormInstanceFiller';
 import FormBuilder from './FormBuilder';
-import FormTemplateDesigner from './FormTemplateDesigner';
 import CreationFAB from './CreationFAB';
 import FileViewer from './FileViewer';
 
@@ -74,7 +70,6 @@ interface MainContentProps {
 }
 
 interface MainContentRef {
-  openTemplateDesigner: () => void;
 }
 
 // Legacy utility functions - prefer HPKE versions for new code
@@ -162,7 +157,6 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
       // Close any open dialogs
       setNewFolderDialogOpen(false);
       setFormBuilderOpen(false);
-      setTemplateDesignerOpen(false);
       setShareDialogOpen(false);
       setFileToShare(null);
       setFolderToShare(null);
@@ -185,18 +179,13 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
 
   // Form-related state
   const [formBuilderOpen, setFormBuilderOpen] = useState(false);
-  const [templateDesignerOpen, setTemplateDesignerOpen] = useState(false);
   const [formEditorOpen, setFormEditorOpen] = useState(false);
   const [unsavedFormData, setUnsavedFormData] = useState<SecureFormData | null>(null);
   const [formViewerOpen, setFormViewerOpen] = useState(false);
   const [formFillerOpen, setFormFillerOpen] = useState(false);
 
   // Expose methods to parent component via ref
-  useImperativeHandle(ref, () => ({
-    openTemplateDesigner: () => {
-      setTemplateDesignerOpen(true);
-    }
-  }));
+  useImperativeHandle(ref, () => ({}));
   const [selectedFormFile, setSelectedFormFile] = useState<FileData | null>(null);
   const [selectedFormData, setSelectedFormData] = useState<any>(null);
   const [isEditingForm, setIsEditingForm] = useState(false);
@@ -521,7 +510,7 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
 
   // Load files for current folder
   useEffect(() => {
-    if (!user || isRecentsView || isFavoritesView || isSharedView) {
+    if (!user || !privateKey || isRecentsView || isFavoritesView || isSharedView) {
       setLoading(false);
       setIsDataLoading(false);
       return;
@@ -537,7 +526,7 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
       where('owner', '==', user.uid)
     );
 
-    // Query for files shared with user (with error handling for missing sharedWith field)
+    // Query for files shared with user (filtered by current folder)
     const sharedFilesQuery = query(
       collection(db, 'files'),
       where('parent', '==', currentFolder),
@@ -546,7 +535,7 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
 
     const filesMap = new Map<string, FileData>();
     let completedQueries = 0;
-    let totalQueries = 2;
+    const totalQueries = 2;
     let ownedQuerySuccess = false;
     let sharedQuerySuccess = false;
     
@@ -581,8 +570,8 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
             privateKeyBytes
           );
 
-          const decryptedName = await decryptFileMetadata(data.name, sharedSecret);
-          const decryptedSize = await decryptFileMetadata(data.size, sharedSecret);
+          const decryptedName = await decryptMetadata(data.name as { ciphertext: string; nonce: string }, sharedSecret);
+          const decryptedSize = await decryptMetadata(data.size as { ciphertext: string; nonce: string }, sharedSecret);
           filesMap.set(doc.id, { ...data, id: doc.id, name: decryptedName, size: decryptedSize });
         } catch (error) {
           console.error('Error decrypting file metadata:', error);
@@ -636,19 +625,21 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
       (error) => handleError(error, 'OwnedFiles')
     );
 
-    // Skip SharedFiles query for now to avoid permission errors
-    // This can be re-enabled later when sharing functionality is needed
-    let unsubscribe2: (() => void) | null = null;
-    
-    // Manually handle the SharedFiles query completion
-    totalQueries = 1; // Only count the owned files query
-    sharedQuerySuccess = true; // Mark as "successful" (skipped)
+    // Enable SharedFiles query for sharing functionality
+    const unsubscribe2 = onSnapshot(
+      sharedFilesQuery,
+      (snapshot) => {
+        sharedQuerySuccess = true;
+        processQueryResults(snapshot, 'SharedFiles');
+      },
+      (error) => {
+        handleError(error, 'SharedFiles');
+      }
+    );
 
     return () => {
       unsubscribe1();
-      if (unsubscribe2) {
-        unsubscribe2();
-      }
+      unsubscribe2();
     };
   }, [currentFolder, user, privateKey, isRecentsView, isFavoritesView, isSharedView]);
 
@@ -713,7 +704,7 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
 
     const favoritesMap = new Map<string, FileData>();
     let completedQueries = 0;
-    const totalQueries = 1; // Only count the owned files query
+    const totalQueries = 2; // Count both owned and shared queries
 
     const processFavoritesResults = async (snapshot: any, queryName: string) => {
       for (const doc of snapshot.docs) {
@@ -742,8 +733,8 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
             privateKeyBytes
           );
 
-          const decryptedName = await decryptFileMetadata(data.name, sharedSecret);
-          const decryptedSize = await decryptFileMetadata(data.size, sharedSecret);
+          const decryptedName = await decryptMetadata(data.name as { ciphertext: string; nonce: string }, sharedSecret);
+          const decryptedSize = await decryptMetadata(data.size as { ciphertext: string; nonce: string }, sharedSecret);
           favoritesMap.set(doc.id, { ...data, id: doc.id, name: decryptedName, size: decryptedSize });
         } catch (error) {
           console.error('Error decrypting favorite file metadata:', error);
@@ -789,14 +780,18 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
       (error) => handleFavoritesError(error, 'OwnedFavorites')
     );
 
-    // Skip shared favorites query for now to avoid permission errors
-    const unsubscribe2: (() => void) | null = null;
+    // Enable shared favorites query
+    const unsubscribe2 = onSnapshot(
+      sharedFavoritesQuery,
+      (snapshot) => {
+        processFavoritesResults(snapshot, 'SharedFavorites');
+      },
+      (error) => handleFavoritesError(error, 'SharedFavorites')
+    );
 
     return () => {
       unsubscribe1();
-      if (unsubscribe2) {
-        unsubscribe2();
-      }
+      unsubscribe2();
     };
   }, [isFavoritesView, user, privateKey]);
 
@@ -849,8 +844,8 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
             privateKeyBytes
           );
 
-          const decryptedName = await decryptFileMetadata(data.name, sharedSecret);
-          const decryptedSize = await decryptFileMetadata(data.size, sharedSecret);
+          const decryptedName = await decryptMetadata(data.name as { ciphertext: string; nonce: string }, sharedSecret);
+          const decryptedSize = await decryptMetadata(data.size as { ciphertext: string; nonce: string }, sharedSecret);
           sharedFilesMap.set(doc.id, { ...data, id: doc.id, name: decryptedName, size: decryptedSize });
         } catch (error) {
           console.error('Error decrypting shared file metadata:', error);
@@ -1120,6 +1115,35 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
     }
   };
 
+  const handleUnshareFile = async (userIdsToUnshare: string[]) => {
+    if (!user || !fileToShare || userIdsToUnshare.length === 0) {
+      console.error('Missing required parameters for unsharing:', { user: !!user, fileToShare: !!fileToShare, userIdsToUnshare });
+      return;
+    }
+
+    try {
+      // Remove users from sharedWith array and remove their encrypted keys
+      const updates: any = {
+        sharedWith: fileToShare.sharedWith.filter(userId => !userIdsToUnshare.includes(userId)),
+        lastModified: new Date().toISOString(),
+      };
+
+      // Remove encrypted keys for unshared users
+      userIdsToUnshare.forEach(userId => {
+        updates[`encryptedKeys.${userId}`] = deleteField();
+      });
+
+      await updateFile(fileToShare.id!, updates);
+
+      alert(`File unshared with ${userIdsToUnshare.length} recipient${userIdsToUnshare.length !== 1 ? 's' : ''}`);
+      setShareDialogOpen(false);
+      
+    } catch (error) {
+      console.error('Error unsharing file:', error);
+      alert('Failed to unshare file: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    }
+  };
+
   const handleShareFile = async (recipients: string[]) => {
     if (!user || !privateKey || !fileToShare || recipients.length === 0) {
       console.error('Missing required parameters for sharing:', { user: !!user, privateKey: !!privateKey, fileToShare: !!fileToShare, recipients });
@@ -1133,9 +1157,16 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
       for (const email of recipients) {
         try {
           const recipient = await getUserByEmail(email);
-          if (!recipient || !recipient.profile.publicKey) {
-            console.warn(`User ${email} not found or does not have a public key`);
-            alert(`User ${email} not found or does not have encryption keys set up.`);
+          
+          if (!recipient) {
+            console.warn(`User ${email} not found in database`);
+            alert(`User ${email} not found. They may need to sign up first.`);
+            continue;
+          }
+          
+          if (!recipient.profile.publicKey) {
+            console.warn(`User ${email} does not have a public key`);
+            alert(`User ${email} does not have encryption keys set up. They need to log in and set up their encryption keys first.`);
             continue;
           }
 
@@ -1210,11 +1241,6 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
 
       await updateFile(fileToShare.id!, updates);
 
-      // Add to sharing history
-      const historyPromises = recipients.map(email => 
-        addSharingHistory(user.uid, email, 'user')
-      );
-      await Promise.all(historyPromises);
 
       alert(`File shared with ${recipientData.length} recipient${recipientData.length !== 1 ? 's' : ''}`);
       setShareDialogOpen(false);
@@ -1483,6 +1509,14 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
                 : ''
             }
             onShare={handleShareFile}
+            onUnshare={handleUnshareFile}
+            currentSharedWith={
+              shareItemType === 'file' && fileToShare 
+                ? fileToShare.sharedWith 
+                : shareItemType === 'folder' && folderToShare
+                ? folderToShare.sharedWith || []
+                : []
+            }
           />
         )}
 
@@ -1700,14 +1734,6 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
           }}
         />
 
-        <FormTemplateDesigner
-          open={templateDesignerOpen}
-          onClose={() => setTemplateDesignerOpen(false)}
-          onSave={(templateId) => {
-            // Template is now saved to Firestore and can be used in the FormBuilder
-            setTemplateDesignerOpen(false);
-          }}
-        />
 
         {formEditorOpen && unsavedFormData && (
           <FormFileEditor

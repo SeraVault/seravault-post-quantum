@@ -5,8 +5,7 @@
 import { createFileWithSharing, updateFile } from '../files';
 import { uploadFileData } from '../storage';
 import { getUserProfile } from '../firestore';
-import { encryptForMultipleRecipients, encryptData } from '../crypto/hpkeCrypto';
-import { encryptMetadata } from '../crypto/postQuantumCrypto';
+import { encryptForMultipleRecipients, encryptData, decryptData, encryptMetadata as hpkeEncryptMetadata } from '../crypto/hpkeCrypto';
 
 export interface FormFieldDefinition {
   id: string;
@@ -165,394 +164,6 @@ export function createBlankForm(name: string, author?: string): SecureFormData {
   };
 }
 
-/**
- * Create common form templates that users can use as starting points
- */
-export function getCommonFormTemplates(t?: (key: string, fallback?: string) => string): { [key: string]: FormTemplate } {
-  const now = new Date().toISOString();
-  
-  // Fallback function if no translation is provided
-  const translate = (key: string, fallback?: string) => {
-    if (t) return t(key);
-    // Extract the last part of the key as fallback
-    return fallback || key.split('.').pop() || key;
-  };
-  
-  return {
-    credit_card: {
-      templateId: 'credit_card',
-      name: translate('forms.formTypes.creditCard', 'Credit Card'),
-      description: translate('forms.formDescriptions.creditCard', 'Store credit card information securely'),
-      category: 'Finance',
-      icon: 'CreditCard',
-      color: '#1976d2',
-      version: '1.0.0',
-      isPublic: true,
-      isOfficial: true,
-      schema: {
-        fields: [
-          { id: 'card_name', type: 'text', label: translate('forms.templateFields.creditCard.cardName', 'Card Name'), required: true, placeholder: 'e.g., Personal Visa' },
-          { id: 'cardholder_name', type: 'text', label: translate('forms.templateFields.creditCard.cardholderName', 'Cardholder Name'), required: true },
-          { id: 'card_number', type: 'text', label: translate('forms.templateFields.creditCard.cardNumber', 'Card Number'), sensitive: true, required: true, placeholder: '1234 5678 9012 3456' },
-          { id: 'expiry_date', type: 'date', label: translate('forms.templateFields.creditCard.expiryDate', 'Expiry Date'), required: true },
-          { id: 'cvv', type: 'password', label: translate('forms.templateFields.creditCard.cvv', 'CVV'), sensitive: true, required: true },
-          { id: 'pin', type: 'text', label: translate('forms.templateFields.creditCard.pin', 'PIN'), sensitive: true, placeholder: '4 digits' },
-          { id: 'bank_name', type: 'text', label: translate('forms.templateFields.creditCard.bankName', 'Bank Name') },
-          { id: 'notes', type: 'textarea', label: translate('forms.templateFields.creditCard.notes', 'Notes'), placeholder: 'Additional notes...' },
-        ],
-      },
-      defaultData: {},
-      tags: [],
-    },
-    
-    password: {
-      metadata: {
-        name: translate('forms.formTypes.password', 'Password'),
-        description: translate('forms.formDescriptions.password', 'Store login credentials securely'),
-        category: 'Security',
-        icon: 'Lock',
-        color: '#d32f2f',
-        version: '1.0.0',
-        created: now,
-        modified: now,
-      },
-      schema: {
-        fields: [
-          { id: 'site_service', type: 'text', label: translate('forms.templateFields.password.siteName', 'Site/Service'), required: true, placeholder: 'e.g., Gmail, Facebook' },
-          { id: 'website_url', type: 'text', label: translate('forms.templateFields.password.url', 'Website URL'), placeholder: 'https://example.com' },
-          { id: 'username', type: 'text', label: translate('forms.templateFields.password.username', 'Username'), required: true },
-          { id: 'email', type: 'text', label: translate('forms.templateFields.password.email', 'Email') },
-          { id: 'password', type: 'password', label: translate('forms.templateFields.password.password', 'Password'), sensitive: true, required: true },
-          { id: 'security_q1', type: 'text', label: translate('forms.templateFields.password.securityQuestion1', 'Security Question 1') },
-          { id: 'security_a1', type: 'text', label: translate('forms.templateFields.password.securityAnswer1', 'Security Answer 1'), sensitive: true },
-          { id: 'security_q2', type: 'text', label: translate('forms.templateFields.password.securityQuestion2', 'Security Question 2') },
-          { id: 'security_a2', type: 'text', label: translate('forms.templateFields.password.securityAnswer2', 'Security Answer 2'), sensitive: true },
-          { id: 'notes', type: 'textarea', label: translate('forms.templateFields.password.notes', 'Notes'), placeholder: 'Additional notes...' },
-        ],
-      },
-      data: {},
-      tags: [],
-    },
-    
-    secure_note: {
-      metadata: {
-        name: translate('forms.formTypes.secureNote', 'Secure Note'),
-        description: translate('forms.formDescriptions.secureNote', 'Store rich text notes securely'),
-        category: 'Notes',
-        icon: 'StickyNote2',
-        color: '#7b1fa2',
-        version: '1.0.0',
-        created: now,
-        modified: now,
-      },
-      schema: {
-        fields: [
-          { id: 'title', type: 'text', label: translate('forms.templateFields.secureNote.title', 'Title'), required: true },
-          { id: 'content', type: 'richtext', label: translate('forms.templateFields.secureNote.content', 'Content'), required: true, placeholder: 'Your secure note content with rich formatting...' },
-          { id: 'tags', type: 'text', label: translate('forms.templateFields.secureNote.tags', 'Tags') },
-        ],
-      },
-      data: {},
-      tags: [],
-    },
-
-    bank_account: {
-      metadata: {
-        name: translate('forms.formTypes.bankAccount', 'Bank Account'),
-        description: translate('forms.formDescriptions.bankAccount', 'Store banking information securely'),
-        category: 'Finance',
-        icon: 'AccountBalance',
-        color: '#388e3c',
-        version: '1.0.0',
-        created: now,
-        modified: now,
-      },
-      schema: {
-        fields: [
-          { id: 'account_name', type: 'text', label: translate('forms.templateFields.bankAccount.accountName', 'Account Name'), required: true, placeholder: 'e.g., Personal Checking' },
-          { id: 'bank_name', type: 'text', label: translate('forms.templateFields.bankAccount.bankName', 'Bank Name'), required: true },
-          { id: 'account_number', type: 'text', label: translate('forms.templateFields.bankAccount.accountNumber', 'Account Number'), sensitive: true, required: true },
-          { id: 'routing_number', type: 'text', label: translate('forms.templateFields.bankAccount.routingNumber', 'Routing Number'), required: true },
-          { id: 'account_type', type: 'text', label: translate('forms.templateFields.bankAccount.accountType', 'Account Type') },
-          { id: 'swift_bic', type: 'text', label: translate('forms.templateFields.bankAccount.swiftBic', 'SWIFT/BIC Code'), placeholder: 'For international transfers' },
-          { id: 'iban', type: 'text', label: translate('forms.templateFields.bankAccount.iban', 'IBAN'), placeholder: 'International Bank Account Number' },
-          { id: 'notes', type: 'textarea', label: translate('forms.templateFields.bankAccount.notes', 'Notes'), placeholder: 'Additional banking information...' },
-        ],
-      },
-      data: {},
-      tags: [],
-    },
-
-    identity: {
-      metadata: {
-        name: translate('forms.formTypes.identity', 'Identity Document'),
-        description: translate('forms.formDescriptions.identity', 'Store personal identification documents'),
-        category: 'Personal',
-        icon: 'Person',
-        color: '#f57c00',
-        version: '1.0.0',
-        created: now,
-        modified: now,
-      },
-      schema: {
-        fields: [
-          { id: 'full_name', type: 'text', label: translate('forms.templateFields.identity.fullName', 'Full Name'), required: true },
-          { id: 'ssn', type: 'text', label: translate('forms.templateFields.identity.ssn', 'Social Security Number'), sensitive: true },
-          { id: 'passport_number', type: 'text', label: translate('forms.templateFields.identity.passportNumber', 'Passport Number'), sensitive: true },
-          { id: 'passport_expiry', type: 'date', label: translate('forms.templateFields.identity.passportExpiry', 'Passport Expiry') },
-          { id: 'driver_license', type: 'text', label: translate('forms.templateFields.identity.driverLicense', 'Driver License Number'), sensitive: true },
-          { id: 'license_expiry', type: 'date', label: translate('forms.templateFields.identity.licenseExpiry', 'License Expiry') },
-          { id: 'national_id', type: 'text', label: translate('forms.templateFields.identity.nationalId', 'National ID'), sensitive: true },
-          { id: 'date_of_birth', type: 'date', label: translate('forms.templateFields.identity.dateOfBirth', 'Date of Birth') },
-          { id: 'address', type: 'textarea', label: translate('forms.templateFields.identity.address', 'Address') },
-          { id: 'notes', type: 'textarea', label: translate('forms.templateFields.identity.notes', 'Notes'), placeholder: 'Additional identification details...' },
-        ],
-      },
-      data: {},
-      tags: [],
-    },
-
-    wifi_network: {
-      metadata: {
-        name: translate('forms.formTypes.wifiNetwork', 'WiFi Network'),
-        description: translate('forms.formDescriptions.wifiNetwork', 'Store WiFi network credentials and settings'),
-        category: 'Network',
-        icon: 'Wifi',
-        color: '#0288d1',
-        version: '1.0.0',
-        created: now,
-        modified: now,
-      },
-      schema: {
-        fields: [
-          { id: 'network_name', type: 'text', label: translate('forms.templateFields.wifiNetwork.networkName', 'Network Name (SSID)'), required: true },
-          { id: 'password', type: 'password', label: translate('forms.templateFields.wifiNetwork.password', 'WiFi Password'), sensitive: true, required: true },
-          { id: 'security_type', type: 'text', label: translate('forms.templateFields.wifiNetwork.securityType', 'Security Type') },
-          { id: 'router_ip', type: 'text', label: translate('forms.templateFields.wifiNetwork.routerIp', 'Router IP Address'), placeholder: 'e.g., 192.168.1.1' },
-          { id: 'admin_username', type: 'text', label: translate('forms.templateFields.wifiNetwork.adminUsername', 'Admin Username') },
-          { id: 'admin_password', type: 'password', label: translate('forms.templateFields.wifiNetwork.adminPassword', 'Admin Password'), sensitive: true },
-          { id: 'wps_pin', type: 'text', label: translate('forms.templateFields.wifiNetwork.wpsPin', 'WPS PIN'), sensitive: true },
-          { id: 'notes', type: 'textarea', label: translate('forms.templateFields.wifiNetwork.notes', 'Notes'), placeholder: 'Network configuration details...' },
-        ],
-      },
-      data: {},
-      tags: [],
-    },
-
-    crypto_wallet: {
-      metadata: {
-        name: translate('forms.formTypes.cryptoWallet', 'Crypto Wallet'),
-        description: translate('forms.formDescriptions.cryptoWallet', 'Store cryptocurrency wallet information'),
-        category: 'Crypto',
-        icon: 'AccountBalanceWallet',
-        color: '#ff9800',
-        version: '1.0.0',
-        created: now,
-        modified: now,
-      },
-      schema: {
-        fields: [
-          { id: 'wallet_name', type: 'text', label: translate('forms.templateFields.cryptoWallet.walletName', 'Wallet Name'), required: true, placeholder: 'e.g., Bitcoin Main Wallet' },
-          { id: 'wallet_type', type: 'text', label: translate('forms.templateFields.cryptoWallet.walletType', 'Wallet Type') },
-          { id: 'seed_phrase', type: 'textarea', label: translate('forms.templateFields.cryptoWallet.seedPhrase', 'Seed Phrase'), sensitive: true, placeholder: '12 or 24 word recovery phrase' },
-          { id: 'private_key', type: 'password', label: translate('forms.templateFields.cryptoWallet.privateKey', 'Private Key'), sensitive: true, required: true },
-          { id: 'public_address', type: 'text', label: translate('forms.templateFields.cryptoWallet.publicAddress', 'Public Address'), required: true },
-          { id: 'passphrase', type: 'password', label: translate('forms.templateFields.cryptoWallet.passphrase', 'Passphrase'), sensitive: true },
-          { id: 'pin_code', type: 'password', label: translate('forms.templateFields.cryptoWallet.pinCode', 'PIN Code'), sensitive: true },
-          { id: 'notes', type: 'textarea', label: translate('forms.templateFields.cryptoWallet.notes', 'Notes'), placeholder: 'Wallet configuration and backup information...' },
-        ],
-      },
-      data: {},
-      tags: [],
-    },
-
-    medical_record: {
-      metadata: {
-        name: translate('forms.formTypes.medicalRecord', 'Medical Record'),
-        description: translate('forms.formDescriptions.medicalRecord', 'Store medical and health information with documents'),
-        category: 'Health',
-        icon: 'LocalHospital',
-        color: '#e53935',
-        version: '1.0.0',
-        created: now,
-        modified: now,
-      },
-      schema: {
-        fields: [
-          { id: 'patient_name', type: 'text', label: translate('forms.templateFields.medicalRecord.patientName', 'Patient Name'), required: true },
-          { id: 'patient_id', type: 'text', label: translate('forms.templateFields.medicalRecord.patientId', 'Patient ID'), sensitive: true },
-          { id: 'provider_name', type: 'text', label: translate('forms.templateFields.medicalRecord.providerName', 'Healthcare Provider') },
-          { id: 'allergies', type: 'textarea', label: translate('forms.templateFields.medicalRecord.allergies', 'Allergies'), placeholder: 'Known allergies and reactions...' },
-          { id: 'medications', type: 'textarea', label: translate('forms.templateFields.medicalRecord.medications', 'Current Medications') },
-          { id: 'conditions', type: 'textarea', label: translate('forms.templateFields.medicalRecord.conditions', 'Medical Conditions'), placeholder: 'Chronic conditions, diagnoses...' },
-          { id: 'emergency_contact', type: 'text', label: translate('forms.templateFields.medicalRecord.emergencyContact', 'Emergency Contact') },
-          { id: 'insurance_info', type: 'textarea', label: translate('forms.templateFields.medicalRecord.insuranceInfo', 'Insurance Information') },
-          { id: 'medical_documents', type: 'file', label: translate('forms.templateFields.medicalRecord.documents', 'Medical Documents'), 
-            fileConfig: { 
-              maxFiles: 10, 
-              maxFileSize: 50 * 1024 * 1024, // 50MB 
-              allowedTypes: ['application/pdf', 'image/jpeg', 'image/png', 'image/gif', 'text/plain'],
-              description: 'Upload medical documents, test results, X-rays, etc. (PDF, images, text files)'
-            }
-          },
-          { id: 'notes', type: 'richtext', label: translate('forms.templateFields.medicalRecord.notes', 'Notes'), placeholder: 'Detailed medical history, procedures, test results...' },
-        ],
-      },
-      data: {
-        medical_documents: [] // Initialize file field as empty array
-      },
-      attachments: {},
-      tags: [],
-    },
-
-    legal_document: {
-      metadata: {
-        name: translate('forms.formTypes.legalDocument', 'Legal Document'),
-        description: translate('forms.formDescriptions.legalDocument', 'Store legal documents and contracts'),
-        category: 'Legal',
-        icon: 'Gavel',
-        color: '#6a1b9a',
-        version: '1.0.0',
-        created: now,
-        modified: now,
-      },
-      schema: {
-        fields: [
-          { id: 'document_title', type: 'text', label: translate('forms.templateFields.legalDocument.documentTitle', 'Document Title'), required: true },
-          { id: 'document_type', type: 'text', label: translate('forms.templateFields.legalDocument.documentType', 'Document Type') },
-          { id: 'party_names', type: 'textarea', label: translate('forms.templateFields.legalDocument.partyNames', 'Party Names') },
-          { id: 'date_created', type: 'date', label: translate('forms.templateFields.legalDocument.dateCreated', 'Date Created') },
-          { id: 'expiry_date', type: 'date', label: translate('forms.templateFields.legalDocument.expiryDate', 'Expiry Date') },
-          { id: 'legal_firm', type: 'text', label: translate('forms.templateFields.legalDocument.legalFirm', 'Legal Firm/Lawyer') },
-          { id: 'reference_number', type: 'text', label: translate('forms.templateFields.legalDocument.referenceNumber', 'Reference Number') },
-          { id: 'notes', type: 'textarea', label: translate('forms.templateFields.legalDocument.notes', 'Notes') },
-        ],
-      },
-      data: {},
-      tags: [],
-    },
-
-    software_license: {
-      metadata: {
-        name: translate('forms.formTypes.softwareLicense', 'Software License'),
-        description: translate('forms.formDescriptions.softwareLicense', 'Store software licenses and activation keys'),
-        category: 'Software',
-        icon: 'License',
-        color: '#00695c',
-        version: '1.0.0',
-        created: now,
-        modified: now,
-      },
-      schema: {
-        fields: [
-          { id: 'software_name', type: 'text', label: translate('forms.templateFields.softwareLicense.softwareName', 'Software Name'), required: true },
-          { id: 'license_key', type: 'password', label: translate('forms.templateFields.softwareLicense.licenseKey', 'License Key'), sensitive: true, required: true },
-          { id: 'activation_code', type: 'password', label: translate('forms.templateFields.softwareLicense.activationCode', 'Activation Code'), sensitive: true },
-          { id: 'version', type: 'text', label: translate('forms.templateFields.softwareLicense.version', 'Version') },
-          { id: 'purchase_date', type: 'date', label: translate('forms.templateFields.softwareLicense.purchaseDate', 'Purchase Date') },
-          { id: 'expiry_date', type: 'date', label: translate('forms.templateFields.softwareLicense.expiryDate', 'Expiry Date') },
-          { id: 'vendor', type: 'text', label: translate('forms.templateFields.softwareLicense.vendor', 'Vendor/Publisher') },
-          { id: 'notes', type: 'textarea', label: translate('forms.templateFields.softwareLicense.notes', 'Notes'), placeholder: 'Installation instructions, special requirements...' },
-        ],
-      },
-      data: {},
-      tags: [],
-    },
-
-    insurance_policy: {
-      metadata: {
-        name: translate('forms.formTypes.insurancePolicy', 'Insurance Policy'),
-        description: translate('forms.formDescriptions.insurancePolicy', 'Store insurance policy information'),
-        category: 'Finance',
-        icon: 'Security',
-        color: '#1565c0',
-        version: '1.0.0',
-        created: now,
-        modified: now,
-      },
-      schema: {
-        fields: [
-          { id: 'policy_number', type: 'text', label: translate('forms.templateFields.insurancePolicy.policyNumber', 'Policy Number'), sensitive: true, required: true },
-          { id: 'policy_type', type: 'text', label: translate('forms.templateFields.insurancePolicy.policyType', 'Policy Type') },
-          { id: 'insurer', type: 'text', label: translate('forms.templateFields.insurancePolicy.insurer', 'Insurance Company'), required: true },
-          { id: 'policy_holder', type: 'text', label: translate('forms.templateFields.insurancePolicy.policyHolder', 'Policy Holder') },
-          { id: 'coverage_amount', type: 'text', label: translate('forms.templateFields.insurancePolicy.coverageAmount', 'Coverage Amount') },
-          { id: 'premium', type: 'text', label: translate('forms.templateFields.insurancePolicy.premium', 'Premium') },
-          { id: 'deductible', type: 'text', label: translate('forms.templateFields.insurancePolicy.deductible', 'Deductible') },
-          { id: 'expiry_date', type: 'date', label: translate('forms.templateFields.insurancePolicy.expiryDate', 'Expiry Date') },
-          { id: 'agent_info', type: 'textarea', label: translate('forms.templateFields.insurancePolicy.agentInfo', 'Agent Information') },
-          { id: 'notes', type: 'textarea', label: translate('forms.templateFields.insurancePolicy.notes', 'Notes'), placeholder: 'Coverage details, exclusions, claims history...' },
-        ],
-      },
-      data: {},
-      tags: [],
-    },
-
-    vehicle_info: {
-      metadata: {
-        name: translate('forms.formTypes.vehicleInfo', 'Vehicle Info'),
-        description: translate('forms.formDescriptions.vehicleInfo', 'Store vehicle registration and insurance details'),
-        category: 'Personal',
-        icon: 'DriveEta',
-        color: '#424242',
-        version: '1.0.0',
-        created: now,
-        modified: now,
-      },
-      schema: {
-        fields: [
-          { id: 'make', type: 'text', label: translate('forms.templateFields.vehicleInfo.vehicleMake', 'Make'), required: true },
-          { id: 'model', type: 'text', label: translate('forms.templateFields.vehicleInfo.vehicleModel', 'Model'), required: true },
-          { id: 'year', type: 'text', label: translate('forms.templateFields.vehicleInfo.year', 'Year'), required: true },
-          { id: 'vin', type: 'text', label: translate('forms.templateFields.vehicleInfo.vin', 'VIN'), sensitive: true, placeholder: 'Vehicle Identification Number' },
-          { id: 'license_plate', type: 'text', label: translate('forms.templateFields.vehicleInfo.licensePlate', 'License Plate') },
-          { id: 'registration_number', type: 'text', label: translate('forms.templateFields.vehicleInfo.registrationNumber', 'Registration Number'), sensitive: true },
-          { id: 'insurance_policy', type: 'text', label: translate('forms.templateFields.vehicleInfo.insurancePolicy', 'Insurance Policy Number'), sensitive: true },
-          { id: 'insurance_company', type: 'text', label: translate('forms.templateFields.vehicleInfo.insuranceCompany', 'Insurance Company') },
-          { id: 'notes', type: 'textarea', label: translate('forms.templateFields.vehicleInfo.notes', 'Notes'), placeholder: 'Maintenance records, modifications, accidents...' },
-        ],
-      },
-      data: {},
-      tags: [],
-    },
-  };
-}
-
-/**
- * Create a new form from template
- */
-export function createFormFromTemplate(templateKey: string, name?: string, author?: string, t?: (key: string, fallback?: string) => string): SecureFormData {
-  const templates = getCommonFormTemplates(t);
-  const template = templates[templateKey];
-  
-  if (!template) {
-    throw new Error(`Template ${templateKey} not found`);
-  }
-  
-  const now = new Date().toISOString();
-  
-  const formData: SecureFormData = {
-    metadata: {
-      name: name || template.name,
-      description: `Created from template: ${template.name}`,
-      category: template.category,
-      icon: template.icon,
-      color: template.color,
-      version: '1.0.0',
-      author: author,
-      created: now,
-      modified: now,
-    },
-    template: JSON.parse(JSON.stringify(template)), // Embed the template
-    schema: JSON.parse(JSON.stringify(template.schema)), // Deep clone
-    data: JSON.parse(JSON.stringify(template.defaultData || {})), // Deep clone default data
-    attachments: {},
-    tags: [...(template.tags || [])],
-  };
-  
-  return formData;
-}
-
 // Helper functions for encryption (copied from MainContent pattern)
 const hexToBytes = (hex: string) => {
   const bytes = new Uint8Array(hex.length / 2);
@@ -566,6 +177,41 @@ const bytesToHex = (bytes: Uint8Array) =>
   bytes.reduce((str, byte) => str + byte.toString(16).padStart(2, '0'), '');
 
 /**
+ * Generate document filename based on template's titleField
+ */
+function generateDocumentName(formData: SecureFormData): string {
+  console.log('=== GENERATE DOCUMENT NAME DEBUG ===');
+  console.log('Form has template:', !!formData.template);
+  console.log('Template titleField:', formData.template?.titleField);
+  console.log('Form data keys:', Object.keys(formData.data));
+  
+  // Check if form has an embedded template with titleField
+  if (formData.template?.titleField) {
+    const titleFieldId = formData.template.titleField;
+    const titleValue = formData.data[titleFieldId];
+    
+    console.log('Title field ID:', titleFieldId);
+    console.log('Title value:', titleValue);
+    console.log('Title value type:', typeof titleValue);
+    
+    if (titleValue && typeof titleValue === 'string' && titleValue.trim()) {
+      // Clean the title value for filename (remove invalid characters)
+      const cleanTitle = titleValue.trim().replace(/[^\w\s\-\.]/g, '').substring(0, 50);
+      const fileName = `${cleanTitle}.form`;
+      console.log('Generated filename from title field:', fileName);
+      return fileName;
+    }
+  }
+  
+  // Fallback to metadata name if no title field or value
+  const fallbackName = formData.metadata.name || 'Untitled Form';
+  const fileName = `${fallbackName}.form`;
+  console.log('Using fallback filename:', fileName);
+  console.log('=====================================');
+  return fileName;
+}
+
+/**
  * Save form data as a JSON file using existing file encryption
  * @returns The file ID of the created form file
  */
@@ -576,11 +222,35 @@ export async function updateFormFile(
   privateKey: string
 ): Promise<void> {
   try {
-    // Get user profile for public key
-    const userProfile = await getUserProfile(userId);
-    if (!userProfile?.publicKey) {
-      throw new Error('Public key not found for the user.');
+    // Get the existing file to preserve sharing and encryption keys
+    const { getDoc, doc } = await import('firebase/firestore');
+    const { db } = await import('../firebase');
+    
+    const docSnap = await getDoc(doc(db, 'files', fileId));
+    if (!docSnap.exists()) {
+      throw new Error('File not found');
     }
+    
+    const existingFile = { id: docSnap.id, ...docSnap.data() } as any;
+    
+    // Decrypt the existing file key using the user's private key
+    const userEncryptedKey = existingFile.encryptedKeys[userId];
+    if (!userEncryptedKey) {
+      throw new Error('User does not have access to this file');
+    }
+    
+    const privateKeyBytes = hexToBytes(privateKey);
+    const keyData = hexToBytes(userEncryptedKey);
+    
+    // HPKE encrypted keys contain: encapsulated_key (32 bytes) + ciphertext  
+    const encapsulatedKey = keyData.slice(0, 32);
+    const ciphertext = keyData.slice(32);
+    
+    // Decrypt the file key using the existing encryption
+    const fileKey = await decryptData(
+      { encapsulatedKey, ciphertext },
+      privateKeyBytes
+    );
 
     // Update timestamp
     const updatedFormData = {
@@ -594,32 +264,19 @@ export async function updateFormFile(
     // Create JSON content
     const jsonString = JSON.stringify(updatedFormData, null, 2);
     
-    // Encrypt the file content using HPKE
-    const publicKey = hexToBytes(userProfile.publicKey);
-    
-    // Generate a random file key for AES encryption
-    const fileKey = crypto.getRandomValues(new Uint8Array(32));
-    
-    // Encrypt the file key using HPKE
-    const { encryptedContent: encryptedFileKey, encryptedKeys } = await encryptForMultipleRecipients(
-      new TextEncoder().encode(JSON.stringify({ key: Array.from(fileKey) })),
-      [{ userId, publicKey: hexToBytes(userProfile.publicKey) }]
-    );
-    
-    const sharedSecret = fileKey;
-    
+    // Use the existing file key for AES encryption
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const encryptedContent = await crypto.subtle.encrypt(
       { name: 'AES-GCM', iv },
-      await crypto.subtle.importKey('raw', sharedSecret, 'AES-GCM', false, ['encrypt']),
+      await crypto.subtle.importKey('raw', fileKey, 'AES-GCM', false, ['encrypt']),
       new TextEncoder().encode(jsonString)
     );
 
-    // Create filename and encrypt metadata
-    const fileName = `${formData.metadata.name}.form`;
-    const { encryptedName, encryptedSize, nonce } = encryptMetadata(
+    // Create filename and encrypt metadata using HPKE
+    const fileName = generateDocumentName(updatedFormData);
+    const metadataResult = await hpkeEncryptMetadata(
       { name: fileName, size: jsonString.length.toString() },
-      sharedSecret
+      fileKey
     );
 
     // Use the same storage path pattern as regular files
@@ -634,11 +291,12 @@ export async function updateFormFile(
     await uploadFileData(storagePath, combinedData);
 
     // Update file record with new encrypted name and content
+    // Keep the existing encryptedKeys to preserve sharing permissions
     const updateData = {
-      name: { ciphertext: encryptedName, nonce: nonce },
-      size: { ciphertext: encryptedSize, nonce: nonce },
+      name: metadataResult.name,
+      size: metadataResult.size,
       storagePath,
-      encryptedKeys: encryptedKeys,
+      // Don't update encryptedKeys - preserve existing sharing
     };
 
     await updateFile(fileId, updateData);
@@ -656,24 +314,29 @@ export async function saveFormAsFile(
 ): Promise<string> {
   console.log('=== saveFormAsFile START ===');
   console.log('Parameters:', { userId, parentFolder, formName: formData?.metadata?.name });
-  console.log('FormData structure:', { 
-    hasMetadata: !!formData?.metadata,
-    hasFields: !!formData?.fields,
-    fieldsLength: formData?.fields?.length 
-  });
   
   try {
-    console.log('Entering main try block');
-    
     // Get user profile for public key  
-    console.log('About to call getUserProfile for userId:', userId);
     const userProfile = await getUserProfile(userId);
-    console.log('getUserProfile result:', { exists: !!userProfile, hasPublicKey: !!userProfile?.publicKey });
     if (!userProfile?.publicKey) {
       throw new Error('Public key not found for the user.');
     }
     
-    console.log('User profile retrieved, publicKey exists:', !!userProfile.publicKey);
+    // Debug the user's key information
+    const publicKeyHex = userProfile.publicKey;
+    const publicKeyBytes = hexToBytes(publicKeyHex);
+    console.log('=== USER KEY DEBUG ===');
+    console.log('Public key hex length:', publicKeyHex.length);
+    console.log('Public key bytes length:', publicKeyBytes.length);
+    console.log('Public key hex (first 64 chars):', publicKeyHex.substring(0, 64));
+    console.log('Has encryptedPrivateKey:', !!userProfile.encryptedPrivateKey);
+    console.log('Has legacyEncryptedPrivateKey:', !!userProfile.legacyEncryptedPrivateKey);
+    console.log('========================');
+    
+    // HPKE expects 32-byte X25519 public keys
+    if (publicKeyBytes.length !== 32) {
+      throw new Error(`Invalid HPKE public key length: expected 32 bytes, got ${publicKeyBytes.length} bytes. Please regenerate your keys from the Profile page.`);
+    }
 
     // Update timestamp
     const updatedFormData = {
@@ -710,7 +373,26 @@ export async function saveFormAsFile(
     
     // Encrypt the file key using HPKE
     const publicKey = hexToBytes(userProfile.publicKey);
-    const encryptedKeyResult = await encryptData(fileKey, publicKey);
+    console.log('=== HPKE ENCRYPTION DEBUG ===');
+    console.log('About to encrypt file key with HPKE...');
+    console.log('File key length:', fileKey.length);
+    console.log('Public key length:', publicKey.length);
+    console.log('Public key bytes:', Array.from(publicKey.slice(0, 8)).map(b => b.toString(16).padStart(2, '0')).join(' ') + '...');
+    
+    let encryptedKeyResult;
+    try {
+      encryptedKeyResult = await encryptData(fileKey, publicKey);
+      console.log('HPKE encryption successful!');
+      console.log('Encapsulated key length:', encryptedKeyResult.encapsulatedKey.length);
+      console.log('Ciphertext length:', encryptedKeyResult.ciphertext.length);
+    } catch (hpkeError) {
+      console.error('=== HPKE ENCRYPTION FAILED ===');
+      console.error('HPKE Error:', hpkeError);
+      console.error('Error message:', hpkeError instanceof Error ? hpkeError.message : String(hpkeError));
+      console.error('Error stack:', hpkeError instanceof Error ? hpkeError.stack : 'No stack');
+      console.error('==============================');
+      throw new Error(`HPKE encryption failed: ${hpkeError instanceof Error ? hpkeError.message : String(hpkeError)}`);
+    }
     
     // Store as: encapsulated_key + ciphertext
     const keyData = new Uint8Array(encryptedKeyResult.encapsulatedKey.length + encryptedKeyResult.ciphertext.length);
@@ -722,9 +404,10 @@ export async function saveFormAsFile(
     };
     console.log('File key encrypted with HPKE successfully');
     
-    // Encrypt metadata with the same file key
-    const fileName = `${formData.metadata.name}.form`;
-    const encryptedMetadata = await encryptMetadata(
+    // Encrypt metadata with the same file key  
+    // Use titleField from template to generate document name
+    const fileName = generateDocumentName(updatedFormData);
+    const encryptedMetadata = await hpkeEncryptMetadata(
       { name: fileName, size: jsonString.length.toString() },
       fileKey
     );
@@ -743,9 +426,9 @@ export async function saveFormAsFile(
     console.log('Creating file record in database...');
     const fileId = await createFileWithSharing({
       owner: userId,
-      name: { ciphertext: encryptedMetadata.encryptedName, nonce: encryptedMetadata.nonce },
+      name: encryptedMetadata.name,
       parent: parentFolder,
-      size: { ciphertext: encryptedMetadata.encryptedSize, nonce: encryptedMetadata.nonce },
+      size: encryptedMetadata.size,
       storagePath,
       encryptedKeys: encryptedKeys,
       sharedWith: [userId],
