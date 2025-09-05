@@ -3,7 +3,7 @@ import { Box, Typography, LinearProgress, Fade, useTheme, Card, CardContent } fr
 import { useAuth } from '../auth/AuthContext';
 import { getUserProfile } from '../firestore';
 import { encryptData, bytesToHex, hexToBytes } from '../crypto/hpkeCrypto';
-import { encryptMetadata } from '../crypto/postQuantumCrypto';
+import { encryptMetadata } from '../crypto/hpkeCrypto';
 import { uploadFileData } from '../storage';
 import { createFileWithSharing } from '../files';
 
@@ -107,9 +107,9 @@ const FileUploadArea: React.FC<FileUploadAreaProps> = ({
       setUploadStage('Creating file record...');
       await createFileWithSharing({
         owner: user.uid,
-        name: { ciphertext: encryptedMetadata.encryptedName, nonce: encryptedMetadata.nonce },
+        name: encryptedMetadata.name,
         parent: currentFolder,
-        size: { ciphertext: encryptedMetadata.encryptedSize, nonce: encryptedMetadata.nonce },
+        size: encryptedMetadata.size,
         storagePath,
         encryptedKeys,
         sharedWith: [user.uid],

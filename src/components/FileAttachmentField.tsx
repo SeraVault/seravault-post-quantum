@@ -22,7 +22,7 @@ import { uploadFileData } from '../storage';
 import { createFileWithSharing } from '../files';
 import { getUserProfile } from '../firestore';
 import { encryptData } from '../crypto/hpkeCrypto';
-import { encryptMetadata, hexToBytes, bytesToHex } from '../crypto/postQuantumCrypto';
+import { encryptMetadata, hexToBytes, bytesToHex } from '../crypto/hpkeCrypto';
 import type { FormFieldDefinition, AttachedFile } from '../utils/formFiles';
 
 interface FileAttachmentFieldProps {
@@ -166,7 +166,7 @@ const FileAttachmentField: React.FC<FileAttachmentFieldProps> = ({
       );
 
       // Encrypt metadata
-      const { encryptedName, encryptedSize, nonce } = encryptMetadata(
+      const encryptedMetadata = await encryptMetadata(
         { name: file.name, size: file.size.toString() },
         sharedSecret
       );
@@ -189,9 +189,9 @@ const FileAttachmentField: React.FC<FileAttachmentFieldProps> = ({
       // Create file record
       const fileId = await createFileWithSharing({
         owner: userId,
-        name: { ciphertext: encryptedName, nonce: nonce },
+        name: encryptedMetadata.name,
         parent: parentFolder, // Files attached to forms go in same folder as form
-        size: { ciphertext: encryptedSize, nonce: nonce },
+        size: encryptedMetadata.size,
         storagePath,
         encryptedKeys: { [userId]: bytesToHex(cipherText) },
         sharedWith: [userId],

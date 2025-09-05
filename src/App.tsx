@@ -15,7 +15,6 @@ import { Box, CircularProgress, Typography, useTheme, Dialog, DialogContent } fr
 import { ClipboardProvider } from './context/ClipboardContext';
 import { LoadingProvider, useGlobalLoading } from './context/LoadingContext';
 import { RecentsProvider } from './context/RecentsContext';
-import { FormTemplatesProvider } from './context/FormTemplatesContext';
 
 // Global Loading Component
 const GlobalLoadingSpinner: React.FC = () => {
@@ -89,21 +88,19 @@ const App: React.FC = () => {
     <ClipboardProvider>
       <LoadingProvider>
         <RecentsProvider>
-          <FormTemplatesProvider>
-            <GlobalLoadingSpinner />
-            <Routes>
-              <Route path="/login" element={<LoginPage />} />
-              <Route path="/signup" element={<SignupPage />} />
-              <Route element={<ProtectedRoute />}>
-                <Route element={<ProfileCheck />}>
-                  <Route path="/" element={<HomePage />} />
-                </Route>
-                <Route path="/profile" element={<ProfilePage />} />
-                <Route path="/cleanup" element={<CleanupPage />} />
-                <Route path="/security" element={<SecurityPage />} />
+          <GlobalLoadingSpinner />
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/signup" element={<SignupPage />} />
+            <Route element={<ProtectedRoute />}>
+              <Route element={<ProfileCheck />}>
+                <Route path="/" element={<HomePage />} />
               </Route>
-            </Routes>
-          </FormTemplatesProvider>
+              <Route path="/profile" element={<ProfilePage />} />
+              <Route path="/cleanup" element={<CleanupPage />} />
+              <Route path="/security" element={<SecurityPage />} />
+            </Route>
+          </Routes>
         </RecentsProvider>
       </LoadingProvider>
     </ClipboardProvider>

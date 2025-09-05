@@ -1,5 +1,6 @@
 import { doc, getDoc, setDoc, collection, addDoc, serverTimestamp, query, where, getDocs, FieldValue, updateDoc, deleteDoc } from 'firebase/firestore';
-import { db } from './firebase';
+import { deleteObject, ref } from 'firebase/storage';
+import { db, storage } from './firebase';
 
 export interface UserProfile {
   displayName: string;
@@ -38,13 +39,6 @@ export interface Group {
   isEncrypted?: boolean; // Flag to distinguish encrypted vs legacy groups
 }
 
-export interface SharingHistory {
-  id?: string;
-  owner: string;
-  sharedWith: string; // User UID or email
-  sharedAt: FieldValue;
-  type: 'user' | 'group';
-}
 
 
 export const getUserProfile = async (uid: string): Promise<UserProfile | null> => {
@@ -79,8 +73,7 @@ export const updateUserProfile = async (uid: string, updates: Partial<UserProfil
 
 export const createFolder = async (owner: string, name: string, parent: string | null) => {
   // Import encryption functions
-  const { encryptData } = await import('./crypto/hpkeCrypto');
-  const { encryptMetadata } = await import('./crypto/postQuantumCrypto');
+  const { encryptData, encryptMetadata } = await import('./crypto/hpkeCrypto');
   
   // Get user's public key for encryption
   const userProfile = await getUserProfile(owner);
@@ -115,7 +108,7 @@ export const createFolder = async (owner: string, name: string, parent: string |
   const sharedSecret = metadataKey;
   
   // Encrypt the folder name
-  const { encryptedName, nonce } = encryptMetadata(
+  const encryptedMetadata = await encryptMetadata(
     { name: name, size: '0' }, // folders don't have size, but encryptMetadata expects it
     sharedSecret
   );
@@ -125,7 +118,7 @@ export const createFolder = async (owner: string, name: string, parent: string |
 
   const newFolder: Folder = {
     owner,
-    name: { ciphertext: encryptedName, nonce: nonce },
+    name: encryptedMetadata.name,
     parent,
     encryptedKeys: { [owner]: bytesToHex(combinedKeyData) },
     createdAt: serverTimestamp(),
@@ -148,8 +141,7 @@ export const updateFolder = async (folderId: string, updates: Partial<Folder>) =
 export const renameFolderWithEncryption = async (folderId: string, newName: string, userId: string) => {
   try {
     // Import encryption functions
-    const { encryptData } = await import('./crypto/hpkeCrypto');
-    const { encryptMetadata } = await import('./crypto/postQuantumCrypto');
+    const { encryptData, encryptMetadata } = await import('./crypto/hpkeCrypto');
     
     // Get user's public key for encryption
     const userProfile = await getUserProfile(userId);
@@ -184,7 +176,7 @@ export const renameFolderWithEncryption = async (folderId: string, newName: stri
     const sharedSecret = metadataKey;
     
     // Encrypt the folder name
-    const { encryptedName, nonce } = encryptMetadata(
+    const encryptedMetadata = await encryptMetadata(
       { name: newName, size: '0' }, // folders don't have size, but encryptMetadata expects it
       sharedSecret
     );
@@ -194,7 +186,7 @@ export const renameFolderWithEncryption = async (folderId: string, newName: stri
 
     // Update the folder with encrypted name and new key
     await updateFolder(folderId, {
-      name: { ciphertext: encryptedName, nonce: nonce },
+      name: encryptedMetadata.name,
       encryptedKeys: { [userId]: bytesToHex(combinedKeyData) },
     });
   } catch (error) {
@@ -204,8 +196,23 @@ export const renameFolderWithEncryption = async (folderId: string, newName: stri
 };
 
 export const deleteFolder = async (folderId: string) => {
-  const folderRef = doc(db, 'folders', folderId);
-  await deleteDoc(folderRef);
+  try {
+    console.log(`Starting deletion of folder: ${folderId}`);
+    
+    // Simplified approach: just delete the folder document directly
+    // The frontend should have already verified this is empty or asked for confirmation
+    const folderRef = doc(db, 'folders', folderId);
+    await deleteDoc(folderRef);
+    console.log(`Successfully deleted folder: ${folderId}`);
+    
+  } catch (error) {
+    console.error(`Error deleting folder ${folderId}:`, error);
+    if (error instanceof Error) {
+      console.error(`Error message: ${error.message}`);
+      console.error(`Error stack: ${error.stack}`);
+    }
+    throw error;
+  }
 };
 
 // Group management functions
@@ -378,25 +385,6 @@ export const getUserGroups = async (uid: string, userPrivateKey?: Uint8Array): P
   return decryptedGroups;
 };
 
-// Sharing history functions
-export const addSharingHistory = async (owner: string, sharedWith: string, type: 'user' | 'group') => {
-  const historyEntry: SharingHistory = {
-    owner,
-    sharedWith,
-    sharedAt: serverTimestamp(),
-    type,
-  };
-  await addDoc(collection(db, 'sharingHistory'), historyEntry);
-};
-
-export const getSharingHistory = async (uid: string): Promise<SharingHistory[]> => {
-  const q = query(
-    collection(db, 'sharingHistory'), 
-    where('owner', '==', uid)
-  );
-  const querySnapshot = await getDocs(q);
-  return querySnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as SharingHistory));
-};
 
 // Folder sharing functions
 export const getAllFoldersForUser = async (uid: string): Promise<Folder[]> => {

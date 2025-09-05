@@ -32,10 +32,10 @@ import { Document, Page, pdfjs } from 'react-pdf';
 import { useTranslation } from 'react-i18next';
 import type { FileData } from '../files';
 
-// Set up PDF.js worker - ensure version matches react-pdf's pdfjs-dist version
+// Set up PDF.js worker - use local worker file for self-contained deployment
 if (typeof window !== 'undefined') {
-  // Use the exact version that react-pdf is using (5.3.93)
-  pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@5.3.93/build/pdf.worker.min.js`;
+  // Use the local worker file copied from pdfjs-dist package
+  pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
 }
 
 interface FileViewerProps {

@@ -1,7 +1,6 @@
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { decryptFileContent, decryptData, hexToBytes } from '../crypto/hpkeCrypto';
-import { decryptFileMetadata } from '../crypto/migration';
+import { decryptFileContent, decryptData, hexToBytes, decryptMetadata } from '../crypto/hpkeCrypto';
 import { isFormFile } from '../utils/formFiles';
 import type { FileData } from '../files';
 
@@ -53,15 +52,9 @@ export class FileAccessService {
           privateKeyBytes
         );
 
-        if (typeof data.name === 'object' && data.name.ciphertext) {
-          // New HPKE encrypted metadata format - use migration function
-          decryptedName = await decryptFileMetadata(data.name, sharedSecret);
-          decryptedSize = await decryptFileMetadata(data.size, sharedSecret);
-        } else {
-          // Legacy format - already have sharedSecret from above
-          decryptedName = await decryptFileMetadata(data.name, sharedSecret);
-          decryptedSize = await decryptFileMetadata(data.size, sharedSecret);
-        }
+        // Use HPKE metadata decryption for all files
+        decryptedName = await decryptMetadata(data.name as { ciphertext: string; nonce: string }, sharedSecret);
+        decryptedSize = await decryptMetadata(data.size as { ciphertext: string; nonce: string }, sharedSecret);
       } catch (error) {
         console.error('Error decrypting file metadata:', error);
         decryptedName = '[Decryption Failed]';

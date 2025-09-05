@@ -7,7 +7,7 @@
  * - Session-only persistence (no disk storage)
  */
 
-import { secureWipe } from '../crypto/postQuantumCrypto';
+import { secureWipe } from '../crypto/hpkeCrypto';
 
 interface SecureStorageItem {
   data: Uint8Array;

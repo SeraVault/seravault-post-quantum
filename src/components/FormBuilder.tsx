@@ -42,7 +42,7 @@ import {
   type SecureFormData,
   type FormTemplate
 } from '../utils/formFiles';
-import { useFormTemplates } from '../context/FormTemplatesContext';
+import { getAllTemplates, createFormFromTemplate as createEmbeddedForm } from '../utils/embeddedTemplates';
 
 interface FormBuilderProps {
   open: boolean;
@@ -77,14 +77,22 @@ const FormBuilder: React.FC<FormBuilderProps> = ({
   onFormCreated,
 }) => {
   const { t } = useTranslation();
-  const { 
-    userTemplates, 
-    popularTemplates, 
-    categories, 
-    loading: templatesLoading,
-    getTemplatesByCategory,
-    createFormFromTemplate
-  } = useFormTemplates();
+  const [allTemplates, setAllTemplates] = useState<{ [key: string]: FormTemplate }>({});
+  const [loading, setLoading] = useState(true);
+  
+  useEffect(() => {
+    async function loadTemplates() {
+      try {
+        const templates = await getAllTemplates(userId);
+        setAllTemplates(templates);
+      } catch (error) {
+        console.error('Error loading templates:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadTemplates();
+  }, [userId]);
   
   const [step, setStep] = useState<'choose' | 'saving'>('choose');
   const [saving, setSaving] = useState(false);
@@ -103,12 +111,15 @@ const FormBuilder: React.FC<FormBuilderProps> = ({
     }
   }, [open]);
 
-  // Combine all available templates
-  const allTemplates = [...userTemplates, ...popularTemplates];
+  // Get all templates as array
+  const templatesArray = Object.values(allTemplates);
+  
+  // Get categories from templates
+  const categories = Array.from(new Set(templatesArray.map(t => t.category).filter(Boolean)));
   
   // Filter templates by category if one is selected
   const categoryTemplates = selectedCategory 
-    ? allTemplates.filter(template => template.category === selectedCategory)
+    ? templatesArray.filter(template => template.category === selectedCategory)
     : [];
 
 
@@ -150,9 +161,9 @@ const FormBuilder: React.FC<FormBuilderProps> = ({
     try {
       let formData: SecureFormData;
 
-      if (template && template.id) {
-        // Use FormTemplatesContext to create form from database template
-        formData = await createFormFromTemplate(template.id, name);
+      if (template && template.templateId) {
+        // Use embedded template system
+        formData = await createEmbeddedForm(template.templateId, name, userId);
       } else {
         formData = createBlankForm(name, userId);
       }
@@ -332,7 +343,7 @@ const FormBuilder: React.FC<FormBuilderProps> = ({
         {/* All Templates Tab */}
         {currentTab === 0 && (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {templatesLoading ? (
+            {loading ? (
               <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
                 <CircularProgress />
               </Box>
@@ -343,8 +354,8 @@ const FormBuilder: React.FC<FormBuilderProps> = ({
                     No templates available
                   </Typography>
                 ) : (
-                  allTemplates.map((template, index) => (
-                    <Box key={`${template.id}-${template.name}-${index}`}>
+                  templatesArray.map((template, index) => (
+                    <Box key={`${template.templateId}-${template.name}-${index}`}>
                       {renderTemplateCard(template)}
                       {!template.isOfficial && (
                         <Typography variant="caption" color="text.secondary" sx={{ ml: 2, display: 'block' }}>

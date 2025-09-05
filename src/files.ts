@@ -1,5 +1,6 @@
-import { collection, addDoc, serverTimestamp, doc, updateDoc, FieldValue, deleteDoc } from 'firebase/firestore';
-import { db } from './firebase';
+import { collection, addDoc, serverTimestamp, doc, updateDoc, FieldValue, deleteDoc, getDoc } from 'firebase/firestore';
+import { deleteObject, ref } from 'firebase/storage';
+import { db, storage } from './firebase';
 import { getFolderSharingPermissions } from './firestore';
 
 export interface FileData {
@@ -36,8 +37,35 @@ export const updateFile = async (fileId: string, data: Partial<FileData>) => {
 };
 
 export const deleteFile = async (fileId: string) => {
-  const docRef = doc(db, 'files', fileId);
-  await deleteDoc(docRef);
+  try {
+    const docRef = doc(db, 'files', fileId);
+    
+    // First get the file document to retrieve the storage path
+    const fileDoc = await getDoc(docRef);
+    if (fileDoc.exists()) {
+      const fileData = fileDoc.data() as FileData;
+      
+      // Delete from Firebase Storage if storage path exists
+      if (fileData.storagePath) {
+        try {
+          await deleteObject(ref(storage, fileData.storagePath));
+          console.log(`Successfully deleted file from storage: ${fileData.storagePath}`);
+        } catch (storageError: any) {
+          // Don't fail the entire operation if storage deletion fails
+          // File might have already been deleted or path might be invalid
+          console.warn(`Failed to delete file from storage ${fileData.storagePath}:`, storageError);
+        }
+      }
+    }
+    
+    // Delete the Firestore document
+    await deleteDoc(docRef);
+    console.log(`Successfully deleted file document: ${fileId}`);
+    
+  } catch (error) {
+    console.error(`Error deleting file ${fileId}:`, error);
+    throw error;
+  }
 };
 
 export const createFileWithSharing = async (fileData: Omit<FileData, 'createdAt'>) => {

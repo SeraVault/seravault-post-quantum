@@ -64,7 +64,19 @@ export async function decryptData(
   recipientPrivateKey: Uint8Array,
   info: Uint8Array = new Uint8Array(0)
 ): Promise<Uint8Array> {
-  const privateKey = await suite.kem.deserializePrivateKey(recipientPrivateKey);
+  if (recipientPrivateKey.length !== 32) {
+    throw new Error(`Invalid HPKE private key length: expected 32 bytes for X25519, got ${recipientPrivateKey.length} bytes. Please regenerate your keys from the Profile page.`);
+  }
+  
+  let privateKey;
+  try {
+    privateKey = await suite.kem.deserializePrivateKey(recipientPrivateKey);
+  } catch (deserializeError) {
+    console.error('HPKE private key deserialization failed:', deserializeError);
+    console.error('Private key length:', recipientPrivateKey.length);
+    console.error('Private key first 8 bytes (hex):', Array.from(recipientPrivateKey.slice(0, 8)).map(b => b.toString(16).padStart(2, '0')).join(' '));
+    throw new Error(`HPKE private key format is invalid: ${deserializeError instanceof Error ? deserializeError.message : String(deserializeError)}. Please regenerate your keys from the Profile page.`);
+  }
   
   const recipient = await suite.createRecipientContext({
     recipientKey: privateKey,
@@ -213,20 +225,118 @@ export async function encryptMetadata(
 }
 
 /**
- * Decrypt metadata using shared secret
+ * Decrypt HPKE-encrypted metadata (name or size)
  */
 export async function decryptMetadata(
-  encryptedField: string | { ciphertext: string; nonce: string },
+  encryptedData: { ciphertext: string; nonce: string },
   sharedSecret: Uint8Array
 ): Promise<string> {
-  // Handle legacy string format
-  if (typeof encryptedField === 'string') {
-    return encryptedField; // Return as-is for legacy data
-  }
-  
-  const nonce = hexToBytes(encryptedField.nonce);
-  const ciphertext = hexToBytes(encryptedField.ciphertext);
   const key = await crypto.subtle.importKey('raw', sharedSecret.slice(0, 32), { name: 'AES-GCM' }, false, ['decrypt']);
+  
+  const ciphertext = hexToBytes(encryptedData.ciphertext);
+  const nonce = hexToBytes(encryptedData.nonce);
+  
+  const decryptedData = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: nonce },
+    key,
+    ciphertext
+  );
+  
+  return new TextDecoder().decode(decryptedData);
+}
+
+/**
+ * Securely wipe sensitive data from memory (best effort)
+ */
+export function secureWipe(data: Uint8Array): void {
+  // Overwrite with random data multiple times
+  for (let i = 0; i < 3; i++) {
+    crypto.getRandomValues(data);
+  }
+  // Final overwrite with zeros
+  data.fill(0);
+}
+
+/**
+ * Encrypt a string using a passphrase (for private key storage)
+ */
+export async function encryptString(plaintext: string, passphrase: string): Promise<{
+  ciphertext: string;
+  salt: string;
+  nonce: string;
+}> {
+  const salt = crypto.getRandomValues(new Uint8Array(32));
+  const nonce = crypto.getRandomValues(new Uint8Array(12));
+  
+  // Derive key from passphrase using PBKDF2
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(passphrase),
+    { name: 'PBKDF2' },
+    false,
+    ['deriveKey']
+  );
+  
+  const key = await crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt: salt,
+      iterations: 100000,
+      hash: 'SHA-256'
+    },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt']
+  );
+  
+  const encrypted = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: nonce },
+    key,
+    encoder.encode(plaintext)
+  );
+  
+  return {
+    ciphertext: bytesToBase64(new Uint8Array(encrypted)),
+    salt: bytesToBase64(salt),
+    nonce: bytesToBase64(nonce)
+  };
+}
+
+/**
+ * Decrypt a string using a passphrase (for private key storage)
+ */
+export async function decryptString(
+  encryptedData: { ciphertext: string; salt: string; nonce: string },
+  passphrase: string
+): Promise<string> {
+  const ciphertext = base64ToBytes(encryptedData.ciphertext);
+  const salt = base64ToBytes(encryptedData.salt);
+  const nonce = base64ToBytes(encryptedData.nonce);
+  
+  // Derive key from passphrase using PBKDF2
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(passphrase),
+    { name: 'PBKDF2' },
+    false,
+    ['deriveKey']
+  );
+  
+  const key = await crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt: salt,
+      iterations: 100000,
+      hash: 'SHA-256'
+    },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['decrypt']
+  );
   
   const decrypted = await crypto.subtle.decrypt(
     { name: 'AES-GCM', iv: nonce },
@@ -236,3 +346,42 @@ export async function decryptMetadata(
   
   return new TextDecoder().decode(decrypted);
 }
+
+/**
+ * Convert Uint8Array to base64 string
+ */
+export function bytesToBase64(bytes: Uint8Array): string {
+  let binaryString = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binaryString += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binaryString);
+}
+
+/**
+ * Convert base64 string to Uint8Array
+ */
+export function base64ToBytes(base64: string): Uint8Array {
+  const binaryString = atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+/**
+ * Decrypt data using AES-GCM with provided key and nonce
+ */
+export async function decryptSymmetric(ciphertext: Uint8Array, key: Uint8Array, nonce: Uint8Array): Promise<Uint8Array> {
+  const cryptoKey = await crypto.subtle.importKey('raw', key.slice(0, 32), { name: 'AES-GCM' }, false, ['decrypt']);
+  
+  const decrypted = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: nonce },
+    cryptoKey,
+    ciphertext
+  );
+  
+  return new Uint8Array(decrypted);
+}
+

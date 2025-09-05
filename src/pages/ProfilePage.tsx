@@ -1,21 +1,24 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Typography, CircularProgress, Button, TextField, Paper, Container, Alert, Switch, FormControlLabel, Chip } from '@mui/material';
+import { Box, Typography, CircularProgress, Button, TextField, Paper, Container, Alert, Switch, FormControlLabel, Chip, LinearProgress } from '@mui/material';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
+import { usePassphrase } from '../auth/PassphraseContext';
 import { getUserProfile, createUserProfile, type UserProfile } from '../firestore';
-import { generateKeyPair as generateHPKEKeyPair, bytesToHex } from '../crypto/hpkeCrypto';
-import { encryptString } from '../crypto/postQuantumCrypto';
+import { generateKeyPair as generateHPKEKeyPair, bytesToHex, decryptString } from '../crypto/hpkeCrypto';
+import { encryptString } from '../crypto/hpkeCrypto';
 import AppLayout from '../components/AppLayout';
 import BiometricSetup from '../components/BiometricSetup';
 import DeviceCapabilityInfo from '../components/DeviceCapabilityInfo';
-import TemplateManager from '../components/TemplateManager';
-import { useFormTemplates } from '../context/FormTemplatesContext';
+import DecryptedKeyWarningDialog from '../components/DecryptedKeyWarningDialog';
+import KeyRegenerationWarningDialog from '../components/KeyRegenerationWarningDialog';
 import { useThemeContext } from '../theme/ThemeContext';
+import { migrateUserFiles } from '../services/keyMigration';
+import { debugUserData, testCountFunction } from '../services/debugMigration';
 
 const ProfilePage: React.FC = () => {
   const { user } = useAuth();
   const { setMode } = useThemeContext();
-  const { isAdmin } = useFormTemplates();
+  const { privateKey } = usePassphrase();
   const navigate = useNavigate();
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -26,8 +29,10 @@ const ProfilePage: React.FC = () => {
   const [displayName, setDisplayName] = useState('');
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [currentFolder, setCurrentFolder] = useState<string | null>(null);
-  const [templateManagerOpen, setTemplateManagerOpen] = useState(false);
   const [showKeyRegeneration, setShowKeyRegeneration] = useState(false);
+  const [showDecryptedKeyWarning, setShowDecryptedKeyWarning] = useState(false);
+  const [showRegenerationWarning, setShowRegenerationWarning] = useState(false);
+  const [migrationProgress, setMigrationProgress] = useState<{ current: number; total: number } | null>(null);
 
   // Handle folder navigation by redirecting to main documents page
   const handleFolderNavigation = (folderId: string | null) => {
@@ -70,7 +75,7 @@ const ProfilePage: React.FC = () => {
       setLoading(true);
       const { publicKey, privateKey } = await generateHPKEKeyPair();
 
-      const encryptedPrivateKey = encryptString(bytesToHex(privateKey), passphrase);
+      const encryptedPrivateKey = await encryptString(bytesToHex(privateKey), passphrase);
 
       const newUserProfile: UserProfile = {
         displayName,
@@ -124,15 +129,87 @@ const ProfilePage: React.FC = () => {
       return;
     }
     
+    // Show the warning dialog first
+    setShowRegenerationWarning(true);
+  };
+
+  const handleConfirmRegeneration = async (migrateFiles: boolean) => {
+    setShowRegenerationWarning(false);
+    
+    if (!user) {
+      setError('User not authenticated');
+      return;
+    }
+
+    if (!displayName || !passphrase || passphrase !== confirmPassphrase) {
+      setError('Please fill in all fields correctly');
+      return;
+    }
+
     try {
-      // Use the same key generation logic as the initial setup
-      await handleGenerateKeys();
+      setLoading(true);
+      
+      // Store old private key if we need to migrate
+      let oldPrivateKey: string | null = null;
+      if (migrateFiles && privateKey) {
+        oldPrivateKey = privateKey;
+      }
+
+      // Generate new key pair
+      const { publicKey, privateKey: newPrivateKey } = await generateHPKEKeyPair();
+      const encryptedPrivateKey = await encryptString(bytesToHex(newPrivateKey), passphrase);
+
+      // If migration is needed and we have the old key, migrate files
+      if (migrateFiles && oldPrivateKey) {
+        setMigrationProgress({ current: 0, total: 1 });
+        
+        try {
+          const migrationResult = await migrateUserFiles(
+            user.uid,
+            oldPrivateKey,
+            publicKey,
+            (current, total) => setMigrationProgress({ current, total })
+          );
+
+          console.log(`Migration completed: ${migrationResult.success} files migrated, ${migrationResult.failed.length} failed`);
+          
+          if (migrationResult.failed.length > 0) {
+            setError(`Key regenerated successfully, but ${migrationResult.failed.length} files could not be migrated. Check console for details.`);
+          }
+        } catch (migrationError) {
+          console.error('Migration failed:', migrationError);
+          setError('Key generation succeeded, but file migration failed. Some files may be inaccessible.');
+        }
+        
+        setMigrationProgress(null);
+      }
+
+      // Save the new profile
+      const newUserProfile: UserProfile = {
+        displayName,
+        email: user.email || '',
+        theme,
+        publicKey: bytesToHex(publicKey),
+        encryptedPrivateKey,
+      };
+
+      await createUserProfile(user.uid, newUserProfile);
+      setUserProfile(newUserProfile);
+      
+      // Reset form
       setShowKeyRegeneration(false);
       setPassphrase('');
       setConfirmPassphrase('');
-    } catch (error) {
-      // Error is already handled in handleGenerateKeys
-      console.error('Key regeneration failed:', error);
+      
+      if (!migrateFiles || !oldPrivateKey) {
+        setError(null);
+      }
+      
+    } catch (err) {
+      console.error(err);
+      setError('Failed to regenerate keys. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -141,6 +218,100 @@ const ProfilePage: React.FC = () => {
     setPassphrase('');
     setConfirmPassphrase('');
     setError(null);
+  };
+
+  const handleDownloadKey = async () => {
+    if (!userProfile?.encryptedPrivateKey) {
+      setError('No private key available for download');
+      return;
+    }
+
+    try {
+      // Create a downloadable file containing the encrypted private key
+      const keyData = {
+        version: "1.0",
+        keyType: "HPKE_X25519",
+        displayName: userProfile.displayName,
+        email: userProfile.email,
+        publicKey: userProfile.publicKey,
+        encryptedPrivateKey: userProfile.encryptedPrivateKey,
+        exportedAt: new Date().toISOString()
+      };
+
+      const blob = new Blob([JSON.stringify(keyData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${userProfile.displayName.replace(/[^a-zA-Z0-9]/g, '_')}_hpke_key.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error downloading key:', error);
+      setError('Failed to download key file');
+    }
+  };
+
+  const handleDownloadDecryptedKey = async () => {
+    if (!privateKey) {
+      setError('Private key is not currently decrypted. Please unlock your key first.');
+      return;
+    }
+
+    if (!userProfile) {
+      setError('User profile not available');
+      return;
+    }
+
+    // Show React warning dialog
+    setShowDecryptedKeyWarning(true);
+  };
+
+  const handleConfirmDecryptedKeyDownload = async () => {
+    setShowDecryptedKeyWarning(false);
+    
+    if (!privateKey || !userProfile) return;
+
+    try {
+      // Create a downloadable file with the decrypted private key
+      const keyData = {
+        version: "1.0",
+        keyType: "HPKE_X25519_DECRYPTED",
+        displayName: userProfile.displayName,
+        email: userProfile.email,
+        publicKey: userProfile.publicKey,
+        privateKeyHex: privateKey,
+        warning: "THIS FILE CONTAINS YOUR PRIVATE KEY IN PLAIN TEXT - KEEP SECURE!",
+        exportedAt: new Date().toISOString()
+      };
+
+      const blob = new Blob([JSON.stringify(keyData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${userProfile.displayName.replace(/[^a-zA-Z0-9]/g, '_')}_hpke_private_key_DECRYPTED.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error downloading decrypted key:', error);
+      setError('Failed to download decrypted key file');
+    }
+  };
+
+  // DEBUG: Temporary functions for testing
+  const handleDebugUserData = async () => {
+    if (user) {
+      await debugUserData(user.uid);
+    }
+  };
+
+  const handleTestCount = async () => {
+    if (user) {
+      await testCountFunction(user.uid);
+    }
   };
 
   if (loading) {
@@ -291,64 +462,151 @@ const ProfilePage: React.FC = () => {
             )}
           </Box>
           
-          {getEncryptionMethod() !== 'HPKE' && (
-            <Box>
-              {!showKeyRegeneration ? (
-                <Button 
-                  variant="contained" 
-                  color={getEncryptionMethod() === 'Legacy' ? 'error' : 'warning'}
-                  onClick={() => setShowKeyRegeneration(true)}
-                >
-                  {getEncryptionMethod() === 'Legacy' ? 'Generate New Keys' : 'Upgrade to HPKE'}
-                </Button>
-              ) : (
-                <Box sx={{ p: 2, bgcolor: 'background.default', borderRadius: 1 }}>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    <strong>Important:</strong> Regenerating your keys will create new HPKE encryption keys. 
-                    You'll still be able to access your existing files, but you'll need to re-enter your passphrase.
-                  </Typography>
-                  <TextField
-                    margin="normal"
-                    required
-                    fullWidth
-                    name="passphrase"
-                    label="New Passphrase"
-                    type="password"
-                    value={passphrase}
-                    onChange={(e) => setPassphrase(e.target.value)}
-                    sx={{ mb: 1 }}
-                  />
-                  <TextField
-                    margin="normal"
-                    required
-                    fullWidth
-                    name="confirmPassphrase"
-                    label="Confirm New Passphrase"
-                    type="password"
-                    value={confirmPassphrase}
-                    onChange={(e) => setConfirmPassphrase(e.target.value)}
-                    sx={{ mb: 2 }}
-                  />
-                  <Box>
-                    <Button 
-                      variant="contained" 
-                      onClick={handleRegenerateKeys}
-                      sx={{ mr: 1 }}
-                    >
-                      Generate HPKE Keys
-                    </Button>
-                    <Button 
-                      variant="outlined"
-                      onClick={handleCancelRegeneration}
-                    >
-                      Cancel
-                    </Button>
+          <Box>
+            {!showKeyRegeneration ? (
+              <Button 
+                variant="contained" 
+                color={getEncryptionMethod() === 'HPKE' ? 'primary' : getEncryptionMethod() === 'Legacy' ? 'error' : 'warning'}
+                onClick={() => setShowKeyRegeneration(true)}
+              >
+                {getEncryptionMethod() === 'HPKE' ? 'Regenerate HPKE Keys' : getEncryptionMethod() === 'Legacy' ? 'Generate New Keys' : 'Upgrade to HPKE'}
+              </Button>
+            ) : (
+              <Box sx={{ p: 2, bgcolor: 'background.default', borderRadius: 1 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  <strong>Important:</strong> {getEncryptionMethod() === 'HPKE' ? 'Regenerating your HPKE keys will replace your current encryption keys.' : 'Regenerating your keys will create new HPKE encryption keys.'} 
+                  {' '}This will affect access to your existing files. You'll be prompted to choose how to handle them.
+                </Typography>
+                <TextField
+                  margin="normal"
+                  required
+                  fullWidth
+                  name="passphrase"
+                  label="New Passphrase"
+                  type="password"
+                  value={passphrase}
+                  onChange={(e) => setPassphrase(e.target.value)}
+                  sx={{ mb: 1 }}
+                />
+                <TextField
+                  margin="normal"
+                  required
+                  fullWidth
+                  name="confirmPassphrase"
+                  label="Confirm New Passphrase"
+                  type="password"
+                  value={confirmPassphrase}
+                  onChange={(e) => setConfirmPassphrase(e.target.value)}
+                  sx={{ mb: 2 }}
+                />
+                {migrationProgress ? (
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="body2" sx={{ mb: 1 }}>
+                      Migrating files: {migrationProgress.current} of {migrationProgress.total}
+                    </Typography>
+                    <LinearProgress 
+                      variant="determinate" 
+                      value={(migrationProgress.current / migrationProgress.total) * 100}
+                      sx={{ height: 8, borderRadius: 4 }}
+                    />
                   </Box>
+                ) : null}
+                
+                <Box>
+                  <Button 
+                    variant="contained" 
+                    onClick={handleRegenerateKeys}
+                    sx={{ mr: 1 }}
+                    disabled={!!migrationProgress}
+                  >
+                    {getEncryptionMethod() === 'HPKE' ? 'Regenerate HPKE Keys' : 'Generate HPKE Keys'}
+                  </Button>
+                  <Button 
+                    variant="outlined"
+                    onClick={handleCancelRegeneration}
+                    disabled={!!migrationProgress}
+                  >
+                    Cancel
+                  </Button>
                 </Box>
-              )}
-            </Box>
-          )}
+              </Box>
+            )}
+          </Box>
         </Paper>
+
+        {/* Key Management */}
+        {getEncryptionMethod() === 'HPKE' && (
+          <Paper elevation={2} sx={{ p: 3, mb: 3 }}>
+            <Typography variant="h6" gutterBottom>Key Management</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Backup and manage your HPKE encryption keys
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'start' }}>
+              <Box>
+                <Button
+                  variant="outlined"
+                  onClick={handleDownloadKey}
+                  disabled={!userProfile?.encryptedPrivateKey}
+                  sx={{ mb: 1 }}
+                >
+                  Download Key Backup
+                </Button>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', maxWidth: 250 }}>
+                  Downloads a JSON file containing your encrypted private key. Safe to store as backup.
+                </Typography>
+              </Box>
+              
+              <Box>
+                <Button
+                  variant="outlined"
+                  color="warning"
+                  onClick={handleDownloadDecryptedKey}
+                  disabled={!privateKey}
+                  sx={{ mb: 1 }}
+                >
+                  Download Decrypted Key
+                </Button>
+                <Typography variant="caption" color="warning.main" sx={{ display: 'block', maxWidth: 250 }}>
+                  ⚠️ Downloads your private key in plain text. Only use if you understand the security risks.
+                </Typography>
+              </Box>
+            </Box>
+            
+            {!privateKey && (
+              <Alert severity="info" sx={{ mt: 2 }}>
+                <Typography variant="body2">
+                  To download your decrypted private key, you must first unlock your key using your passphrase, biometric authentication, or key file.
+                </Typography>
+              </Alert>
+            )}
+          </Paper>
+        )}
+
+        {/* DEBUG: Temporary debugging section */}
+        {process.env.NODE_ENV === 'development' && (
+          <Paper elevation={2} sx={{ p: 3, mb: 3, bgcolor: 'warning.light', border: '2px dashed orange' }}>
+            <Typography variant="h6" gutterBottom>🔧 Debug Migration (Dev Only)</Typography>
+            <Typography variant="body2" sx={{ mb: 2 }}>
+              These buttons help debug the migration counting issue. Check browser console for output.
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+              <Button
+                variant="outlined"
+                onClick={handleDebugUserData}
+                color="warning"
+              >
+                Analyze All User Data
+              </Button>
+              <Button
+                variant="outlined"
+                onClick={handleTestCount}
+                color="warning"
+              >
+                Test Count Function
+              </Button>
+            </Box>
+          </Paper>
+        )}
 
         {/* Device Capability Information */}
         <DeviceCapabilityInfo />
@@ -356,39 +614,20 @@ const ProfilePage: React.FC = () => {
         {/* Biometric Authentication Setup */}
         <BiometricSetup />
 
-        {/* Form Template Management - Admin Section */}
-        <Paper elevation={2} sx={{ p: 3, mb: 3 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-            <Typography variant="h6">Form Template Management</Typography>
-            {isAdmin && (
-              <Chip 
-                label="Admin" 
-                color="primary" 
-                size="small" 
-                sx={{ ml: 2 }} 
-              />
-            )}
-          </Box>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            {isAdmin ? 
-              'Manage form templates, migrate default templates, and configure public templates.' :
-              'View and manage your personal form templates.'
-            }
-          </Typography>
-          <Button 
-            variant="contained" 
-            onClick={() => setTemplateManagerOpen(true)}
-          >
-            {isAdmin ? 'Manage All Templates' : 'Manage My Templates'}
-          </Button>
-        </Paper>
-
-        {/* Template Manager Dialog */}
-        <TemplateManager 
-          open={templateManagerOpen}
-          onClose={() => setTemplateManagerOpen(false)}
-        />
       </Box>
+      
+      <DecryptedKeyWarningDialog
+        open={showDecryptedKeyWarning}
+        onClose={() => setShowDecryptedKeyWarning(false)}
+        onConfirm={handleConfirmDecryptedKeyDownload}
+      />
+      
+      <KeyRegenerationWarningDialog
+        open={showRegenerationWarning}
+        onClose={() => setShowRegenerationWarning(false)}
+        onConfirm={handleConfirmRegeneration}
+        userId={user?.uid || ''}
+      />
     </AppLayout>
   );
 };

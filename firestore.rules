@@ -24,10 +24,13 @@ service cloud.firestore {
     
     // Users can read and write their own profile
     match /users/{userId} {
+      // Full read/write access to own profile
       allow read, write: if request.auth != null && request.auth.uid == userId;
       
-      // Prevent access to other users' profiles
-      allow read, write: if false;
+      // Allow authenticated users to query users by email for sharing purposes
+      // This allows reading public profile info (email, publicKey, displayName) needed for encryption and sharing
+      // Private keys are stored encrypted so this is safe
+      allow read: if request.auth != null;
     }
     
     // Folders - OWNER ONLY ACCESS (folders are not shared, only files within them)

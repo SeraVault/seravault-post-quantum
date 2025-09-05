@@ -4,7 +4,7 @@ import { db } from '../firebase';
 import { useAuth } from '../auth/AuthContext';
 import { usePassphrase } from '../auth/PassphraseContext';
 import { type Folder as FolderData, getUserProfile } from '../firestore';
-import { decryptString, base64ToBytes, decryptSymmetric, hexToBytes } from '../crypto/postQuantumCrypto';
+import { decryptString, base64ToBytes, decryptSymmetric, hexToBytes } from '../crypto/hpkeCrypto';
 import { decryptData } from '../crypto/hpkeCrypto';
 
 export const useFolders = () => {
@@ -82,9 +82,9 @@ export const useFolders = () => {
                   );
                   
                   // Decrypt the folder name (folders don't have size, so decrypt name directly)
-                  const nonce = base64ToBytes(data.name.nonce);
-                  const encryptedNameBytes = base64ToBytes(data.name.ciphertext);
-                  const nameBytes = decryptSymmetric(encryptedNameBytes, sharedSecret, nonce);
+                  const nonce = hexToBytes(data.name.nonce);
+                  const encryptedNameBytes = hexToBytes(data.name.ciphertext);
+                  const nameBytes = await decryptSymmetric(encryptedNameBytes, sharedSecret, nonce);
                   const folderName = new TextDecoder().decode(nameBytes);
                   
                   decryptedName = folderName;

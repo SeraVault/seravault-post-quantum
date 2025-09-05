@@ -26,7 +26,12 @@
       "Bash(firebase firestore:*)",
       "Bash(node:*)",
       "Bash(GOOGLE_APPLICATION_CREDENTIALS=./service-account-key.json node set-admin.cjs dguedry@gmail.com)",
-      "Bash(GOOGLE_APPLICATION_CREDENTIALS=./service-account-key.json node create-system-templates.cjs)"
+      "Bash(GOOGLE_APPLICATION_CREDENTIALS=./service-account-key.json node create-system-templates.cjs)",
+      "Bash(npx playwright:*)",
+      "Bash(sudo npx playwright:*)",
+      "Bash(npm run test:run:*)",
+      "Bash(npx tsx:*)",
+      "Bash(firebase --version)"
     ],
     "deny": []
   }
