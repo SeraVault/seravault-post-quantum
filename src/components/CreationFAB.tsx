@@ -71,9 +71,32 @@ const CreationFAB: React.FC<CreationFABProps> = ({
       ariaLabel={t('fab.createNewItem')}
       sx={{ 
         position: 'fixed', 
-        bottom: 24, 
-        right: 24,
-        zIndex: 1000,
+        bottom: 32, 
+        right: 32,
+        zIndex: 1300, // Higher z-index for better prominence
+        '& .MuiFab-root': {
+          width: 64,
+          height: 64,
+          boxShadow: '0 8px 16px rgba(25, 118, 210, 0.3), 0 4px 8px rgba(0, 0, 0, 0.15)',
+          backgroundColor: 'primary.main',
+          '&:hover': {
+            backgroundColor: 'primary.dark',
+            transform: 'scale(1.05)',
+            boxShadow: '0 12px 24px rgba(25, 118, 210, 0.4), 0 6px 12px rgba(0, 0, 0, 0.2)',
+          },
+          transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+        },
+        '& .MuiSpeedDialIcon-root': {
+          fontSize: '1.5rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        },
+        '& .MuiSpeedDialIcon-icon': {
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        },
       }}
       icon={<SpeedDialIcon icon={<Add />} />}
       open={open}
@@ -88,15 +111,26 @@ const CreationFAB: React.FC<CreationFABProps> = ({
           tooltipOpen
           onClick={action.action}
           sx={{
+            '& .MuiFab-root': {
+              boxShadow: '0 4px 8px rgba(0, 0, 0, 0.15)',
+              '&:hover': {
+                transform: 'scale(1.1)',
+                boxShadow: '0 6px 12px rgba(0, 0, 0, 0.25)',
+              },
+              transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+            },
             '& .MuiSpeedDialAction-staticTooltipLabel': {
               backgroundColor: 'background.paper',
               color: 'text.primary',
               border: '1px solid',
               borderColor: 'divider',
-              boxShadow: 2,
+              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
               fontSize: '0.875rem',
               fontWeight: 500,
               whiteSpace: 'nowrap',
+              borderRadius: '8px',
+              padding: '6px 12px',
+              minWidth: 'auto',
             }
           }}
         />
