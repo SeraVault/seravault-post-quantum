@@ -43,7 +43,7 @@ import {
   renameFolderWithEncryption,
   type Folder as FolderData 
 } from '../firestore';
-import { collection, query, where, onSnapshot, deleteField } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, deleteField, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import { encryptData, decryptData, hexToBytes as hpkeHexToBytes, bytesToHex as hpkeBytesToHex, encryptForMultipleRecipients, decryptMetadata, encryptMetadata } from '../crypto/quantumSafeCrypto';
 import { FileOperationsService } from '../services/fileOperations';
@@ -709,8 +709,8 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
     const totalItems = selectedFiles.size + selectedFolders.size;
     if (totalItems === 0) return;
 
-    // For bulk operations, share the first selected item using the existing dialog
-    // This could be enhanced to support true bulk sharing in the future
+    // For now, open sharing dialog for the first selected file with a note about bulk sharing
+    // TODO: Implement true bulk sharing that shares all selected files with the same recipients
     if (selectedFiles.size > 0) {
       const firstFile = files.find(f => selectedFiles.has(f.id));
       if (firstFile) {
@@ -727,6 +727,99 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
         setShareItemType('folder');
         setShareDialogOpen(true);
       }
+    }
+  };
+
+  // True bulk sharing function that shares all selected files with the same recipients
+  const bulkShareFiles = async (recipients: string[]) => {
+    if (!user || !privateKey || selectedFiles.size === 0 || recipients.length === 0) {
+      console.error('Missing required parameters for bulk sharing:', { 
+        user: !!user, 
+        privateKey: !!privateKey, 
+        selectedFiles: selectedFiles.size, 
+        recipients 
+      });
+      return;
+    }
+
+    const selectedFilesList = Array.from(selectedFiles).map(fileId => 
+      files.find(f => f.id === fileId)
+    ).filter(Boolean) as FileData[];
+
+    let successCount = 0;
+    let errorCount = 0;
+
+    try {
+      // Process recipients to validate and convert emails to user IDs (same logic as handleShareFile)
+      const recipientUserIds: string[] = [];
+
+      for (const email of recipients) {
+        try {
+          console.log(`🔍 Looking up user by email: ${email}`);
+          const recipient = await getUserByEmail(email);
+          
+          if (!recipient) {
+            console.warn(`❌ User ${email} not found in database`);
+            continue;
+          }
+
+          console.log(`✅ Found user ${email} with ID: ${recipient.id}`);
+          
+          if (!recipient.profile.publicKey) {
+            console.warn(`User ${email} does not have a public key`);
+            continue;
+          }
+
+          recipientUserIds.push(recipient.id);
+        } catch (error) {
+          console.error(`Error processing recipient ${email}:`, error);
+        }
+      }
+
+      if (recipientUserIds.length === 0) {
+        console.warn('No valid recipients found for bulk sharing');
+        return;
+      }
+
+      console.log(`📤 Bulk sharing with ${selectedFilesList.length} files to user IDs:`, recipientUserIds);
+
+      // Share each selected file with all recipients using the same service as individual sharing
+      for (const file of selectedFilesList) {
+        try {
+          // Filter out recipients who already have access to this file
+          const newRecipients = recipientUserIds.filter(userId => !file.sharedWith.includes(userId));
+          
+          if (newRecipients.length === 0) {
+            console.log(`File ${file.name} already shared with all recipients, skipping`);
+            continue;
+          }
+
+          // Use the centralized FileOperationsService to share the file (same as individual sharing)
+          await FileOperationsService.shareFileWithUsers(
+            file,
+            user.uid,
+            privateKey,
+            newRecipients
+          );
+          
+          successCount++;
+          console.log(`✅ Successfully shared file: ${file.name}`);
+        } catch (error) {
+          console.error(`❌ Error sharing file ${file.name}:`, error);
+          errorCount++;
+        }
+      }
+
+      console.log(`🎉 Bulk sharing completed: ${successCount} files shared, ${errorCount} errors`);
+      
+      // Clear selections after successful bulk operation
+      if (successCount > 0) {
+        setSelectedFiles(new Set());
+        setShareDialogOpen(false);
+      }
+      
+    } catch (error) {
+      console.error('Failed to bulk share files:', error);
     }
   };
 
@@ -759,6 +852,50 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
     }
   };
 
+  // Shared function to process and decrypt files
+  const processFiles = async (rawFiles: any[]) => {
+    if (!user || !privateKey) {
+      return [];
+    }
+    
+    const filesMap = new Map<string, FileData>();
+    
+    for (const fileData of rawFiles) {
+      if (!fileData.encryptedKeys || !fileData.encryptedKeys[user.uid]) {
+        filesMap.set(fileData.id, { ...fileData, name: '[No Access]', size: '' });
+        continue;
+      }
+
+      try {
+        const userEncryptedKey = fileData.encryptedKeys[user.uid];
+        if (!userEncryptedKey || !privateKey) {
+          filesMap.set(fileData.id, { ...fileData, name: '[No Access]', size: '' });
+          continue;
+        }
+        
+        // Get user's personalized file name (falls back to original name)
+        const { getUserFileName } = await import('../services/userNamesManagement');
+        const decryptedName = await getUserFileName(fileData, user.uid, privateKey);
+        
+        // Decrypt file size using FileEncryptionService
+        const { FileEncryptionService } = await import('../services/fileEncryption');
+        const { size: decryptedSize } = await FileEncryptionService.decryptFileMetadata(
+          fileData.name as { ciphertext: string; nonce: string },
+          fileData.size as { ciphertext: string; nonce: string },
+          userEncryptedKey,
+          privateKey
+        );
+        
+        filesMap.set(fileData.id, { ...fileData, name: decryptedName, size: decryptedSize });
+      } catch (error) {
+        console.error('Error decrypting file metadata:', error);
+        filesMap.set(fileData.id, { ...fileData, name: '[Encrypted File]', size: '' });
+      }
+    }
+    
+    return Array.from(filesMap.values());
+  };
+
   // Load files for current folder
   // Subscribe to files with real-time updates
   useEffect(() => {
@@ -778,45 +915,6 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
 
     setLoading(true);
     setIsDataLoading(true);
-    
-    const processFiles = async (rawFiles: any[]) => {
-      const filesMap = new Map<string, FileData>();
-      
-      for (const fileData of rawFiles) {
-        if (!fileData.encryptedKeys || !fileData.encryptedKeys[user.uid]) {
-          filesMap.set(fileData.id, { ...fileData, name: '[No Access]', size: '' });
-          continue;
-        }
-
-        try {
-          const userEncryptedKey = fileData.encryptedKeys[user.uid];
-          if (!userEncryptedKey || !privateKey) {
-            filesMap.set(fileData.id, { ...fileData, name: '[No Access]', size: '' });
-            continue;
-          }
-          
-          // Get user's personalized file name (falls back to original name)
-          const { getUserFileName } = await import('../services/userNamesManagement');
-          const decryptedName = await getUserFileName(fileData, user.uid, privateKey);
-          
-          // Decrypt file size using FileEncryptionService
-          const { FileEncryptionService } = await import('../services/fileEncryption');
-          const { size: decryptedSize } = await FileEncryptionService.decryptFileMetadata(
-            fileData.name as { ciphertext: string; nonce: string },
-            fileData.size as { ciphertext: string; nonce: string },
-            userEncryptedKey,
-            privateKey
-          );
-          
-          filesMap.set(fileData.id, { ...fileData, name: decryptedName, size: decryptedSize });
-        } catch (error) {
-          console.error('Error decrypting file metadata:', error);
-          filesMap.set(fileData.id, { ...fileData, name: '[Encrypted File]', size: '' });
-        }
-      }
-      
-      return Array.from(filesMap.values());
-    };
 
     const handleFilesUpdate = async (rawFiles: any[]) => {
       try {
@@ -1509,7 +1607,14 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
 
   // Handler for file sharing
   const handleShare = async (recipients: string[]) => {
-    await handleShareFile(recipients);
+    // Check if multiple files are selected for bulk sharing
+    if (selectedFiles.size > 1) {
+      console.log(`🔄 Bulk sharing ${selectedFiles.size} files`);
+      await bulkShareFiles(recipients);
+    } else {
+      // Single file sharing (existing behavior)
+      await handleShareFile(recipients);
+    }
   };
 
   // Handler for moving items (files or folders) to different folders
