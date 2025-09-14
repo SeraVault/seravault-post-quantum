@@ -1,6 +1,6 @@
 import React from 'react';
 import { Menu, MenuItem, Divider } from '@mui/material';
-import { Edit, ContentCut, ContentCopy, Delete, Share } from '@mui/icons-material';
+import { Edit, ContentCut, ContentCopy, Delete, Share, LocalOffer } from '@mui/icons-material';
 
 export interface ContextMenuProps {
   open: boolean;
@@ -11,6 +11,7 @@ export interface ContextMenuProps {
   onCut: () => void;
   onCopy: () => void;
   onShare?: () => void;
+  onManageTags?: () => void;
   onDelete: () => void;
   itemType: 'file' | 'folder';
 }
@@ -24,7 +25,9 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
   onCut,
   onCopy,
   onShare,
+  onManageTags,
   onDelete,
+  itemType,
 }) => {
   return (
     <Menu
@@ -47,11 +50,18 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
         Copy
       </MenuItem>
       
-      {onShare && <Divider />}
-      {onShare && (
+      {onShare && itemType === 'file' && <Divider />}
+      {onShare && itemType === 'file' && (
         <MenuItem onClick={onShare}>
           <Share sx={{ mr: 1 }} />
           Share
+        </MenuItem>
+      )}
+      
+      {onManageTags && itemType === 'file' && (
+        <MenuItem onClick={onManageTags}>
+          <LocalOffer sx={{ mr: 1 }} />
+          Manage Tags
         </MenuItem>
       )}
       

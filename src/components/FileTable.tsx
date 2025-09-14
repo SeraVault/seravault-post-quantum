@@ -18,23 +18,21 @@ import {
   Folder, 
   InsertDriveFile, 
   MoreVert, 
-  CreditCard, 
-  Lock, 
-  AccountBalance, 
-  Person, 
-  StickyNote2, 
-  Wifi, 
-  Extension,
   Assignment,
   ArrowUpward,
   ArrowDownward,
   Star,
   StarBorder,
+  Share,
+  People,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import type { FileData } from '../files';
-import type { Folder as FolderData } from '../firestore';
+import type { Folder as FolderData, UserProfile } from '../firestore';
 import { isFormFile, getFormDisplayName } from '../utils/formFiles';
+import { getUserFavoriteStatus } from '../services/userFavoritesManagement';
+import { getUserProfile, updateUserColumnVisibility } from '../firestore';
+import { ColumnSelector, type ColumnVisibility } from './ColumnSelector';
 
 interface FileTableProps {
   folders: FolderData[];
@@ -49,15 +47,25 @@ interface FileTableProps {
   onGoToFolder?: (folderId: string | null) => void; // Navigate to file's parent folder
   loading?: boolean; // Show loading state
   onToggleFavorite?: (fileId: string) => void; // Toggle favorite status for files
+  userId?: string; // Current user ID for per-user favorites
   
   // Bulk selection props
   selectedFolders?: Set<string>;
   selectedFiles?: Set<string>;
   onToggleFolderSelection?: (folderId: string) => void;
   onToggleFileSelection?: (fileId: string) => void;
+  
+  // Clipboard visual feedback
+  clipboardItem?: { type: 'file' | 'folder'; item: FileData | FolderData; operation: 'cut' | 'copy' } | null;
+  
+  // Drag and drop
+  onMoveItem?: (itemId: string, itemType: 'file' | 'folder', targetFolderId: string | null) => void;
+  
+  // Column visibility
+  currentUserId?: string; // Current user ID for profile updates
 }
 
-type SortField = 'name' | 'type' | 'size';
+type SortField = 'name' | 'type' | 'size' | 'shared' | 'modified' | 'owner';
 type SortDirection = 'asc' | 'desc';
 
 const FileTable: React.FC<FileTableProps> = ({
@@ -69,18 +77,167 @@ const FileTable: React.FC<FileTableProps> = ({
   onLongPressStart,
   onLongPressEnd,
   onOpenMobileActionMenu,
-  showGoToFolder = false,
-  onGoToFolder,
-  loading = false,
+  // showGoToFolder = false,
+  // onGoToFolder,
+  // loading = false,
   onToggleFavorite,
+  userId,
   selectedFolders = new Set(),
   selectedFiles = new Set(),
   onToggleFolderSelection,
   onToggleFileSelection,
+  clipboardItem,
+  // onMoveItem,
+  currentUserId,
 }) => {
   const { t } = useTranslation();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const [userProfiles, setUserProfiles] = React.useState<{ [userId: string]: UserProfile }>({});
+  const [currentUserProfile, setCurrentUserProfile] = React.useState<UserProfile | null>(null);
+  
+  // Default column visibility (all visible by default)
+  const defaultColumnVisibility: ColumnVisibility = {
+    type: true,
+    size: true,
+    shared: true,
+    modified: true,
+    owner: true,
+  };
+  
+  const [columnVisibility, setColumnVisibility] = React.useState<ColumnVisibility>(defaultColumnVisibility);
+
+  // Load current user's profile for column preferences
+  React.useEffect(() => {
+    const loadCurrentUserProfile = async () => {
+      if (currentUserId) {
+        try {
+          const profile = await getUserProfile(currentUserId);
+          setCurrentUserProfile(profile);
+          if (profile?.columnVisibility) {
+            setColumnVisibility(profile.columnVisibility);
+          }
+        } catch (error) {
+          console.warn('Failed to load current user profile:', error);
+        }
+      }
+    };
+    
+    loadCurrentUserProfile();
+  }, [currentUserId]);
+
+  // Handle column visibility changes
+  const handleColumnVisibilityChange = async (newVisibility: ColumnVisibility) => {
+    setColumnVisibility(newVisibility);
+    
+    // Save to user profile
+    if (currentUserId) {
+      try {
+        await updateUserColumnVisibility(currentUserId, newVisibility);
+      } catch (error) {
+        console.warn('Failed to save column visibility preferences:', error);
+      }
+    }
+  };
+
+  // Load user profiles for owners
+  React.useEffect(() => {
+    const loadUserProfiles = async () => {
+      const uniqueOwners = new Set<string>();
+      
+      // Collect all unique owner IDs
+      folders.forEach(folder => {
+        if (folder.owner) uniqueOwners.add(folder.owner);
+      });
+      files.forEach(file => {
+        if (file.owner) uniqueOwners.add(file.owner);
+      });
+      
+      // Load profiles for owners we don't have yet
+      const ownersToLoad = Array.from(uniqueOwners).filter(ownerId => !userProfiles[ownerId]);
+      
+      if (ownersToLoad.length > 0) {
+        const profiles = await Promise.all(
+          ownersToLoad.map(async (ownerId) => {
+            try {
+              const profile = await getUserProfile(ownerId);
+              return { ownerId, profile };
+            } catch (error) {
+              console.warn(`Failed to load profile for owner ${ownerId}:`, error);
+              return { ownerId, profile: null };
+            }
+          })
+        );
+        
+        const newProfiles: { [userId: string]: UserProfile } = {};
+        profiles.forEach(({ ownerId, profile }) => {
+          if (profile) {
+            newProfiles[ownerId] = profile;
+          }
+        });
+        
+        if (Object.keys(newProfiles).length > 0) {
+          setUserProfiles(prev => ({ ...prev, ...newProfiles }));
+        }
+      }
+    };
+    
+    loadUserProfiles();
+  }, [folders, files]);
+
+  // Helper function to get display name for owner
+  const getOwnerDisplayName = (ownerId: string): string => {
+    const profile = userProfiles[ownerId];
+    return profile?.displayName || ownerId;
+  };
+
+  // Helper function to get file date (lastModified or createdAt)
+  const getFileDate = (file: FileData): Date | null => {
+    if (file.lastModified) {
+      return typeof file.lastModified === 'string' 
+        ? new Date(file.lastModified) 
+        : file.lastModified instanceof Date 
+          ? file.lastModified 
+          : null;
+    }
+    
+    // Fall back to createdAt if lastModified is not available
+    if (file.createdAt) {
+      // Firebase Timestamp handling
+      if (typeof file.createdAt === 'object' && 'toDate' in file.createdAt) {
+        return (file.createdAt as any).toDate();
+      }
+      // Date object or string
+      if (file.createdAt instanceof Date) {
+        return file.createdAt;
+      }
+      if (typeof file.createdAt === 'string') {
+        return new Date(file.createdAt);
+      }
+    }
+    
+    return null;
+  };
+
+  // Helper function to check if an item is in the clipboard
+  const isItemInClipboard = (item: FileData | FolderData, type: 'file' | 'folder') => {
+    return clipboardItem && 
+           clipboardItem.type === type && 
+           clipboardItem.item.id === item.id;
+  };
+
+  // Helper function to get clipboard visual styles
+  const getClipboardStyles = (item: FileData | FolderData, type: 'file' | 'folder') => {
+    if (isItemInClipboard(item, type)) {
+      return {
+        opacity: clipboardItem?.operation === 'cut' ? 0.5 : 1,
+        backgroundColor: clipboardItem?.operation === 'copy' ? theme.palette.action.selected : 'transparent',
+        transition: 'all 0.2s ease',
+        border: clipboardItem?.operation === 'copy' ? `1px dashed ${theme.palette.primary.main}` : 'none',
+      };
+    }
+    return {};
+  };
 
   // Function to detect form type from filename patterns
   const detectFormType = (fileName: string): string => {
@@ -212,10 +369,10 @@ const FileTable: React.FC<FileTableProps> = ({
             }
           }
           break;
-        case 'size':
+        case 'size': {
           // Folders don't have sizes, treat them as 0 for sorting purposes
-          const aHasSize = a.hasOwnProperty('size') && a.size;
-          const bHasSize = b.hasOwnProperty('size') && b.size;
+          const aHasSize = Object.prototype.hasOwnProperty.call(a, 'size') && a.size;
+          const bHasSize = Object.prototype.hasOwnProperty.call(b, 'size') && b.size;
           
           if (aHasSize && bHasSize) {
             aValue = typeof a.size === 'string' ? parseInt(a.size, 10) || 0 : 0;
@@ -225,6 +382,47 @@ const FileTable: React.FC<FileTableProps> = ({
             bValue = bHasSize ? (typeof b.size === 'string' ? parseInt(b.size, 10) || 0 : 0) : -1;
           }
           break;
+        }
+        case 'shared': {
+          // Sort by shared status: shared files first, then non-shared
+          const aIsShared = (a as any).sharedWith && (a as any).sharedWith.length > 1;
+          const bIsShared = (b as any).sharedWith && (b as any).sharedWith.length > 1;
+          
+          aValue = aIsShared ? 1 : 0;
+          bValue = bIsShared ? 1 : 0;
+          break;
+        }
+        case 'modified': {
+          // Sort by lastModified date (or createdAt as fallback)
+          const aDate = Object.prototype.hasOwnProperty.call(a, 'lastModified') ? getFileDate(a as FileData) : null;
+          const bDate = Object.prototype.hasOwnProperty.call(b, 'lastModified') ? getFileDate(b as FileData) : null;
+          
+          // Folders don't have dates, so put them last
+          if (!aDate && !bDate) {
+            aValue = 0;
+            bValue = 0;
+          } else if (!aDate) {
+            aValue = -1; // Sort folders last
+            bValue = bDate!.getTime();
+          } else if (!bDate) {
+            aValue = aDate.getTime();
+            bValue = -1; // Sort folders last
+          } else {
+            aValue = aDate.getTime();
+            bValue = bDate.getTime();
+          }
+          break;
+        }
+        case 'owner': {
+          // Sort by owner display name
+          const aOwner = (a as any).owner || '';
+          const bOwner = (b as any).owner || '';
+          const aDisplayName = getOwnerDisplayName(aOwner);
+          const bDisplayName = getOwnerDisplayName(bOwner);
+          aValue = aDisplayName.toLowerCase();
+          bValue = bDisplayName.toLowerCase();
+          break;
+        }
         default:
           aValue = '';
           bValue = '';
@@ -292,7 +490,7 @@ const FileTable: React.FC<FileTableProps> = ({
             </TableCell>
             <TableCell 
               sx={{ 
-                width: isMobile ? '50%' : '60%', 
+                width: isMobile ? '45%' : '35%', 
                 cursor: 'pointer',
                 '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' }
               }}
@@ -305,35 +503,98 @@ const FileTable: React.FC<FileTableProps> = ({
                 )}
               </Box>
             </TableCell>
-            <TableCell 
-              sx={{ 
-                width: '20%', 
-                cursor: 'pointer',
-                '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' }
-              }}
-              onClick={() => handleSort('type')}
-            >
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                {t('fileViewer.type')}
-                {sortField === 'type' && (
-                  sortDirection === 'asc' ? <ArrowUpward fontSize="small" /> : <ArrowDownward fontSize="small" />
-                )}
-              </Box>
-            </TableCell>
-            <TableCell 
-              sx={{ 
-                width: isMobile ? '30%' : '20%', 
-                cursor: 'pointer',
-                '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' }
-              }}
-              onClick={() => handleSort('size')}
-            >
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                {t('common.size')}
-                {sortField === 'size' && (
-                  sortDirection === 'asc' ? <ArrowUpward fontSize="small" /> : <ArrowDownward fontSize="small" />
-                )}
-              </Box>
+            {columnVisibility.type && (
+              <TableCell 
+                sx={{ 
+                  width: isMobile ? '25%' : '18%', 
+                  cursor: 'pointer',
+                  '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' }
+                }}
+                onClick={() => handleSort('type')}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  {t('fileViewer.type')}
+                  {sortField === 'type' && (
+                    sortDirection === 'asc' ? <ArrowUpward fontSize="small" /> : <ArrowDownward fontSize="small" />
+                  )}
+                </Box>
+              </TableCell>
+            )}
+            {columnVisibility.size && (
+              <TableCell 
+                sx={{ 
+                  width: isMobile ? '20%' : '12%', 
+                  cursor: 'pointer',
+                  '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' }
+                }}
+                onClick={() => handleSort('size')}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  {t('common.size')}
+                  {sortField === 'size' && (
+                    sortDirection === 'asc' ? <ArrowUpward fontSize="small" /> : <ArrowDownward fontSize="small" />
+                  )}
+                </Box>
+              </TableCell>
+            )}
+            {columnVisibility.shared && (
+              <TableCell 
+                sx={{ 
+                  width: isMobile ? '15%' : '8%', 
+                  cursor: 'pointer',
+                  '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' }
+                }}
+                onClick={() => handleSort('shared')}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Share fontSize="small" />
+                  {!isMobile && 'Shared'}
+                  {sortField === 'shared' && (
+                    sortDirection === 'asc' ? <ArrowUpward fontSize="small" /> : <ArrowDownward fontSize="small" />
+                  )}
+                </Box>
+              </TableCell>
+            )}
+            {!isMobile && columnVisibility.modified && (
+              <TableCell 
+                sx={{ 
+                  width: '12%', 
+                  cursor: 'pointer',
+                  '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' }
+                }}
+                onClick={() => handleSort('modified')}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  Modified
+                  {sortField === 'modified' && (
+                    sortDirection === 'asc' ? <ArrowUpward fontSize="small" /> : <ArrowDownward fontSize="small" />
+                  )}
+                </Box>
+              </TableCell>
+            )}
+            {!isMobile && columnVisibility.owner && (
+              <TableCell 
+                sx={{ 
+                  width: '15%', 
+                  cursor: 'pointer',
+                  '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' }
+                }}
+                onClick={() => handleSort('owner')}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  Owner
+                  {sortField === 'owner' && (
+                    sortDirection === 'asc' ? <ArrowUpward fontSize="small" /> : <ArrowDownward fontSize="small" />
+                  )}
+                </Box>
+              </TableCell>
+            )}
+            {/* Column selector and actions column */}
+            <TableCell sx={{ width: '60px', textAlign: 'center' }}>
+              <ColumnSelector 
+                columnVisibility={columnVisibility}
+                onColumnVisibilityChange={handleColumnVisibilityChange}
+              />
             </TableCell>
           </TableRow>
         </TableHead>
@@ -341,10 +602,22 @@ const FileTable: React.FC<FileTableProps> = ({
           {sortedFolders.map((folder) => (
             <TableRow 
               key={folder.id} 
-              hover 
+              hover
+              draggable
+              onDragStart={(e) => {
+                const dragData = {
+                  id: folder.id,
+                  type: 'folder',
+                  name: folder.name
+                };
+                console.log('🚀 FileTable: Starting drag for folder:', dragData);
+                e.dataTransfer.setData('application/json', JSON.stringify(dragData));
+                e.dataTransfer.effectAllowed = 'move';
+              }}
               sx={{ 
                 cursor: 'pointer',
-                backgroundColor: selectedFolders.has(folder.id!) ? 'rgba(25, 118, 210, 0.08)' : undefined
+                backgroundColor: selectedFolders.has(folder.id!) ? 'rgba(25, 118, 210, 0.08)' : undefined,
+                ...getClipboardStyles(folder, 'folder')
               }}
               onClick={(e) => {
                 // Check if click is on checkbox area
@@ -377,24 +650,50 @@ const FileTable: React.FC<FileTableProps> = ({
                   </Typography>
                 </Box>
               </TableCell>
-              <TableCell>{t('common.folder', 'folder')}</TableCell>
-              <TableCell>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              {columnVisibility.type && (
+                <TableCell>{t('common.folder', 'folder')}</TableCell>
+              )}
+              {columnVisibility.size && (
+                <TableCell>
                   <Typography variant="body2" color="text.secondary">
                     —
                   </Typography>
-                  {onOpenMobileActionMenu && (
-                    <IconButton
-                      size="small"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onOpenMobileActionMenu(folder, 'folder');
-                      }}
-                    >
-                      <MoreVert />
-                    </IconButton>
-                  )}
-                </Box>
+                </TableCell>
+              )}
+              {columnVisibility.shared && (
+                <TableCell>
+                  <Typography variant="body2" color="text.secondary">
+                    —
+                  </Typography>
+                </TableCell>
+              )}
+              {!isMobile && columnVisibility.modified && (
+                <TableCell>
+                  <Typography variant="body2" color="text.secondary">
+                    —
+                  </Typography>
+                </TableCell>
+              )}
+              {!isMobile && columnVisibility.owner && (
+                <TableCell>
+                  <Typography variant="body2" color="text.secondary">
+                    {folder.owner ? getOwnerDisplayName(folder.owner) : '—'}
+                  </Typography>
+                </TableCell>
+              )}
+              {/* Actions column - always shown, hamburger menu on the right */}
+              <TableCell sx={{ textAlign: 'center' }}>
+                {onOpenMobileActionMenu && (
+                  <IconButton
+                    size="small"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenMobileActionMenu(folder, 'folder');
+                    }}
+                  >
+                    <MoreVert />
+                  </IconButton>
+                )}
               </TableCell>
             </TableRow>
           ))}
@@ -421,9 +720,33 @@ const FileTable: React.FC<FileTableProps> = ({
               <TableRow 
                 key={file.id} 
                 hover
+                draggable
+                onDragStart={(e) => {
+                  const dragData = {
+                    id: file.id,
+                    type: 'file',
+                    name: file.name
+                  };
+                  console.log('🚀 FileTable: Starting drag for file:', dragData);
+                  e.dataTransfer.setData('application/json', JSON.stringify(dragData));
+                  e.dataTransfer.effectAllowed = 'move';
+                  // Add a visual ghost image
+                  const dragImage = document.createElement('div');
+                  dragImage.textContent = `📄 ${dragData.name}`;
+                  dragImage.style.background = '#1976d2';
+                  dragImage.style.color = 'white';
+                  dragImage.style.padding = '8px 12px';
+                  dragImage.style.borderRadius = '4px';
+                  dragImage.style.position = 'absolute';
+                  dragImage.style.top = '-1000px';
+                  document.body.appendChild(dragImage);
+                  e.dataTransfer.setDragImage(dragImage, 0, 0);
+                  setTimeout(() => document.body.removeChild(dragImage), 0);
+                }}
                 sx={{ 
                   cursor: 'pointer',
-                  backgroundColor: selectedFiles.has(file.id!) ? 'rgba(25, 118, 210, 0.08)' : undefined
+                  backgroundColor: selectedFiles.has(file.id!) ? 'rgba(25, 118, 210, 0.08)' : undefined,
+                  ...getClipboardStyles(file, 'file')
                 }}
                 onClick={(e) => {
                   // Check if click is on checkbox area
@@ -463,29 +786,71 @@ const FileTable: React.FC<FileTableProps> = ({
                         }}
                         sx={{ ml: 1, color: 'warning.main' }}
                       >
-                        {file.isFavorite ? <Star fontSize="small" /> : <StarBorder fontSize="small" />}
+                        {userId && getUserFavoriteStatus(file, userId) ? <Star fontSize="small" /> : <StarBorder fontSize="small" />}
                       </IconButton>
                     )}
                   </Box>
                 </TableCell>
-                <TableCell>{displayType}</TableCell>
-                <TableCell>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                {columnVisibility.type && (
+                  <TableCell>{displayType}</TableCell>
+                )}
+                {columnVisibility.size && (
+                  <TableCell>
                     <Typography variant="body2">
                       {displaySize}
                     </Typography>
-                    {onOpenMobileActionMenu && (
-                      <IconButton
-                        size="small"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onOpenMobileActionMenu(file, 'file');
-                        }}
-                      >
-                        <MoreVert />
-                      </IconButton>
-                    )}
-                  </Box>
+                  </TableCell>
+                )}
+                {columnVisibility.shared && (
+                  <TableCell>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      {file.sharedWith && file.sharedWith.length > 1 ? (
+                        <>
+                          <People fontSize="small" color="primary" />
+                          {!isMobile && (
+                            <Typography variant="body2" color="primary">
+                              {file.sharedWith.length - 1}
+                            </Typography>
+                          )}
+                        </>
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">
+                          —
+                        </Typography>
+                      )}
+                    </Box>
+                  </TableCell>
+                )}
+                {!isMobile && columnVisibility.modified && (
+                  <TableCell>
+                    <Typography variant="body2" color="text.secondary">
+                      {(() => {
+                        const fileDate = getFileDate(file);
+                        return fileDate ? fileDate.toLocaleDateString() : '—';
+                      })()}
+                    </Typography>
+                  </TableCell>
+                )}
+                {!isMobile && columnVisibility.owner && (
+                  <TableCell>
+                    <Typography variant="body2" color="text.secondary">
+                      {file.owner ? getOwnerDisplayName(file.owner) : '—'}
+                    </Typography>
+                  </TableCell>
+                )}
+                {/* Actions column - always shown, hamburger menu on the right */}
+                <TableCell sx={{ textAlign: 'center' }}>
+                  {onOpenMobileActionMenu && (
+                    <IconButton
+                      size="small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenMobileActionMenu(file, 'file');
+                      }}
+                    >
+                      <MoreVert />
+                    </IconButton>
+                  )}
                 </TableCell>
               </TableRow>
             );

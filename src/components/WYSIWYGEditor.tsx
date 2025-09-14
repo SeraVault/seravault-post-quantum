@@ -99,8 +99,8 @@ const WYSIWYGEditor: React.FC<WYSIWYGEditorProps> = ({
     
     // Add custom fullscreen handler after toolbar is created
     if (!disabled) {
-      const toolbar = quill.getModule('toolbar');
-      if (toolbar) {
+      const toolbar = quill.getModule('toolbar') as any;
+      if (toolbar && toolbar.container) {
         const fullscreenButton = toolbar.container.querySelector('.ql-fullscreen');
         if (fullscreenButton) {
           fullscreenButton.addEventListener('click', () => {
@@ -123,7 +123,7 @@ const WYSIWYGEditor: React.FC<WYSIWYGEditorProps> = ({
     quill.on('text-change', handleTextChange);
 
     // Custom link handler
-    quill.getModule('toolbar').addHandler('link', () => {
+    (quill.getModule('toolbar') as any).addHandler('link', () => {
       const range = quill.getSelection();
       if (range) {
         const text = quill.getText(range.index, range.length);
@@ -134,7 +134,7 @@ const WYSIWYGEditor: React.FC<WYSIWYGEditorProps> = ({
     });
 
     // Custom image handler
-    quill.getModule('toolbar').addHandler('image', () => {
+    (quill.getModule('toolbar') as any).addHandler('image', () => {
       const input = document.createElement('input');
       input.setAttribute('type', 'file');
       input.setAttribute('accept', 'image/*');
@@ -223,8 +223,8 @@ const WYSIWYGEditor: React.FC<WYSIWYGEditorProps> = ({
       
       // Update toolbar button active state
       if (quillRef.current) {
-        const toolbar = quillRef.current.getModule('toolbar');
-        const fullscreenButton = toolbar.container.querySelector('.ql-fullscreen');
+        const toolbar = quillRef.current.getModule('toolbar') as any;
+        const fullscreenButton = toolbar?.container?.querySelector('.ql-fullscreen');
         if (fullscreenButton) {
           if (isFs) {
             fullscreenButton.classList.add('ql-active');

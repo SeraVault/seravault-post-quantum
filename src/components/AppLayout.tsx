@@ -10,9 +10,30 @@ interface AppLayoutProps {
   currentFolder?: string | null;
   setCurrentFolder?: (folderId: string | null) => void;
   onOpenTemplateDesigner?: () => void;
+  // Tag filtering props
+  files?: any[];
+  userId?: string;
+  userPrivateKey?: string;
+  selectedTags?: string[];
+  onTagSelectionChange?: (tags: string[]) => void;
+  matchAllTags?: boolean;
+  onMatchModeChange?: (matchAll: boolean) => void;
 }
 
-const AppLayout: React.FC<AppLayoutProps> = ({ children, currentFolder, setCurrentFolder, onOpenTemplateDesigner }) => {
+const AppLayout: React.FC<AppLayoutProps> = ({ 
+  children, 
+  currentFolder, 
+  setCurrentFolder, 
+  onOpenTemplateDesigner,
+  // Tag filtering props
+  files,
+  userId,
+  userPrivateKey,
+  selectedTags,
+  onTagSelectionChange,
+  matchAllTags,
+  onMatchModeChange
+}) => {
   const [mobileOpen, setMobileOpen] = useState(false); // For mobile drawer overlay
   const [desktopOpen, setDesktopOpen] = useState(true); // For desktop drawer visibility
   const [collapsed, setCollapsed] = useState(false);
@@ -45,6 +66,14 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children, currentFolder, setCurre
           onOpenTemplateDesigner={onOpenTemplateDesigner}
           collapsed={collapsed}
           onToggleCollapse={handleToggleCollapse}
+          // Tag filtering props
+          files={files}
+          userId={userId}
+          userPrivateKey={userPrivateKey}
+          selectedTags={selectedTags}
+          onTagSelectionChange={onTagSelectionChange}
+          matchAllTags={matchAllTags}
+          onMatchModeChange={onMatchModeChange}
         />
       )}
       <Box

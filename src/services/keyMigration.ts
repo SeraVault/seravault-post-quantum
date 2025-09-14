@@ -1,6 +1,6 @@
 import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { decryptData, encryptData, hexToBytes, bytesToHex } from '../crypto/hpkeCrypto';
+import { decryptData, encryptData, hexToBytes, bytesToHex } from '../crypto/quantumSafeCrypto';
 
 interface FileDocument {
   id: string;
@@ -181,13 +181,14 @@ export async function migrateUserFiles(
         const userEncryptedKey = item.data.encryptedKeys[userId];
         const keyData = hexToBytes(userEncryptedKey);
         
-        // HPKE encrypted keys: encapsulated_key (32 bytes) + ciphertext
-        const encapsulatedKey = keyData.slice(0, 32);
-        const ciphertext = keyData.slice(32);
+        // ML-KEM-768 encrypted keys: IV (12 bytes) + encapsulated_key (1088 bytes) + ciphertext
+        const iv = keyData.slice(0, 12);
+        const encapsulatedKey = keyData.slice(12, 12 + 1088);
+        const ciphertext = keyData.slice(12 + 1088);
         
         const oldPrivateKeyBytes = hexToBytes(oldPrivateKeyHex);
         const aesKey = await decryptData(
-          { encapsulatedKey, ciphertext },
+          { iv, encapsulatedKey, ciphertext },
           oldPrivateKeyBytes
         );
 

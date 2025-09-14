@@ -6,14 +6,19 @@ import { getFolderSharingPermissions } from './firestore';
 export interface FileData {
   id?: string;
   owner: string;
-  name: string | { ciphertext: string; nonce: string }; // Encrypted (legacy string or new metadata format)
-  parent: string | null;
+  name: string | { ciphertext: string; nonce: string }; // Encrypted (legacy string or new metadata format) - owner's original name
+  parent: string | null; // Deprecated - kept for backward compatibility
+  userFolders?: { [uid: string]: string | null }; // Per-user folder associations (uid -> folderId or null)
+  userNames?: { [uid: string]: { ciphertext: string; nonce: string } }; // Per-user file names (uid -> encrypted name)
   createdAt: FieldValue;
+  lastModified?: Date | string; // Date when file was last modified (unencrypted)
   size: string | { ciphertext: string; nonce: string }; // Encrypted (legacy string or new metadata format)
   storagePath: string;
   encryptedKeys: { [uid: string]: string }; // uid -> encrypted key exchange result
   sharedWith: string[]; // Array of UIDs that have access
-  isFavorite?: boolean; // User's favorite status
+  isFavorite?: boolean; // Deprecated - kept for backward compatibility
+  userFavorites?: { [uid: string]: boolean }; // Per-user favorite status (uid -> isFavorite)
+  userTags?: { [uid: string]: { ciphertext: string; nonce: string } }; // Per-user encrypted tags
 }
 
 export const createFile = async (fileData: Omit<FileData, 'createdAt'>) => {
@@ -72,9 +77,31 @@ export const createFileWithSharing = async (fileData: Omit<FileData, 'createdAt'
   console.log('Creating file with automatic sharing inheritance:', fileData);
   
   try {
-    // Get folder sharing permissions if file is in a folder
-    const folderSharedWith = fileData.parent 
-      ? await getFolderSharingPermissions(fileData.parent)
+    // Initialize userFolders if not provided
+    if (!fileData.userFolders) {
+      fileData.userFolders = {};
+      // Set owner's folder from legacy parent field for backward compatibility
+      if (fileData.parent !== undefined) {
+        fileData.userFolders[fileData.owner] = fileData.parent;
+      }
+    }
+    
+    // Initialize sharedWith if not provided
+    if (!fileData.sharedWith) {
+      fileData.sharedWith = [];
+    }
+    
+    // Ensure all users in sharedWith have folder associations (default to null)
+    fileData.sharedWith.forEach(uid => {
+      if (!(uid in fileData.userFolders!)) {
+        fileData.userFolders![uid] = null;
+      }
+    });
+    
+    // Get folder sharing permissions from owner's folder if file is in a folder
+    const ownerFolder = fileData.userFolders[fileData.owner];
+    const folderSharedWith = ownerFolder 
+      ? await getFolderSharingPermissions(ownerFolder)
       : [];
     
     // Merge folder sharing with existing file sharing
@@ -82,6 +109,13 @@ export const createFileWithSharing = async (fileData: Omit<FileData, 'createdAt'
       ...fileData.sharedWith,
       ...folderSharedWith
     ]));
+    
+    // Add folder associations for newly shared users
+    allSharedWith.forEach(uid => {
+      if (!(uid in fileData.userFolders!)) {
+        fileData.userFolders![uid] = null;
+      }
+    });
     
     const newFile: FileData = {
       ...fileData,

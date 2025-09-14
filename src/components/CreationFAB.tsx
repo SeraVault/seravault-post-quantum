@@ -31,7 +31,17 @@ const CreationFAB: React.FC<CreationFABProps> = ({
   const [open, setOpen] = useState(false);
   const { t } = useTranslation();
 
-  const actions = [
+  const pasteAction = showPaste && onPaste ? {
+    icon: <ContentPaste />,
+    name: t('fab.paste'),
+    action: () => {
+      setOpen(false);
+      onPaste();
+    },
+    isPaste: true
+  } : null;
+
+  const regularActions = [
     {
       icon: <CreateNewFolder />,
       name: t('fab.newFolder'),
@@ -56,15 +66,9 @@ const CreationFAB: React.FC<CreationFABProps> = ({
         onCreateForm();
       }
     },
-    ...(showPaste && onPaste ? [{
-      icon: <ContentPaste />,
-      name: t('fab.paste'),
-      action: () => {
-        setOpen(false);
-        onPaste();
-      }
-    }] : []),
   ];
+
+  const actions = pasteAction ? [pasteAction, ...regularActions] : regularActions;
 
   return (
     <SpeedDial
@@ -77,14 +81,30 @@ const CreationFAB: React.FC<CreationFABProps> = ({
         '& .MuiFab-root': {
           width: 64,
           height: 64,
-          boxShadow: '0 8px 16px rgba(25, 118, 210, 0.3), 0 4px 8px rgba(0, 0, 0, 0.15)',
-          backgroundColor: 'primary.main',
+          boxShadow: showPaste 
+            ? '0 8px 16px rgba(25, 118, 210, 0.4), 0 4px 8px rgba(0, 0, 0, 0.2), 0 0 0 2px rgba(25, 118, 210, 0.3)'
+            : '0 8px 16px rgba(25, 118, 210, 0.3), 0 4px 8px rgba(0, 0, 0, 0.15)',
+          backgroundColor: showPaste ? 'secondary.main' : 'primary.main',
+          animation: showPaste ? 'pulse 2s infinite' : 'none',
           '&:hover': {
-            backgroundColor: 'primary.dark',
+            backgroundColor: showPaste ? 'secondary.dark' : 'primary.dark',
             transform: 'scale(1.05)',
-            boxShadow: '0 12px 24px rgba(25, 118, 210, 0.4), 0 6px 12px rgba(0, 0, 0, 0.2)',
+            boxShadow: showPaste
+              ? '0 12px 24px rgba(25, 118, 210, 0.5), 0 6px 12px rgba(0, 0, 0, 0.25), 0 0 0 3px rgba(25, 118, 210, 0.4)'
+              : '0 12px 24px rgba(25, 118, 210, 0.4), 0 6px 12px rgba(0, 0, 0, 0.2)',
           },
           transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+          '@keyframes pulse': {
+            '0%': {
+              transform: 'scale(1)',
+            },
+            '50%': {
+              transform: 'scale(1.02)',
+            },
+            '100%': {
+              transform: 'scale(1)',
+            },
+          },
         },
         '& .MuiSpeedDialIcon-root': {
           fontSize: '1.5rem',
@@ -112,21 +132,28 @@ const CreationFAB: React.FC<CreationFABProps> = ({
           onClick={action.action}
           sx={{
             '& .MuiFab-root': {
-              boxShadow: '0 4px 8px rgba(0, 0, 0, 0.15)',
+              boxShadow: action.isPaste
+                ? '0 4px 8px rgba(156, 39, 176, 0.25), 0 0 0 2px rgba(156, 39, 176, 0.2)'
+                : '0 4px 8px rgba(0, 0, 0, 0.15)',
+              backgroundColor: action.isPaste ? 'secondary.main' : 'background.paper',
+              color: action.isPaste ? 'secondary.contrastText' : 'text.primary',
               '&:hover': {
                 transform: 'scale(1.1)',
-                boxShadow: '0 6px 12px rgba(0, 0, 0, 0.25)',
+                boxShadow: action.isPaste
+                  ? '0 6px 12px rgba(156, 39, 176, 0.35), 0 0 0 3px rgba(156, 39, 176, 0.3)'
+                  : '0 6px 12px rgba(0, 0, 0, 0.25)',
+                backgroundColor: action.isPaste ? 'secondary.dark' : 'action.hover',
               },
               transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
             },
             '& .MuiSpeedDialAction-staticTooltipLabel': {
-              backgroundColor: 'background.paper',
-              color: 'text.primary',
+              backgroundColor: action.isPaste ? 'secondary.main' : 'background.paper',
+              color: action.isPaste ? 'secondary.contrastText' : 'text.primary',
               border: '1px solid',
-              borderColor: 'divider',
+              borderColor: action.isPaste ? 'secondary.main' : 'divider',
               boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
               fontSize: '0.875rem',
-              fontWeight: 500,
+              fontWeight: action.isPaste ? 600 : 500,
               whiteSpace: 'nowrap',
               borderRadius: '8px',
               padding: '6px 12px',

@@ -3,11 +3,10 @@ import { AppBar, Toolbar, Typography, Button, Box, IconButton } from '@mui/mater
 import MenuIcon from '@mui/icons-material/Menu';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
-import { auth } from '../firebase';
-import { signOut } from 'firebase/auth';
 import SecurityStatusIndicator from './SecurityStatusIndicator';
 import LanguageSwitcher from './LanguageSwitcher';
 import ThemeSwitcher from './ThemeSwitcher';
+import UserAvatar from './UserAvatar';
 
 interface TopBarProps {
   handleDrawerToggle: () => void;
@@ -15,10 +14,6 @@ interface TopBarProps {
 
 const TopBar: React.FC<TopBarProps> = ({ handleDrawerToggle }) => {
   const { user } = useAuth();
-
-  const handleLogout = () => {
-    signOut(auth);
-  };
 
   return (
     <AppBar position="fixed" sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}>
@@ -40,6 +35,7 @@ const TopBar: React.FC<TopBarProps> = ({ handleDrawerToggle }) => {
             <SecurityStatusIndicator />
             <ThemeSwitcher />
             <LanguageSwitcher />
+            <UserAvatar />
           </Box>
         ) : (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>

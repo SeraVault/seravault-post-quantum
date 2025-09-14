@@ -66,7 +66,33 @@ const FormInstanceFiller: React.FC<FormInstanceFillerProps> = ({
   // Initialize form data
   useEffect(() => {
     if (existingFormData) {
-      setFormData({ ...existingFormData });
+      let initialFormData = { ...existingFormData };
+      
+      // If template has a titleField and no form name is set, sync from titleField
+      if (initialFormData.template?.titleField) {
+        const titleFieldValue = initialFormData.data[initialFormData.template.titleField];
+        if (titleFieldValue && !initialFormData.metadata.name) {
+          initialFormData = {
+            ...initialFormData,
+            metadata: {
+              ...initialFormData.metadata,
+              name: titleFieldValue
+            }
+          };
+        }
+        // If form name exists but titleField is empty, sync to titleField
+        else if (initialFormData.metadata.name && !titleFieldValue) {
+          initialFormData = {
+            ...initialFormData,
+            data: {
+              ...initialFormData.data,
+              [initialFormData.template.titleField]: initialFormData.metadata.name
+            }
+          };
+        }
+      }
+      
+      setFormData(initialFormData);
     }
   }, [existingFormData]);
 
@@ -119,10 +145,27 @@ const FormInstanceFiller: React.FC<FormInstanceFillerProps> = ({
   };
 
   const updateFormName = (name: string) => {
-    setFormData(prev => prev ? {
-      ...prev,
-      metadata: { ...prev.metadata, name }
-    } : null);
+    setFormData(prev => {
+      if (!prev) return null;
+      
+      let updatedFormData = {
+        ...prev,
+        metadata: { ...prev.metadata, name }
+      };
+      
+      // If template has a titleField, sync the field data as well
+      if (prev.template?.titleField) {
+        updatedFormData = {
+          ...updatedFormData,
+          data: {
+            ...updatedFormData.data,
+            [prev.template.titleField]: name
+          }
+        };
+      }
+      
+      return updatedFormData;
+    });
   };
 
   const updateFieldValue = (fieldId: string, value: string) => {
@@ -270,6 +313,7 @@ const FormInstanceFiller: React.FC<FormInstanceFillerProps> = ({
         fullWidth
         sx={{ mb: 2 }}
         placeholder={localizedField.placeholder}
+        InputLabelProps={field.type === 'date' ? { shrink: true } : undefined}
         InputProps={field.sensitive ? {
           endAdornment: (
             <InputAdornment position="end">
@@ -334,16 +378,18 @@ const FormInstanceFiller: React.FC<FormInstanceFillerProps> = ({
             </Alert>
           )}
 
-          {/* Form Title */}
-          <TextField
-            label={t('forms.formTitle')}
-            value={formData.metadata.name}
-            onChange={(e) => updateFormName(e.target.value)}
-            fullWidth
-            required
-            sx={{ mb: 2, mt: 1 }}
-            placeholder={t('forms.enterFormTitle')}
-          />
+          {/* Form Title - Only show if template doesn't have a titleField */}
+          {!formData.template?.titleField && (
+            <TextField
+              label={t('forms.formTitle')}
+              value={formData.metadata.name}
+              onChange={(e) => updateFormName(e.target.value)}
+              fullWidth
+              required
+              sx={{ mb: 2, mt: 1 }}
+              placeholder={t('forms.enterFormTitle')}
+            />
+          )}
 
           <Divider sx={{ my: 2 }} />
 

@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useAuth } from '../auth/AuthContext';
+import { usePassphrase } from '../auth/PassphraseContext';
 import AppLayout from '../components/AppLayout';
 import MainContent from '../components/MainContent';
 
@@ -8,6 +10,15 @@ const HomePage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const [currentFolder, setCurrentFolder] = useState<string | null>(null);
   const mainContentRef = useRef<{ openTemplateDesigner: () => void }>(null);
+  
+  // Get user context for tag filtering
+  const { user } = useAuth();
+  const { privateKey } = usePassphrase();
+  
+  // Tag filtering state
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [matchAllTags, setMatchAllTags] = useState(false);
+  const [files, setFiles] = useState<any[]>([]); // This will be populated by MainContent
 
   // Handle folder navigation by updating the URL
   const handleFolderNavigation = (folderId: string | null) => {
@@ -34,11 +45,25 @@ const HomePage: React.FC = () => {
       currentFolder={currentFolder} 
       setCurrentFolder={handleFolderNavigation}
       onOpenTemplateDesigner={handleOpenTemplateDesigner}
+      // Tag filtering props for SideNav
+      files={files}
+      userId={user?.uid}
+      userPrivateKey={privateKey}
+      selectedTags={selectedTags}
+      onTagSelectionChange={setSelectedTags}
+      matchAllTags={matchAllTags}
+      onMatchModeChange={setMatchAllTags}
     >
       <MainContent 
         ref={mainContentRef}
         currentFolder={currentFolder} 
-        setCurrentFolder={handleFolderNavigation} 
+        setCurrentFolder={handleFolderNavigation}
+        // Tag filtering props for MainContent
+        selectedTags={selectedTags}
+        onTagSelectionChange={setSelectedTags}
+        matchAllTags={matchAllTags}
+        onMatchModeChange={setMatchAllTags}
+        onFilesChange={setFiles}
       />
     </AppLayout>
   );

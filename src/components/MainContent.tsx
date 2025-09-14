@@ -15,10 +15,14 @@ import {
   DialogContent,
   DialogContentText,
   DialogActions,
+  FormControlLabel,
+  Checkbox,
 } from '@mui/material';
 import { 
   AccessTime,
   Clear,
+  ContentCopy,
+  ContentPaste,
   Delete,
   Star,
   Share,
@@ -41,10 +45,12 @@ import {
 } from '../firestore';
 import { collection, query, where, onSnapshot, deleteField } from 'firebase/firestore';
 import { db } from '../firebase';
-import { encryptData, decryptData, hexToBytes as hpkeHexToBytes, bytesToHex as hpkeBytesToHex, encryptForMultipleRecipients, decryptMetadata } from '../crypto/hpkeCrypto';
-import { updateFile, deleteFile, type FileData } from '../files';
+import { encryptData, decryptData, hexToBytes as hpkeHexToBytes, bytesToHex as hpkeBytesToHex, encryptForMultipleRecipients, decryptMetadata, encryptMetadata } from '../crypto/quantumSafeCrypto';
+import { FileOperationsService } from '../services/fileOperations';
+import { updateFile, deleteFile, createFileWithSharing, type FileData } from '../files';
 import { isFormFile, toggleFormFavorite, type SecureFormData } from '../utils/formFiles';
 import { FileAccessService } from '../services/fileAccess';
+import { getFile, uploadFileData } from '../storage';
 
 // New components
 import FileUploadArea from './FileUploadArea';
@@ -58,15 +64,21 @@ import ContextMenu from './ContextMenu';
 import RenameDialog from './RenameDialog';
 import MobileActionMenu from './MobileActionMenu';
 import FormFileViewer from './FormFileViewer';
-import FormFileEditor from './FormFileEditor';
 import FormInstanceFiller from './FormInstanceFiller';
 import FormBuilder from './FormBuilder';
 import CreationFAB from './CreationFAB';
 import FileViewer from './FileViewer';
+import TagManagementDialog from './TagManagementDialog';
 
 interface MainContentProps {
   currentFolder: string | null;
   setCurrentFolder: (folderId: string | null) => void;
+  // Tag filtering props (received from HomePage, used for filtering)
+  selectedTags?: string[];
+  onTagSelectionChange?: (tags: string[]) => void;
+  matchAllTags?: boolean;
+  onMatchModeChange?: (matchAll: boolean) => void;
+  onFilesChange?: (files: any[]) => void;
 }
 
 interface MainContentRef {
@@ -84,13 +96,41 @@ const hexToBytes = (hex: string) => {
 const bytesToHex = (bytes: Uint8Array) =>
   bytes.reduce((str, byte) => str + byte.toString(16).padStart(2, '0'), '');
 
-const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainContentComponent({ currentFolder, setCurrentFolder }, ref) {
+const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainContentRef>) => {
+  const { 
+    currentFolder, 
+    setCurrentFolder, 
+    selectedTags = [],
+    onTagSelectionChange,
+    matchAllTags = false,
+    onMatchModeChange,
+    onFilesChange
+  } = props;
   const { user } = useAuth();
   const { privateKey } = usePassphrase();
-  const { clipboardItem, cutItem, copyItem, clearClipboard } = useClipboard();
+  const { 
+    clipboardItem, 
+    clipboardItems, 
+    hasMultipleItems, 
+    cutItem, 
+    copyItem, 
+    cutItems, 
+    copyItems, 
+    clearClipboard 
+  } = useClipboard();
   const { setIsDataLoading } = useGlobalLoading();
-  const { isRecentsView, setIsRecentsView, isFavoritesView, setIsFavoritesView, isSharedView, setIsSharedView, addRecentItem, recentItems, clearRecents } = useRecents();
-  const { getFoldersByParent, buildFolderPath } = useFolders();
+  const { 
+    isRecentsView, 
+    setIsRecentsView, 
+    isFavoritesView, 
+    setIsFavoritesView, 
+    isSharedView, 
+    setIsSharedView, 
+    addRecentItem, 
+    recentItems, 
+    clearRecents 
+  } = useRecents();
+  const { getFoldersByParent, buildFolderPath, allFolders } = useFolders();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
@@ -112,7 +152,12 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
   const [shareItemType, setShareItemType] = useState<'file' | 'folder'>('file');
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [singleDeleteConfirmOpen, setSingleDeleteConfirmOpen] = useState(false);
+  const [tagManagementOpen, setTagManagementOpen] = useState(false);
+  const [fileToManageTags, setFileToManageTags] = useState<FileData | null>(null);
   const [itemToDelete, setItemToDelete] = useState<{ item: FileData | FolderData; type: 'file' | 'folder' } | null>(null);
+  const [copyOptionsOpen, setCopyOptionsOpen] = useState(false);
+  const [itemToCopy, setItemToCopy] = useState<{ item: FileData | FolderData; type: 'file' | 'folder' } | null>(null);
+  const [preserveSharing, setPreserveSharing] = useState(false);
 
 
   // Context menu and mobile action menu
@@ -200,7 +245,146 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
   const folders = getFoldersByParent(currentFolder);
   const breadcrumbs = buildFolderPath(currentFolder);
 
-  // Search functionality - simplified to current folder only
+  // Recursive search functionality - searches through all folders
+  const searchItemsRecursively = async (query: string): Promise<FileData[]> => {
+    if (!query.trim() || !user || !privateKey) {
+      return [];
+    }
+
+    const searchTerm = query.toLowerCase();
+    const matchingItems: FileData[] = [];
+
+    try {
+      const { query: firestoreQuery } = await import('firebase/firestore');
+      
+      // Query for all owned files (across all folders)
+      const ownedFilesQuery = firestoreQuery(
+        collection(db, 'files'),
+        where('owner', '==', user.uid)
+      );
+
+      // Query for all shared files  
+      const sharedFilesQuery = firestoreQuery(
+        collection(db, 'files'),
+        where('sharedWith', 'array-contains', user.uid)
+      );
+
+      // Execute both queries
+      const [ownedSnapshot, sharedSnapshot] = await Promise.all([
+        (await import('firebase/firestore')).getDocs(ownedFilesQuery),
+        (await import('firebase/firestore')).getDocs(sharedFilesQuery)
+      ]);
+
+      // Combine all files, avoiding duplicates
+      const allFiles = new Map<string, any>();
+      
+      ownedSnapshot.docs.forEach(doc => {
+        allFiles.set(doc.id, { ...doc.data(), id: doc.id });
+      });
+      
+      sharedSnapshot.docs.forEach(doc => {
+        if (!allFiles.has(doc.id)) {
+          allFiles.set(doc.id, { ...doc.data(), id: doc.id });
+        }
+      });
+
+      // Process each file for search
+      for (const [fileId, data] of allFiles) {
+        try {
+          let matches = false;
+          let decryptedName = '';
+          
+          // Decrypt the file name first
+          if (!data.encryptedKeys || !data.encryptedKeys[user.uid]) {
+            continue; // Skip files we can't decrypt
+          }
+
+          const userEncryptedKey = data.encryptedKeys[user.uid];
+          const { FileEncryptionService } = await import('../services/fileEncryption');
+          
+          try {
+            const { name: fileName } = await FileEncryptionService.decryptFileMetadata(
+              data.name as { ciphertext: string; nonce: string },
+              data.size as { ciphertext: string; nonce: string },
+              userEncryptedKey,
+              privateKey
+            );
+            decryptedName = fileName;
+          } catch (error) {
+            continue; // Skip files we can't decrypt
+          }
+
+          // Search in file name
+          if (decryptedName.toLowerCase().includes(searchTerm)) {
+            matches = true;
+          }
+
+          // For form files, also search in form content
+          if (!matches && isFormFile(decryptedName)) {
+            try {
+              const encryptedContent = await (await import('../storage')).getFile(data.storagePath);
+              const privateKeyBytes = hexToBytes(privateKey);
+              const keyData = hexToBytes(userEncryptedKey);
+              
+              // ML-KEM-768 encrypted keys contain: IV (12 bytes) + encapsulated_key (1088 bytes) + ciphertext  
+              const iv = keyData.slice(0, 12);
+              const encapsulatedKey = keyData.slice(12, 12 + 1088);
+              const ciphertext = keyData.slice(12 + 1088);
+              
+              const fileKey = await decryptData(
+                { iv, encapsulatedKey, ciphertext },
+                privateKeyBytes
+              );
+              
+              let contentIv, ciphertextData;
+              if (encryptedContent.byteLength > 12) {
+                contentIv = encryptedContent.slice(0, 12);
+                ciphertextData = encryptedContent.slice(12);
+              } else {
+                continue;
+              }
+              
+              const key = await crypto.subtle.importKey('raw', fileKey, { name: 'AES-GCM' }, false, ['decrypt']);
+              const decryptedContentBuffer = await crypto.subtle.decrypt(
+                { name: 'AES-GCM', iv: contentIv }, 
+                key, 
+                ciphertextData
+              );
+              
+              const decryptedContent = new TextDecoder().decode(decryptedContentBuffer);
+              const formData = JSON.parse(decryptedContent);
+              
+              const searchableText = [
+                formData.name,
+                formData.formType,
+                ...(formData.tags || []),
+                ...formData.fields.map((field: any) => `${field.label} ${field.value}`)
+              ].join(' ').toLowerCase();
+              
+              if (searchableText.includes(searchTerm)) {
+                matches = true;
+              }
+            } catch (error) {
+              // Ignore errors in content search
+            }
+          }
+
+          if (matches) {
+            matchingItems.push({ ...data, name: decryptedName, size: '' }); // Add decrypted name
+          }
+        } catch (error) {
+          // Skip files that cause errors
+          continue;
+        }
+      }
+    } catch (error) {
+      console.error('Error in recursive search:', error);
+    }
+
+    return matchingItems;
+  };
+
+  // Legacy search function for current folder (kept for compatibility)
   const searchItems = async (items: FileData[], query: string): Promise<FileData[]> => {
     if (!query.trim()) {
       return items;
@@ -228,18 +412,19 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
             const privateKeyBytes = hexToBytes(privateKey);
             const keyData = hexToBytes(userEncryptedKey);
             
-            // HPKE encrypted keys contain: encapsulated_key (32 bytes) + ciphertext  
-            const encapsulatedKey = keyData.slice(0, 32);
-            const ciphertext = keyData.slice(32);
+            // ML-KEM-768 encrypted keys contain: IV (12 bytes) + encapsulated_key (1088 bytes) + ciphertext  
+            const iv = keyData.slice(0, 12);
+            const encapsulatedKey = keyData.slice(12, 12 + 1088);
+            const ciphertext = keyData.slice(12 + 1088);
             
             const fileKey = await decryptData(
-              { encapsulatedKey, ciphertext },
+              { iv, encapsulatedKey, ciphertext },
               privateKeyBytes
             );
             
-            let iv, ciphertextData;
+            let contentIv, ciphertextData;
             if (encryptedContent.byteLength > 12) {
-              iv = encryptedContent.slice(0, 12);
+              contentIv = encryptedContent.slice(0, 12);
               ciphertextData = encryptedContent.slice(12);
             } else {
               continue;
@@ -247,7 +432,7 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
             
             const key = await crypto.subtle.importKey('raw', fileKey, { name: 'AES-GCM' }, false, ['decrypt']);
             const decryptedContentBuffer = await crypto.subtle.decrypt(
-              { name: 'AES-GCM', iv: iv }, 
+              { name: 'AES-GCM', iv: contentIv }, 
               key, 
               ciphertextData
             );
@@ -278,36 +463,48 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
     return matchingItems;
   };
 
-  // Filter files based on search
+  // Filter folders based on search (recursive)
   const filteredFolders = useMemo(() => {
     if (!searchQuery.trim()) {
       return folders;
     }
-    return folders.filter(folder => {
+    // When searching, show all folders that match, not just current folder's subfolders
+    return allFolders.filter(folder => {
       const folderName = typeof folder.name === 'string' ? folder.name.toLowerCase() : '';
       return folderName.includes(searchQuery.toLowerCase());
     });
-  }, [folders, searchQuery]);
+  }, [folders, allFolders, searchQuery]);
 
-  // Update filtered files when search query or files change
+  // Update filtered files when search query, tags, or files change
   useEffect(() => {
     let isMounted = true;
     
     const updateFilteredFiles = async () => {
-      if (!searchQuery.trim()) {
-        if (isMounted) {
-          setFilteredFiles(files);
-        }
-        return;
-      }
-
       try {
-        const matchingFiles = await searchItems(files, searchQuery);
+        let result = files;
+        
+        // Apply search filter first
+        if (searchQuery.trim()) {
+          result = await searchItemsRecursively(searchQuery);
+        }
+        
+        // Apply tag filter
+        if (selectedTags.length > 0 && user?.uid && privateKey) {
+          const { filterFilesByUserTags } = await import('../services/userTagsManagement');
+          result = await filterFilesByUserTags(
+            result, 
+            user.uid, 
+            privateKey, 
+            selectedTags, 
+            matchAllTags
+          );
+        }
+        
         if (isMounted) {
-          setFilteredFiles(matchingFiles);
+          setFilteredFiles(result);
         }
       } catch (error) {
-        console.error('Search error:', error);
+        console.error('Filtering error:', error);
         if (isMounted) {
           setFilteredFiles([]);
         }
@@ -319,7 +516,14 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
     return () => {
       isMounted = false;
     };
-  }, [files, searchQuery, user?.uid, privateKey]);
+  }, [files, searchQuery, selectedTags, matchAllTags, user?.uid, privateKey]);
+
+  // Notify HomePage when files change (for sidebar tag filtering)
+  useEffect(() => {
+    if (onFilesChange) {
+      onFilesChange(files);
+    }
+  }, [files, onFilesChange]);
 
   // Cleanup long press timer on unmount
   useEffect(() => {
@@ -508,9 +712,82 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
     }
   };
 
+  const bulkShare = async () => {
+    const totalItems = selectedFiles.size + selectedFolders.size;
+    if (totalItems === 0) return;
+
+    // For bulk operations, share the first selected item using the existing dialog
+    // This could be enhanced to support true bulk sharing in the future
+    if (selectedFiles.size > 0) {
+      const firstFile = files.find(f => selectedFiles.has(f.id));
+      if (firstFile) {
+        setFileToShare(firstFile);
+        setFolderToShare(null);
+        setShareItemType('file');
+        setShareDialogOpen(true);
+      }
+    } else if (selectedFolders.size > 0) {
+      const firstFolder = folders.find(f => selectedFolders.has(f.id));
+      if (firstFolder) {
+        setFolderToShare(firstFolder);
+        setFileToShare(null);
+        setShareItemType('folder');
+        setShareDialogOpen(true);
+      }
+    }
+  };
+
+  const bulkCopy = () => {
+    const totalItems = selectedFiles.size + selectedFolders.size;
+    if (totalItems === 0) return;
+
+    // Collect all selected items for bulk copy
+    const itemsToCopy: Array<{ type: 'file' | 'folder', item: FileData | FolderData }> = [];
+    
+    // Add selected files
+    Array.from(selectedFiles).forEach(fileId => {
+      const file = files.find(f => f.id === fileId);
+      if (file) {
+        itemsToCopy.push({ type: 'file', item: file });
+      }
+    });
+    
+    // Add selected folders
+    Array.from(selectedFolders).forEach(folderId => {
+      const folder = folders.find(f => f.id === folderId);
+      if (folder) {
+        itemsToCopy.push({ type: 'folder', item: folder });
+      }
+    });
+
+    if (itemsToCopy.length > 0) {
+      copyItems(itemsToCopy);
+      clearAllSelections();
+    }
+  };
+
   // Load files for current folder
+  // Subscribe to files with real-time updates
   useEffect(() => {
+    console.log('🔧 MainContent real-time subscription triggered:', {
+      hasUser: !!user,
+      hasPrivateKey: !!privateKey,
+      userId: user?.uid,
+      privateKeyLength: privateKey?.length,
+      currentFolder,
+      isRecentsView,
+      isFavoritesView,
+      isSharedView
+    });
+    
     if (!user || !privateKey || isRecentsView || isFavoritesView || isSharedView) {
+      console.log('🔧 MainContent early exit:', {
+        noUser: !user,
+        noPrivateKey: !privateKey,
+        isRecentsView,
+        isFavoritesView,
+        isSharedView
+      });
       setLoading(false);
       setIsDataLoading(false);
       return;
@@ -519,127 +796,101 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
     setLoading(true);
     setIsDataLoading(true);
     
-    // Query for files owned by user
-    const ownedFilesQuery = query(
-      collection(db, 'files'),
-      where('parent', '==', currentFolder),
-      where('owner', '==', user.uid)
-    );
-
-    // Query for files shared with user (filtered by current folder)
-    const sharedFilesQuery = query(
-      collection(db, 'files'),
-      where('parent', '==', currentFolder),
-      where('sharedWith', 'array-contains', user.uid)
-    );
-
-    const filesMap = new Map<string, FileData>();
-    let completedQueries = 0;
-    const totalQueries = 2;
-    let ownedQuerySuccess = false;
-    let sharedQuerySuccess = false;
-    
-    // Skip shared files query if user is in root folder and has no shared files
-    // This helps avoid permission errors when no shared files exist
-    let skipSharedQuery = false;
-
-    const processQueryResults = async (snapshot: any, queryName: string) => {
-      for (const doc of snapshot.docs) {
-        const data = doc.data();
-
-        if (!data.encryptedKeys || !data.encryptedKeys[user.uid]) {
-          filesMap.set(doc.id, { ...data, id: doc.id, name: '[No Access]', size: '' });
+    const processFiles = async (rawFiles: any[]) => {
+      const filesMap = new Map<string, FileData>();
+      
+      for (const fileData of rawFiles) {
+        if (!fileData.encryptedKeys || !fileData.encryptedKeys[user.uid]) {
+          filesMap.set(fileData.id, { ...fileData, name: '[No Access]', size: '' });
           continue;
         }
 
         try {
-          const userEncryptedKey = data.encryptedKeys[user.uid];
+          const userEncryptedKey = fileData.encryptedKeys[user.uid];
           if (!userEncryptedKey || !privateKey) {
-            filesMap.set(doc.id, { ...data, id: doc.id, name: '[No Access]', size: '' });
+            filesMap.set(fileData.id, { ...fileData, name: '[No Access]', size: '' });
             continue;
           }
-          const privateKeyBytes = hexToBytes(privateKey);
-          const keyData = hexToBytes(userEncryptedKey);
           
-          // HPKE encrypted keys contain: encapsulated_key (32 bytes) + ciphertext  
-          const encapsulatedKey = keyData.slice(0, 32);
-          const ciphertext = keyData.slice(32);
+          // Get user's personalized file name (falls back to original name)
+          const { getUserFileName } = await import('../services/userNamesManagement');
+          const decryptedName = await getUserFileName(fileData, user.uid, privateKey);
           
-          const sharedSecret = await decryptData(
-            { encapsulatedKey, ciphertext },
-            privateKeyBytes
+          // Decrypt file size using FileEncryptionService
+          const { FileEncryptionService } = await import('../services/fileEncryption');
+          const { size: decryptedSize } = await FileEncryptionService.decryptFileMetadata(
+            fileData.name as { ciphertext: string; nonce: string },
+            fileData.size as { ciphertext: string; nonce: string },
+            userEncryptedKey,
+            privateKey
           );
-
-          const decryptedName = await decryptMetadata(data.name as { ciphertext: string; nonce: string }, sharedSecret);
-          const decryptedSize = await decryptMetadata(data.size as { ciphertext: string; nonce: string }, sharedSecret);
-          filesMap.set(doc.id, { ...data, id: doc.id, name: decryptedName, size: decryptedSize });
+          
+          filesMap.set(fileData.id, { ...fileData, name: decryptedName, size: decryptedSize });
         } catch (error) {
           console.error('Error decrypting file metadata:', error);
-          filesMap.set(doc.id, { ...data, id: doc.id, name: '[Encrypted File]', size: '' });
+          filesMap.set(fileData.id, { ...fileData, name: '[Encrypted File]', size: '' });
         }
       }
+      
+      return Array.from(filesMap.values());
+    };
 
-      completedQueries++;
-      
-      // Update UI immediately with current files
-      const finalFiles = Array.from(filesMap.values());
-      setFiles(finalFiles);
-      setFilteredFiles(finalFiles);
-      
-      if (completedQueries === totalQueries) {
+    const handleFilesUpdate = async (rawFiles: any[]) => {
+      console.log('🔧 Real-time files update received:', { count: rawFiles.length });
+      try {
+        const processedFiles = await processFiles(rawFiles);
+        const sortedFiles = processedFiles.sort((a, b) => {
+          // Convert to Date objects for comparison
+          const dateA = a.lastModified instanceof Date ? a.lastModified : new Date(a.lastModified);
+          const dateB = b.lastModified instanceof Date ? b.lastModified : new Date(b.lastModified);
+          return dateB.getTime() - dateA.getTime(); // Sort by most recent first
+        });
+        
+        setFiles(sortedFiles);
+        setFilteredFiles(sortedFiles);
+        setLoading(false);
+        setIsDataLoading(false);
+      } catch (error) {
+        console.error('Error processing files:', error);
+        setFiles([]);
+        setFilteredFiles([]);
         setLoading(false);
         setIsDataLoading(false);
       }
     };
 
-    const handleError = (error: any, queryName: string) => {
-      console.warn(`${queryName} query failed (this is normal if no shared files exist):`, error.message);
-      
-      // Mark this query as failed but continue
-      if (queryName === 'SharedFiles') {
-        sharedQuerySuccess = false;
-      } else {
-        ownedQuerySuccess = false;
-      }
-      
-      completedQueries++;
-      
-      // Update UI immediately with current files
-      const finalFiles = Array.from(filesMap.values());
-      setFiles(finalFiles);
-      setFilteredFiles(finalFiles);
-      
-      if (completedQueries === totalQueries) {
+    // Set up real-time subscription
+    let unsubscribe: (() => void) | null = null;
+    
+    const setupSubscription = async () => {
+      try {
+        const { subscribeToFilesInFolder } = await import('../firestore');
+        console.log('🔧 Setting up real-time subscription for folder:', currentFolder);
+        unsubscribe = subscribeToFilesInFolder(
+          currentFolder,
+          user.uid,
+          handleFilesUpdate,
+          (error) => {
+            console.error('Error in files subscription:', error);
+            setLoading(false);
+            setIsDataLoading(false);
+          }
+        );
+      } catch (error) {
+        console.error('Error setting up files subscription:', error);
         setLoading(false);
         setIsDataLoading(false);
       }
     };
 
-    // Start both queries
-    const unsubscribe1 = onSnapshot(
-      ownedFilesQuery,
-      (snapshot) => {
-        ownedQuerySuccess = true;
-        processQueryResults(snapshot, 'OwnedFiles');
-      },
-      (error) => handleError(error, 'OwnedFiles')
-    );
+    setupSubscription();
 
-    // Enable SharedFiles query for sharing functionality
-    const unsubscribe2 = onSnapshot(
-      sharedFilesQuery,
-      (snapshot) => {
-        sharedQuerySuccess = true;
-        processQueryResults(snapshot, 'SharedFiles');
-      },
-      (error) => {
-        handleError(error, 'SharedFiles');
-      }
-    );
-
+    // Cleanup subscription on unmount or dependency change
     return () => {
-      unsubscribe1();
-      unsubscribe2();
+      console.log('🔧 Cleaning up real-time subscription');
+      if (unsubscribe) {
+        unsubscribe();
+      }
     };
   }, [currentFolder, user, privateKey, isRecentsView, isFavoritesView, isSharedView]);
 
@@ -685,114 +936,47 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
       return;
     }
 
-    setLoading(true);
-    setIsDataLoading(true);
+    const loadFavoriteFiles = async () => {
+      setLoading(true);
+      setIsDataLoading(true);
 
-    // Query for favorite files owned by user
-    const ownedFavoritesQuery = query(
-      collection(db, 'files'),
-      where('owner', '==', user.uid),
-      where('isFavorite', '==', true)
-    );
-
-    // Query for favorite files shared with user
-    const sharedFavoritesQuery = query(
-      collection(db, 'files'),
-      where('sharedWith', 'array-contains', user.uid),
-      where('isFavorite', '==', true)
-    );
-
-    const favoritesMap = new Map<string, FileData>();
-    let completedQueries = 0;
-    const totalQueries = 2; // Count both owned and shared queries
-
-    const processFavoritesResults = async (snapshot: any, queryName: string) => {
-      for (const doc of snapshot.docs) {
-        const data = doc.data();
-
-        if (!data.encryptedKeys || !data.encryptedKeys[user.uid]) {
-          favoritesMap.set(doc.id, { ...data, id: doc.id, name: '[No Access]', size: '' });
-          continue;
-        }
-
-        try {
-          const userEncryptedKey = data.encryptedKeys[user.uid];
-          if (!userEncryptedKey || !privateKey) {
-            favoritesMap.set(doc.id, { ...data, id: doc.id, name: '[No Access]', size: '' });
-            continue;
-          }
-          const privateKeyBytes = hexToBytes(privateKey);
-          const keyData = hexToBytes(userEncryptedKey);
-          
-          // HPKE encrypted keys contain: encapsulated_key (32 bytes) + ciphertext  
-          const encapsulatedKey = keyData.slice(0, 32);
-          const ciphertext = keyData.slice(32);
-          
-          const sharedSecret = await decryptData(
-            { encapsulatedKey, ciphertext },
-            privateKeyBytes
-          );
-
-          const decryptedName = await decryptMetadata(data.name as { ciphertext: string; nonce: string }, sharedSecret);
-          const decryptedSize = await decryptMetadata(data.size as { ciphertext: string; nonce: string }, sharedSecret);
-          favoritesMap.set(doc.id, { ...data, id: doc.id, name: decryptedName, size: decryptedSize });
-        } catch (error) {
-          console.error('Error decrypting favorite file metadata:', error);
-          favoritesMap.set(doc.id, { ...data, id: doc.id, name: '[Encrypted File]', size: '' });
-        }
-      }
-
-      completedQueries++;
-      
-      // Update UI immediately with current files
-      const finalFiles = Array.from(favoritesMap.values());
-      setFiles(finalFiles);
-      setFilteredFiles(finalFiles);
-      
-      if (completedQueries === totalQueries) {
+      try {
+        // Query all files where the user has access
+        const allFilesQuery = query(
+          collection(db, 'files'),
+          where('sharedWith', 'array-contains', user.uid)
+        );
+        
+        const querySnapshot = await getDocs(allFilesQuery);
+        const allFiles = querySnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+        
+        // Filter files that are favorites for this user and process them
+        const { getUserFavoriteStatus } = await import('../services/userFavoritesManagement');
+        const favoriteFiles = allFiles.filter((file: any) => getUserFavoriteStatus(file, user.uid));
+        
+        // Process and decrypt favorite files
+        const processedFiles = await processFiles(favoriteFiles);
+        const sortedFiles = processedFiles.sort((a, b) => {
+          // Convert to Date objects for comparison
+          const dateA = a.lastModified instanceof Date ? a.lastModified : new Date(a.lastModified);
+          const dateB = b.lastModified instanceof Date ? b.lastModified : new Date(b.lastModified);
+          return dateB.getTime() - dateA.getTime(); // Sort by most recent first
+        });
+        
+        setFiles(sortedFiles);
+        setFilteredFiles(sortedFiles);
+        setLoading(false);
+        setIsDataLoading(false);
+      } catch (error) {
+        console.error('Error loading favorite files:', error);
+        setFiles([]);
+        setFilteredFiles([]);
         setLoading(false);
         setIsDataLoading(false);
       }
     };
 
-    const handleFavoritesError = (error: any, queryName: string) => {
-      console.warn(`${queryName} query failed:`, error.message);
-      
-      completedQueries++;
-      
-      // Update UI immediately with current files
-      const finalFiles = Array.from(favoritesMap.values());
-      setFiles(finalFiles);
-      setFilteredFiles(finalFiles);
-      
-      if (completedQueries === totalQueries) {
-        setLoading(false);
-        setIsDataLoading(false);
-      }
-    };
-
-    // Start both queries
-    const unsubscribe1 = onSnapshot(
-      ownedFavoritesQuery,
-      (snapshot) => {
-        processFavoritesResults(snapshot, 'OwnedFavorites');
-      },
-      (error) => handleFavoritesError(error, 'OwnedFavorites')
-    );
-
-    // Enable shared favorites query
-    const unsubscribe2 = onSnapshot(
-      sharedFavoritesQuery,
-      (snapshot) => {
-        processFavoritesResults(snapshot, 'SharedFavorites');
-      },
-      (error) => handleFavoritesError(error, 'SharedFavorites')
-    );
-
-    return () => {
-      unsubscribe1();
-      unsubscribe2();
-    };
+    loadFavoriteFiles();
   }, [isFavoritesView, user, privateKey]);
 
   // Load shared files when in shared view
@@ -813,6 +997,22 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
     const sharedFilesMap = new Map<string, FileData>();
 
     const processSharedResults = async (snapshot: any) => {
+      console.log(`🔧 MainContent SharedFiles snapshot:`, { 
+        size: snapshot.size, 
+        isEmpty: snapshot.empty,
+        docsLength: snapshot.docs.length 
+      });
+      
+      // Early exit if no documents to process
+      if (snapshot.empty || snapshot.docs.length === 0) {
+        console.log(`✅ SharedFiles: No shared files found, skipping decryption`);
+        setFiles([]);
+        setFilteredFiles([]);
+        setLoading(false);
+        setIsDataLoading(false);
+        return;
+      }
+      
       for (const doc of snapshot.docs) {
         const data = doc.data();
 
@@ -832,23 +1032,53 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
             sharedFilesMap.set(doc.id, { ...data, id: doc.id, name: '[No Access]', size: '' });
             continue;
           }
-          const privateKeyBytes = hexToBytes(privateKey);
-          const keyData = hexToBytes(userEncryptedKey);
           
-          // HPKE encrypted keys contain: encapsulated_key (32 bytes) + ciphertext  
-          const encapsulatedKey = keyData.slice(0, 32);
-          const ciphertext = keyData.slice(32);
+          console.log(`[SharedFiles] Processing shared file decryption:`, {
+            fileId: doc.id,
+            userId: user.uid,
+            fileOwner: data.owner,
+            userEncryptedKeyLength: userEncryptedKey.length,
+            userEncryptedKeyPreview: userEncryptedKey.substring(0, 16) + '...',
+            privateKeyLength: privateKey.length,
+            isSharedFile: data.owner !== user.uid
+          });
           
-          const sharedSecret = await decryptData(
-            { encapsulatedKey, ciphertext },
-            privateKeyBytes
+          // Use centralized FileEncryptionService for consistent decryption
+          console.log(`[SharedFiles] Using FileEncryptionService to decrypt metadata:`, {
+            fileId: doc.id,
+            userId: user.uid,
+            userEncryptedKeyLength: userEncryptedKey.length,
+            privateKeyLength: privateKey.length
+          });
+          
+          const { FileEncryptionService } = await import('../services/fileEncryption');
+          const { name: decryptedName, size: decryptedSize } = await FileEncryptionService.decryptFileMetadata(
+            data.name as { ciphertext: string; nonce: string },
+            data.size as { ciphertext: string; nonce: string },
+            userEncryptedKey,
+            privateKey
           );
-
-          const decryptedName = await decryptMetadata(data.name as { ciphertext: string; nonce: string }, sharedSecret);
-          const decryptedSize = await decryptMetadata(data.size as { ciphertext: string; nonce: string }, sharedSecret);
+          
+          console.log(`[SharedFiles] Shared file decryption completed successfully:`, {
+            fileId: doc.id,
+            decryptedName: decryptedName,
+            decryptedSize: decryptedSize
+          });
+          
+          
           sharedFilesMap.set(doc.id, { ...data, id: doc.id, name: decryptedName, size: decryptedSize });
         } catch (error) {
-          console.error('Error decrypting shared file metadata:', error);
+          console.error(`[SharedFiles] Error decrypting shared file metadata:`, {
+            fileId: doc.id,
+            userId: user.uid,
+            fileOwner: data.owner,
+            isSharedFile: data.owner !== user.uid,
+            error: error,
+            errorMessage: error instanceof Error ? error.message : String(error),
+            errorStack: error instanceof Error ? error.stack : 'No stack trace',
+            userEncryptedKeyLength: data.encryptedKeys[user.uid]?.length || 'N/A',
+            privateKeyLength: privateKey?.length || 'N/A'
+          });
           sharedFilesMap.set(doc.id, { ...data, id: doc.id, name: '[Encrypted File]', size: '' });
         }
       }
@@ -882,8 +1112,11 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
 
   // Event handlers
   const handleCreateFolder = async (name: string) => {
-    if (!user) return;
-    await createFolder(user.uid, name, currentFolder);
+    if (!user || !privateKey) {
+      console.error('Cannot create folder: user or privateKey not available');
+      return;
+    }
+    await createFolder(user.uid, name, currentFolder, privateKey);
     setNewFolderDialogOpen(false);
   };
 
@@ -1065,30 +1298,90 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
     setMobileActionMenu({ open: true, item, type });
   };
 
-  const handlePaste = async () => {
-    if (!clipboardItem || !user) return;
+  const copyFile = async (originalFile: FileData, preserveSharing: boolean = true) => {
+    if (!user || !privateKey) return;
 
     try {
-      if (clipboardItem.type === 'folder') {
-        const folder = clipboardItem.item as FolderData;
-        
-        if (cutItem) {
-          await updateFolder(folder.id!, { parent: currentFolder });
-          clearClipboard();
-        } else if (copyItem) {
-          // Copy folder logic would go here
-          alert('Folder copy not yet implemented');
+      await FileOperationsService.copyFile(
+        originalFile,
+        user.uid,
+        privateKey,
+        {
+          preserveSharing,
+          newParentFolder: currentFolder,
+          allowContentDeduplication: true // Allow sharing same storage path for efficiency
         }
-      } else if (clipboardItem.type === 'file') {
-        const file = clipboardItem.item as FileData;
-        
-        if (cutItem) {
-          await updateFile(file.id!, { parent: currentFolder });
-          clearClipboard();
-        } else if (copyItem) {
-          alert('File copy not yet implemented');
+      );
+      
+      console.log('File copied successfully');
+    } catch (error) {
+      console.error('Failed to copy file:', error);
+      throw error;
+    }
+  };
+
+  const copyFolder = async (originalFolder: FolderData) => {
+    if (!user || !privateKey) {
+      console.error('Cannot copy folder: user or privateKey not available');
+      return;
+    }
+
+    try {
+      await FileOperationsService.copyFolder(
+        originalFolder,
+        user.uid,
+        privateKey,
+        {
+          newParentFolder: currentFolder
+        }
+      );
+      
+      console.log('Folder copied successfully');
+    } catch (error) {
+      console.error('Failed to copy folder:', error);
+      throw error;
+    }
+  };
+
+  const handlePaste = async () => {
+    if (clipboardItems.length === 0 || !user) return;
+
+    try {
+      // For multiple items, process each one
+      for (const item of clipboardItems) {
+        if (item.type === 'folder') {
+          const folder = item.item as FolderData;
+          
+          if (item.operation === 'cut') {
+            await updateFolder(folder.id!, { parent: currentFolder });
+          } else if (item.operation === 'copy') {
+            // For now, copy folder without dialog for bulk operations
+            // TODO: Could be enhanced to show a single dialog for all items
+            await copyFolder(folder);
+          }
+        } else if (item.type === 'file') {
+          const file = item.item as FileData;
+          
+          if (item.operation === 'cut') {
+            // Use the new per-user folder management system
+            const { moveFileForUser } = await import('../services/userFolderManagement');
+            await moveFileForUser(file.id!, user!.uid, currentFolder);
+          } else if (item.operation === 'copy') {
+            // For single items, show dialog; for multiple items, copy without dialog
+            if (clipboardItems.length === 1) {
+              setItemToCopy({ item: file, type: 'file' });
+              setCopyOptionsOpen(true);
+              return; // Exit early to show dialog
+            } else {
+              // Bulk copy without dialog - don't preserve sharing by default
+              await copyFile(file, false);
+            }
+          }
         }
       }
+      
+      // Clear clipboard after successful paste
+      clearClipboard();
     } catch (error) {
       console.error('Paste operation failed:', error);
       alert('Paste operation failed');
@@ -1104,11 +1397,40 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
   };
 
   const handleToggleFavorite = async (fileId: string) => {
-    if (!user || !privateKey) return;
+    if (!user) return;
     
     try {
-      await toggleFormFavorite(fileId, privateKey, user.uid);
-      // The UI will update automatically through the real-time listeners
+      // Find the file in the current files list
+      const file = files.find(f => f.id === fileId);
+      if (!file) {
+        console.error('File not found for favorite toggle');
+        return;
+      }
+      
+      // Use the new per-user favorites system
+      const { toggleUserFavorite } = await import('../services/userFavoritesManagement');
+      const newStatus = await toggleUserFavorite(file, user.uid);
+      
+      // Update the local state immediately for better UX
+      const updatedFiles = files.map(f => {
+        if (f.id === fileId) {
+          const updatedUserFavorites = { ...f.userFavorites };
+          updatedUserFavorites[user.uid] = newStatus;
+          return { ...f, userFavorites: updatedUserFavorites };
+        }
+        return f;
+      });
+      
+      setFiles(updatedFiles);
+      setFilteredFiles(filteredFiles.map(f => {
+        if (f.id === fileId) {
+          const updatedUserFavorites = { ...f.userFavorites };
+          updatedUserFavorites[user.uid] = newStatus;
+          return { ...f, userFavorites: updatedUserFavorites };
+        }
+        return f;
+      }));
+      
     } catch (error) {
       console.error('Error toggling favorite:', error);
       alert('Failed to toggle favorite status');
@@ -1151,18 +1473,21 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
     }
 
     try {
-      const recipientData: { id: string; encryptedKey: string }[] = [];
+      const recipientUserIds: string[] = [];
 
-      // Process each recipient by creating their key exchange
+      // Process each recipient to validate and convert email to user ID
       for (const email of recipients) {
         try {
+          console.log(`🔍 Looking up user by email: ${email}`);
           const recipient = await getUserByEmail(email);
           
           if (!recipient) {
-            console.warn(`User ${email} not found in database`);
+            console.warn(`❌ User ${email} not found in database`);
             alert(`User ${email} not found. They may need to sign up first.`);
             continue;
           }
+
+          console.log(`✅ Found user ${email} with ID: ${recipient.id}`);
           
           if (!recipient.profile.publicKey) {
             console.warn(`User ${email} does not have a public key`);
@@ -1176,46 +1501,7 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
             continue;
           }
 
-          // For now, only support sharing legacy ML-KEM768 files
-          // TODO: Implement proper HPKE file sharing architecture
-          const ownerEncryptedKey = fileToShare.encryptedKeys[user.uid];
-          if (!ownerEncryptedKey) {
-            throw new Error('Owner encrypted key not found');
-          }
-
-          // HPKE file sharing - decrypt the file key and re-encrypt for recipient
-          const ownerPrivateKey = hexToBytes(privateKey);
-          const keyData = hexToBytes(ownerEncryptedKey);
-          
-          // HPKE encrypted keys contain: encapsulated_key (32 bytes) + ciphertext  
-          const encapsulatedKey = keyData.slice(0, 32);
-          const ciphertext = keyData.slice(32);
-          
-          // Decrypt the file key using owner's private key
-          const fileKey = await decryptData(
-            { encapsulatedKey, ciphertext },
-            ownerPrivateKey
-          );
-
-          // Encrypt the file key for the recipient using HPKE
-          const recipientPublicKey = hexToBytes(recipient.profile.publicKey);
-          const encryptedKeyForRecipient = await encryptData(fileKey, recipientPublicKey);
-          
-          // Combine encapsulated key and ciphertext for storage
-          const recipientKeyData = new Uint8Array(
-            encryptedKeyForRecipient.encapsulatedKey.length + 
-            encryptedKeyForRecipient.ciphertext.length
-          );
-          recipientKeyData.set(encryptedKeyForRecipient.encapsulatedKey, 0);
-          recipientKeyData.set(
-            encryptedKeyForRecipient.ciphertext, 
-            encryptedKeyForRecipient.encapsulatedKey.length
-          );
-
-          recipientData.push({
-            id: recipient.id,
-            encryptedKey: bytesToHex(recipientKeyData)
-          });
+          recipientUserIds.push(recipient.id);
 
         } catch (error) {
           console.error(`Error processing recipient ${email}:`, error);
@@ -1223,31 +1509,58 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
         }
       }
 
-      if (recipientData.length === 0) {
+      if (recipientUserIds.length === 0) {
         alert('No valid recipients found');
         return;
       }
 
-      // Update the file document
-      const updates: any = {
-        sharedWith: [...new Set([...fileToShare.sharedWith, ...recipientData.map(r => r.id)])],
-        lastModified: new Date().toISOString(),
-      };
+      console.log(`📤 Sharing file with user IDs:`, recipientUserIds);
+      console.log(`📄 File to share:`, { id: fileToShare.id, name: fileToShare.name, sharedWith: fileToShare.sharedWith });
 
-      // Add encrypted keys for each recipient
-      recipientData.forEach(({ id, encryptedKey }) => {
-        updates[`encryptedKeys.${id}`] = encryptedKey;
-      });
+      // Use the centralized FileOperationsService to share the file
+      await FileOperationsService.shareFileWithUsers(
+        fileToShare,
+        user.uid,
+        privateKey,
+        recipientUserIds
+      );
 
-      await updateFile(fileToShare.id!, updates);
+      // Update fileToShare state with new shared users so ShareDialog shows updated list when reopened
+      setFileToShare(prevFile => prevFile ? {
+        ...prevFile,
+        sharedWith: [...prevFile.sharedWith, ...recipientUserIds]
+      } : null);
 
-
-      alert(`File shared with ${recipientData.length} recipient${recipientData.length !== 1 ? 's' : ''}`);
+      alert(`File shared with ${recipientUserIds.length} recipient${recipientUserIds.length !== 1 ? 's' : ''}`);
       setShareDialogOpen(false);
       
     } catch (error) {
       console.error('Failed to share file:', error);
       alert(`Failed to share file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
+
+  // Handler for file sharing
+  const handleShare = async (recipients: string[]) => {
+    await handleShareFile(recipients);
+  };
+
+  // Handler for moving items (files or folders) to different folders
+  const handleMoveItem = async (itemId: string, itemType: 'file' | 'folder', targetFolderId: string | null) => {
+    if (!user) return;
+    
+    try {
+      if (itemType === 'folder') {
+        await updateFolder(itemId, { parent: targetFolderId });
+      } else if (itemType === 'file') {
+        // Use the new per-user folder management system
+        const { moveFileForUser } = await import('../services/userFolderManagement');
+        await moveFileForUser(itemId, user.uid, targetFolderId);
+      }
+    } catch (error) {
+      console.error('Error moving item:', error);
+      // You could add a toast notification here
     }
   };
 
@@ -1403,18 +1716,44 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
               {/* Search Field and Action Buttons */}
               <Box sx={{ 
                 display: 'flex', 
-                flexDirection: isMobile ? 'column' : 'row',
-                alignItems: isMobile ? 'stretch' : 'center',
+                flexDirection: 'column',
                 gap: 1,
                 width: isMobile ? '100%' : 'auto'
               }}>
-                <SearchBar
-                  searchQuery={searchQuery}
-                  onSearchChange={setSearchQuery}
-                />
+                <Box sx={{
+                  display: 'flex', 
+                  flexDirection: isMobile ? 'column' : 'row',
+                  alignItems: isMobile ? 'stretch' : 'center',
+                  gap: 1,
+                }}>
+                  <SearchBar
+                    searchQuery={searchQuery}
+                    onSearchChange={setSearchQuery}
+                  />
+                </Box>
+                
               </Box>
             </Box>
           </>
+        )}
+
+        {/* Paste Button - always visible when clipboard has items */}
+        {clipboardItem && (selectedFolders.size === 0 && selectedFiles.size === 0) && (
+          <Box sx={{ 
+            display: 'flex', 
+            justifyContent: 'flex-end',
+            mb: 2
+          }}>
+            <Button
+              variant="outlined"
+              color="primary"
+              size="small"
+              onClick={handlePaste}
+              startIcon={<ContentPaste />}
+            >
+              Paste {hasMultipleItems ? `${clipboardItems.length} items` : `${clipboardItem.type}`} ({clipboardItem.operation})
+            </Button>
+          </Box>
         )}
 
         {/* Bulk Operations Toolbar */}
@@ -1451,6 +1790,37 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
                   Unshare
                 </Button>
               )}
+              {clipboardItem && (
+                <Button
+                  variant="outlined"
+                  color="primary"
+                  size="small"
+                  onClick={handlePaste}
+                  startIcon={<ContentPaste />}
+                >
+                  Paste {hasMultipleItems ? `${clipboardItems.length} items` : `${clipboardItem.type}`} ({clipboardItem.operation})
+                </Button>
+              )}
+              <Button
+                variant="outlined"
+                color="secondary"
+                size="small"
+                onClick={bulkShare}
+                disabled={selectedFolders.size === 0 && selectedFiles.size === 0}
+                startIcon={<Share />}
+              >
+                Share
+              </Button>
+              <Button
+                variant="outlined"
+                color="info"
+                size="small"
+                onClick={bulkCopy}
+                disabled={selectedFolders.size === 0 && selectedFiles.size === 0}
+                startIcon={<ContentCopy />}
+              >
+                Copy
+              </Button>
               <Button
                 variant="outlined"
                 color="error"
@@ -1483,10 +1853,14 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
           onLongPressEnd={handleLongPressEnd}
           onOpenMobileActionMenu={handleOpenMobileActionMenu}
           onToggleFavorite={handleToggleFavorite}
+          userId={user?.uid}
+          currentUserId={user?.uid}
           selectedFolders={selectedFolders}
+          clipboardItem={clipboardItem}
           selectedFiles={selectedFiles}
           onToggleFolderSelection={toggleFolderSelection}
           onToggleFileSelection={toggleFileSelection}
+          onMoveItem={handleMoveItem}
         />
 
         {/* Dialogs */}
@@ -1508,17 +1882,27 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
                 ? (typeof folderToShare.name === 'string' ? folderToShare.name : '[Encrypted]')
                 : ''
             }
-            onShare={handleShareFile}
+            onShare={handleShare}
             onUnshare={handleUnshareFile}
             currentSharedWith={
               shareItemType === 'file' && fileToShare 
-                ? fileToShare.sharedWith 
+                ? (Array.isArray(fileToShare.sharedWith) ? fileToShare.sharedWith : [])
                 : shareItemType === 'folder' && folderToShare
-                ? folderToShare.sharedWith || []
+                ? (Array.isArray(folderToShare.sharedWith) ? folderToShare.sharedWith : [])
                 : []
             }
           />
         )}
+
+        {/* Tag Management Dialog */}
+        <TagManagementDialog
+          open={tagManagementOpen}
+          onClose={() => setTagManagementOpen(false)}
+          file={fileToManageTags}
+          userId={user?.uid || ''}
+          userPrivateKey={privateKey || ''}
+          allFiles={files}
+        />
 
         <ContextMenu
           open={!!contextMenu}
@@ -1539,6 +1923,13 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
               setShareDialogOpen(true);
               setContextMenu(null);
             }
+          }}
+          onManageTags={() => {
+            if (contextMenu?.item && contextMenu.type === 'file') {
+              setFileToManageTags(contextMenu.item as FileData);
+              setTagManagementOpen(true);
+            }
+            setContextMenu(null);
           }}
           onRename={() => {
             if (contextMenu?.item) {
@@ -1649,7 +2040,17 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
             if (renameDialog.item) {
               try {
                 if (renameDialog.type === 'file') {
-                  await updateFile(renameDialog.item.id!, { name: newName });
+                  const fileData = renameDialog.item as FileData;
+                  
+                  // Use the new per-user names service to set personalized name
+                  const { setUserFileName } = await import('../services/userNamesManagement');
+                  await setUserFileName(
+                    renameDialog.item.id!,
+                    newName,
+                    user.uid,
+                    privateKey,
+                    fileData
+                  );
                 } else {
                   await renameFolderWithEncryption(renameDialog.item.id!, newName, user?.uid || '');
                 }
@@ -1673,14 +2074,23 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
               onEdit={handleEditForm}
               onClose={handleFormCancel}
               onDownload={handleDownloadFormFile}
+              onShare={() => {
+                // Find the most up-to-date file data from the files array
+                const currentFile = files.find(f => f.id === selectedFormFile?.id) || selectedFormFile;
+                setFileToShare(currentFile);
+                setFolderToShare(null);
+                setShareItemType('file');
+                setShareDialogOpen(true);
+              }}
             />
 
-            {formEditorOpen && (
-              <FormFileEditor
-                file={selectedFormFile}
+            {formEditorOpen && selectedFormFileData && (
+              <FormInstanceFiller
                 userId={user?.uid || ''}
                 privateKey={privateKey || ''}
                 parentFolder={currentFolder}
+                existingFormData={selectedFormFileData}
+                existingFile={selectedFormFile}
                 onSave={handleFormSave}
                 onCancel={handleFormCancel}
               />
@@ -1736,12 +2146,11 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
 
 
         {formEditorOpen && unsavedFormData && (
-          <FormFileEditor
-            formData={unsavedFormData}
+          <FormInstanceFiller
             userId={user?.uid || ''}
             privateKey={privateKey || ''}
             parentFolder={currentFolder}
-            isNew={true}
+            existingFormData={unsavedFormData}
             onSave={() => {
               setFormEditorOpen(false);
               setUnsavedFormData(null);
@@ -1807,10 +2216,70 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(function MainCo
             </Button>
           </DialogActions>
         </Dialog>
+
+        {/* Copy Options Dialog */}
+        <Dialog 
+          open={copyOptionsOpen} 
+          onClose={() => {
+            setCopyOptionsOpen(false);
+            setItemToCopy(null);
+            setPreserveSharing(false);
+          }}
+        >
+          <DialogTitle>Copy Options</DialogTitle>
+          <DialogContent>
+            <DialogContentText>
+              How would you like to copy this {itemToCopy?.type}?
+              <br />
+              <strong>{itemToCopy && typeof itemToCopy.item.name === 'string' ? itemToCopy.item.name : '[Encrypted]'}</strong>
+            </DialogContentText>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={preserveSharing}
+                  onChange={(e) => setPreserveSharing(e.target.checked)}
+                />
+              }
+              label="Preserve sharing permissions (copy will be shared with the same users)"
+              sx={{ mt: 2 }}
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button 
+              onClick={() => {
+                setCopyOptionsOpen(false);
+                setItemToCopy(null);
+                setPreserveSharing(false);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={async () => {
+                if (itemToCopy) {
+                  if (itemToCopy.type === 'file') {
+                    await copyFile(itemToCopy.item as FileData, preserveSharing);
+                  } else {
+                    await copyFolder(itemToCopy.item as FolderData);
+                  }
+                }
+                setCopyOptionsOpen(false);
+                setItemToCopy(null);
+                setPreserveSharing(false);
+              }} 
+              color="primary" 
+              variant="contained"
+            >
+              Copy
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Box>
     </FileUploadArea>
   );
-});
+};
+
+const MainContent = forwardRef<MainContentRef, MainContentProps>(MainContentComponent);
 
 MainContent.displayName = 'MainContent';
 

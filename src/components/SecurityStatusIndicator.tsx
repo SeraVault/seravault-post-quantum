@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Box, IconButton, Tooltip, Typography } from '@mui/material';
 import { Security, SecurityOutlined, LockOutlined } from '@mui/icons-material';
 import { usePassphrase } from '../auth/PassphraseContext';
@@ -9,6 +9,55 @@ import BiometricPassphraseDialog from './BiometricPassphraseDialog';
 const SecurityStatusIndicator: React.FC = () => {
   const { privateKey, clearPrivateKey, requestUnlock } = usePassphrase();
   const { user } = useAuth();
+  const [timeRemaining, setTimeRemaining] = useState(0);
+
+  // Function to update the remaining time
+  const updateTimeRemaining = useCallback(() => {
+    if (!privateKey) {
+      setTimeRemaining(0);
+      return;
+    }
+    
+    const storageKey = `privateKey_${user?.uid}`;
+    const remaining = secureStorage.getTimeUntilExpiration(storageKey);
+    
+    
+    setTimeRemaining(remaining);
+  }, [privateKey, user?.uid]);
+
+  // Set up reactive updates
+  useEffect(() => {
+    if (!privateKey) {
+      setTimeRemaining(0);
+      return;
+    }
+
+    // Initial update
+    updateTimeRemaining();
+
+    // Update on user activity (more responsive than polling)
+    const activityEvents = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
+    const handleActivity = () => {
+      // Small delay to let secureStorage update first
+      setTimeout(updateTimeRemaining, 10);
+    };
+
+    // Add activity listeners
+    activityEvents.forEach(event => {
+      document.addEventListener(event, handleActivity, { passive: true });
+    });
+
+    // Also update periodically for countdown when idle (every 30 seconds is fine)
+    const interval = setInterval(updateTimeRemaining, 30000);
+
+    // Cleanup
+    return () => {
+      activityEvents.forEach(event => {
+        document.removeEventListener(event, handleActivity);
+      });
+      clearInterval(interval);
+    };
+  }, [privateKey, updateTimeRemaining]);
 
   if (!user) {
     return null;
@@ -16,8 +65,8 @@ const SecurityStatusIndicator: React.FC = () => {
 
   if (privateKey) {
     // Key is unlocked - show green indicator with timer and lock button
-    const timeRemaining = secureStorage.getTimeUntilExpiration('privateKey');
     const minutesRemaining = Math.ceil(timeRemaining / (1000 * 60));
+    
 
     return (
       <Tooltip title={`🔓 Private key unlocked • ${minutesRemaining} minutes remaining • Keys auto-expire for security`}>

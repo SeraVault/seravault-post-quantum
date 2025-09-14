@@ -161,7 +161,7 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
           }
 
           // Import decrypt function and decrypt the private key
-          const { decryptString } = await import('../crypto/hpkeCrypto');
+          const { decryptString } = await import('../crypto/quantumSafeCrypto');
           privateKeyHex = await decryptString(keyData.encryptedPrivateKey, keyFilePassphrase);
         }
         // Check for decrypted key file format

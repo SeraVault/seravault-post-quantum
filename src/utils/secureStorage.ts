@@ -7,7 +7,7 @@
  * - Session-only persistence (no disk storage)
  */
 
-import { secureWipe } from '../crypto/hpkeCrypto';
+import { secureWipe } from '../crypto/quantumSafeCrypto';
 
 interface SecureStorageItem {
   data: Uint8Array;
@@ -184,11 +184,19 @@ class SecureMemoryStorage {
    */
   getTimeUntilExpiration(key: string): number {
     const item = this.storage.get(key);
-    if (!item) return 0;
+    if (!item) {
+      console.log('🔐 getTimeUntilExpiration: No item found for key:', key);
+      console.log('🔐 Available keys:', Array.from(this.storage.keys()));
+      return 0;
+    }
     
-    const elapsed = Date.now() - item.lastActivity;
+    const now = Date.now();
+    const elapsed = now - item.lastActivity;
     const timeoutMs = item.activityTimeout * 60 * 1000;
-    return Math.max(0, timeoutMs - elapsed);
+    const remaining = Math.max(0, timeoutMs - elapsed);
+    
+    
+    return remaining;
   }
   
   /**
@@ -224,45 +232,92 @@ export const secureStorage = new SecureMemoryStorage();
 
 /**
  * Hook for managing private key storage with user preference
+ * FIXED: Now uses user-specific storage keys to prevent key mixing between users
  */
-export const usePrivateKeyStorage = () => {
+export const usePrivateKeyStorage = (userId?: string) => {
+  // Generate user-specific storage key
+  const getStorageKey = () => {
+    if (!userId) return 'privateKey'; // Fallback for backwards compatibility
+    return `privateKey_${userId}`;
+  };
+
+  const getPreferenceKey = () => {
+    if (!userId) return 'rememberPrivateKey';
+    return `rememberPrivateKey_${userId}`;
+  };
+
   const storePrivateKey = (privateKey: string, rememberChoice: boolean) => {
+    const storageKey = getStorageKey();
+    const preferenceKey = getPreferenceKey();
+    
+    // SECURITY: Log private key storage with user association
+    console.log(`🔐 SECURITY: Storing private key for user ${userId || 'unknown'} with key: ${storageKey}`);
+    console.log(`🔐 SECURITY: Private key preview: ${privateKey.substring(0, 16)}...`);
+    console.log(`🔐 SECURITY: Full private key being stored: ${privateKey}`); // TEMP DEBUG - remove later
+    
     if (rememberChoice) {
       // Store with longer timeout if user chooses to remember
-      secureStorage.store('privateKey', privateKey, 60); // 1 hour
+      secureStorage.store(storageKey, privateKey, 60); // 1 hour
       
       // Store the preference in localStorage (non-sensitive)
-      localStorage.setItem('rememberPrivateKey', 'true');
+      localStorage.setItem(preferenceKey, 'true');
     } else {
       // Store with shorter timeout
-      secureStorage.store('privateKey', privateKey, 15); // 15 minutes
-      localStorage.removeItem('rememberPrivateKey');
+      secureStorage.store(storageKey, privateKey, 15); // 15 minutes
+      localStorage.removeItem(preferenceKey);
     }
   };
 
   const getStoredPrivateKey = (): string | null => {
-    return secureStorage.retrieve('privateKey');
+    const storageKey = getStorageKey();
+    const retrievedKey = secureStorage.retrieve(storageKey);
+    
+    if (retrievedKey) {
+      // SECURITY: Log private key retrieval with user association
+      console.log(`🔐 SECURITY: Retrieved private key for user ${userId || 'unknown'} with key: ${storageKey}`);
+      console.log(`🔐 SECURITY: Retrieved key preview: ${retrievedKey.substring(0, 16)}...`);
+      console.log(`🔐 SECURITY: Full retrieved private key: ${retrievedKey}`); // TEMP DEBUG - remove later
+    } else {
+      console.log(`🔐 SECURITY: No cached private key found for user ${userId || 'unknown'} with key: ${storageKey}`);
+    }
+    
+    return retrievedKey;
   };
 
   const clearStoredPrivateKey = () => {
-    secureStorage.remove('privateKey');
-    localStorage.removeItem('rememberPrivateKey');
+    secureStorage.remove(getStorageKey());
+    localStorage.removeItem(getPreferenceKey());
   };
 
   const shouldRememberPrivateKey = (): boolean => {
-    return localStorage.getItem('rememberPrivateKey') === 'true';
+    return localStorage.getItem(getPreferenceKey()) === 'true';
   };
 
   const hasStoredPrivateKey = (): boolean => {
-    return secureStorage.has('privateKey');
+    return secureStorage.has(getStorageKey());
   };
 
   const onPrivateKeyTimeout = (callback: () => void): void => {
-    secureStorage.onTimeout('privateKey', callback);
+    secureStorage.onTimeout(getStorageKey(), callback);
   };
 
   const removePrivateKeyTimeoutCallback = (callback: () => void): void => {
-    secureStorage.removeTimeoutCallback('privateKey', callback);
+    secureStorage.removeTimeoutCallback(getStorageKey(), callback);
+  };
+
+  const clearAllUserKeys = () => {
+    // Clear all private key entries from secure storage
+    secureStorage.clearAll();
+    
+    // Clear all localStorage preferences
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('rememberPrivateKey')) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach(key => localStorage.removeItem(key));
   };
 
   return {
@@ -273,5 +328,6 @@ export const usePrivateKeyStorage = () => {
     hasStoredPrivateKey,
     onPrivateKeyTimeout,
     removePrivateKeyTimeoutCallback,
+    clearAllUserKeys,
   };
 };

@@ -118,7 +118,7 @@ const MobileActionMenu: React.FC<MobileActionMenuProps> = ({
             <ListItemText primary={t('contextMenu.copy')} />
           </ListItemButton>
           
-          {onShare && (
+          {onShare && itemType === 'file' && (
             <ListItemButton onClick={onShare} sx={{ borderRadius: 1, mb: 1 }}>
               <ListItemIcon>
                 <Share />

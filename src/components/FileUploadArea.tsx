@@ -1,9 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Box, Typography, LinearProgress, Fade, useTheme, Card, CardContent } from '@mui/material';
 import { useAuth } from '../auth/AuthContext';
-import { getUserProfile } from '../firestore';
-import { encryptData, bytesToHex, hexToBytes } from '../crypto/hpkeCrypto';
-import { encryptMetadata } from '../crypto/hpkeCrypto';
+import { FileEncryptionService } from '../services/fileEncryption';
 import { uploadFileData } from '../storage';
 import { createFileWithSharing } from '../files';
 
@@ -52,68 +50,35 @@ const FileUploadArea: React.FC<FileUploadAreaProps> = ({
     if (!user || !privateKey) return;
 
     try {
-      setUploadStage('Preparing encryption keys...');
-      const userProfile = await getUserProfile(user.uid);
-      if (!userProfile?.publicKey) {
-        console.error('Public key not found for the user.');
-        throw new Error('Public key not found.');
-      }
-
-      setUploadStage('Encrypting file with HPKE...');
+      setUploadStage('Preparing encryption...');
       const fileBuffer = await file.arrayBuffer();
       const fileData = new Uint8Array(fileBuffer);
       
-      // Generate file key for AES encryption
-      const fileKey = crypto.getRandomValues(new Uint8Array(32));
-      
-      // Encrypt file content with AES-GCM
-      const iv = crypto.getRandomValues(new Uint8Array(12));
-      const aesKey = await crypto.subtle.importKey('raw', fileKey, { name: 'AES-GCM' }, false, ['encrypt']);
-      const encryptedFileContent = await crypto.subtle.encrypt(
-        { name: 'AES-GCM', iv },
-        aesKey,
-        fileData
-      );
-      
-      // Combine IV and encrypted content
-      const encryptedContent = new Uint8Array(12 + encryptedFileContent.byteLength);
-      encryptedContent.set(iv, 0);
-      encryptedContent.set(new Uint8Array(encryptedFileContent), 12);
-      
-      // Encrypt the file key for the user using HPKE
-      const publicKey = hexToBytes(userProfile.publicKey);
-      const encryptedKeyResult = await encryptData(fileKey, publicKey);
-      
-      // Store as: encapsulated_key + ciphertext
-      const keyData = new Uint8Array(encryptedKeyResult.encapsulatedKey.length + encryptedKeyResult.ciphertext.length);
-      keyData.set(encryptedKeyResult.encapsulatedKey, 0);
-      keyData.set(encryptedKeyResult.ciphertext, encryptedKeyResult.encapsulatedKey.length);
-      
-      const encryptedKeys = {
-        [user.uid]: bytesToHex(keyData)
-      };
-      
-      setUploadStage('Encrypting metadata...');
-      // Use the same file key for metadata encryption
-      const encryptedMetadata = await encryptMetadata(
-        { name: file.name, size: file.size.toString() },
-        fileKey
+      setUploadStage('Encrypting file and metadata...');
+      // Use the centralized encryption service
+      const encryptionResult = await FileEncryptionService.encryptFileForUsers(
+        fileData,
+        file.name,
+        file.size,
+        [user.uid], // Only current user initially
+        user.uid,
+        currentFolder
       );
 
       setUploadStage('Uploading to secure storage...');
-      const storagePath = `files/${user.uid}/${crypto.randomUUID()}`;
-      await uploadFileData(storagePath, encryptedContent);
+      await uploadFileData(encryptionResult.storagePath, encryptionResult.encryptedContent);
 
       setUploadStage('Creating file record...');
-      await createFileWithSharing({
-        owner: user.uid,
-        name: encryptedMetadata.name,
-        parent: currentFolder,
-        size: encryptedMetadata.size,
-        storagePath,
-        encryptedKeys,
-        sharedWith: [user.uid],
-      });
+      const fileRecord = await FileEncryptionService.createFileRecord(
+        user.uid,
+        encryptionResult.encryptedMetadata,
+        encryptionResult.storagePath,
+        encryptionResult.encryptedKeys,
+        [user.uid], // Only current user initially
+        currentFolder
+      );
+
+      await createFileWithSharing(fileRecord);
 
       setUploadStage('Upload complete!');
     } catch (error) {

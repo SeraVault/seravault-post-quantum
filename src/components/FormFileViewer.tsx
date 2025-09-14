@@ -23,6 +23,7 @@ import {
   Close,
   Download,
   Extension,
+  Share,
 } from '@mui/icons-material';
 import MDEditor from '@uiw/react-md-editor';
 import type { SecureFormData } from '../utils/formFiles';
@@ -37,10 +38,11 @@ interface FormFileViewerProps {
   onEdit: () => void;
   onClose: () => void;
   onDownload?: () => void;
+  onShare?: () => void;
 }
 
 
-const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userId, onEdit, onClose, onDownload }) => {
+const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userId, onEdit, onClose, onDownload, onShare }) => {
   const [formData, setFormData] = useState<SecureFormData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -66,7 +68,7 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
         }
         
         // Import crypto functions
-        const { decryptData } = await import('../crypto/hpkeCrypto');
+        const { decryptData } = await import('../crypto/quantumSafeCrypto');
         
         // Helper functions
         const hexToBytes = (hex: string) => {
@@ -77,16 +79,17 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
           return bytes;
         };
         
-        // Decrypt the shared secret using HPKE
+        // Decrypt the shared secret using ML-KEM-768
         const privateKeyBytes = hexToBytes(privateKey);
         const keyData = hexToBytes(userEncryptedKey);
         
-        // HPKE encrypted keys contain: encapsulated_key (32 bytes) + ciphertext  
-        const encapsulatedKey = keyData.slice(0, 32);
-        const ciphertext = keyData.slice(32);
+        // ML-KEM-768 encrypted keys contain: IV (12 bytes) + encapsulated_key (1088 bytes) + ciphertext  
+        const iv = keyData.slice(0, 12);
+        const encapsulatedKey = keyData.slice(12, 12 + 1088);
+        const ciphertext = keyData.slice(12 + 1088);
         
         const sharedSecret = await decryptData(
-          { encapsulatedKey, ciphertext },
+          { iv, encapsulatedKey, ciphertext },
           privateKeyBytes
         );
         
@@ -97,11 +100,11 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
         
         // Check if this looks like it has IV prepended (new format)
         // or if it's just the encrypted content (old format)
-        let iv, ciphertextData;
+        let contentIv, ciphertextData;
         
         if (encryptedContent.byteLength > 12) {
           // Assume new format with IV prepended
-          iv = encryptedContent.slice(0, 12);
+          contentIv = encryptedContent.slice(0, 12);
           ciphertextData = encryptedContent.slice(12);
           console.log('Using new format with IV prepended');
         } else {
@@ -109,14 +112,14 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
           throw new Error('Invalid encrypted content format - file may be corrupted or from an incompatible version');
         }
         
-        console.log('IV length:', iv.byteLength);
+        console.log('IV length:', contentIv.byteLength);
         console.log('Ciphertext length:', ciphertextData.byteLength);
         
         const key = await crypto.subtle.importKey('raw', sharedSecret, { name: 'AES-GCM' }, false, ['decrypt']);
         console.log('Key imported successfully');
         
         const decryptedContentBuffer = await crypto.subtle.decrypt(
-          { name: 'AES-GCM', iv: iv }, 
+          { name: 'AES-GCM', iv: contentIv }, 
           key, 
           ciphertextData
         );
@@ -190,7 +193,7 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
         }
         
         // Import crypto functions
-        const { decryptData } = await import('../crypto/hpkeCrypto');
+        const { decryptData } = await import('../crypto/quantumSafeCrypto');
         
         // Helper functions
         const hexToBytes = (hex: string) => {
@@ -201,16 +204,17 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
           return bytes;
         };
         
-        // Decrypt the shared secret using HPKE
+        // Decrypt the shared secret using ML-KEM-768
         const privateKeyBytes = hexToBytes(privateKey);
         const keyData = hexToBytes(userEncryptedKey);
         
-        // HPKE encrypted keys contain: encapsulated_key (32 bytes) + ciphertext  
-        const encapsulatedKey = keyData.slice(0, 32);
-        const ciphertext = keyData.slice(32);
+        // ML-KEM-768 encrypted keys contain: IV (12 bytes) + encapsulated_key (1088 bytes) + ciphertext  
+        const iv = keyData.slice(0, 12);
+        const encapsulatedKey = keyData.slice(12, 12 + 1088);
+        const ciphertext = keyData.slice(12 + 1088);
         
         const sharedSecret = await decryptData(
-          { encapsulatedKey, ciphertext },
+          { iv, encapsulatedKey, ciphertext },
           privateKeyBytes
         );
         
@@ -221,11 +225,11 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
         
         // Check if this looks like it has IV prepended (new format)
         // or if it's just the encrypted content (old format)
-        let iv, ciphertextData;
+        let contentIv, ciphertextData;
         
         if (encryptedContent.byteLength > 12) {
           // Assume new format with IV prepended
-          iv = encryptedContent.slice(0, 12);
+          contentIv = encryptedContent.slice(0, 12);
           ciphertextData = encryptedContent.slice(12);
           console.log('Using new format with IV prepended');
         } else {
@@ -233,14 +237,14 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
           throw new Error('Invalid encrypted content format - file may be corrupted or from an incompatible version');
         }
         
-        console.log('IV length:', iv.byteLength);
+        console.log('IV length:', contentIv.byteLength);
         console.log('Ciphertext length:', ciphertextData.byteLength);
         
         const key = await crypto.subtle.importKey('raw', sharedSecret, { name: 'AES-GCM' }, false, ['decrypt']);
         console.log('Key imported successfully');
         
         const decryptedContentBuffer = await crypto.subtle.decrypt(
-          { name: 'AES-GCM', iv: iv }, 
+          { name: 'AES-GCM', iv: contentIv }, 
           key, 
           ciphertextData
         );
@@ -593,6 +597,16 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
             >
               Edit
             </Button>
+            {onShare && (
+              <Button
+                startIcon={<Share />}
+                onClick={onShare}
+                variant="outlined"
+                size="small"
+              >
+                Share
+              </Button>
+            )}
             {onDownload && (
               <IconButton onClick={onDownload} title="Download" size="small">
                 <Download />
@@ -654,13 +668,23 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
               </Typography>
             </Box>
             
-            {file.sharedWith.length > 0 && (
+            {Array.isArray(file.sharedWith) && file.sharedWith.filter((id: string) => id !== userId).length > 0 && (
               <Box>
                 <Typography variant="caption" color="text.secondary">
                   Shared with
                 </Typography>
-                <Typography variant="body2">
-                  {file.sharedWith.length} user{file.sharedWith.length !== 1 ? 's' : ''}
+                <Typography 
+                  variant="body2" 
+                  sx={{ 
+                    cursor: onShare ? 'pointer' : 'default',
+                    color: onShare ? 'primary.main' : 'text.primary',
+                    textDecoration: onShare ? 'underline' : 'none',
+                    '&:hover': onShare ? { textDecoration: 'underline' } : {}
+                  }}
+                  onClick={onShare}
+                >
+                  {file.sharedWith.filter((id: string) => id !== userId).length} user{file.sharedWith.filter((id: string) => id !== userId).length !== 1 ? 's' : ''}
+                  {onShare && ' (click to manage)'}
                 </Typography>
               </Box>
             )}

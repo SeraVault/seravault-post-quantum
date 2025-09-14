@@ -4,8 +4,8 @@ import { db } from '../firebase';
 import { useAuth } from '../auth/AuthContext';
 import { usePassphrase } from '../auth/PassphraseContext';
 import { type Folder as FolderData, getUserProfile } from '../firestore';
-import { decryptString, base64ToBytes, decryptSymmetric, hexToBytes } from '../crypto/hpkeCrypto';
-import { decryptData } from '../crypto/hpkeCrypto';
+import { decryptString, base64ToBytes } from '../crypto/quantumSafeCrypto';
+import { decryptData, decryptSymmetric, hexToBytes } from '../crypto/quantumSafeCrypto';
 
 export const useFolders = () => {
   const { user } = useAuth();
@@ -35,11 +35,22 @@ export const useFolders = () => {
       q,
       async (querySnapshot) => {
         const startTime = Date.now();
-        console.log('Folders query started:', { 
+        console.log('🔧 useFolders query snapshot received:', { 
           fromCache: querySnapshot.metadata.fromCache,
           hasPendingWrites: querySnapshot.metadata.hasPendingWrites,
-          size: querySnapshot.size 
+          size: querySnapshot.size,
+          isEmpty: querySnapshot.empty
         });
+
+        // Early exit if no folders to process
+        if (querySnapshot.empty) {
+          console.log('✅ useFolders: No folders found, skipping decryption');
+          setAllFolders([]);
+          setDecryptedNamesCache(new Map());
+          setLoading(false);
+          return;
+        }
+        
         try {
           const newCache = new Map(decryptedNamesCache);
           
@@ -68,16 +79,28 @@ export const useFolders = () => {
                   if (!userEncryptedKey) {
                     throw new Error('No encrypted key found for user');
                   }
+
+                  // DEBUG: Log key information for troubleshooting
+                  console.log('🔧 useFolders DEBUG - Decrypting folder with private key:', {
+                    folderId: doc.id,
+                    userId: user?.uid,
+                    privateKeyLength: privateKey.length,
+                    privateKeyPreview: privateKey.substring(0, 16) + '...',
+                    privateKeyFull: privateKey, // Remove this in production
+                    userEncryptedKeyLength: userEncryptedKey.length,
+                    userEncryptedKeyPreview: userEncryptedKey.substring(0, 32) + '...'
+                  });
                   
                   const privateKeyBytes = hexToBytes(privateKey);
                   const keyData = hexToBytes(userEncryptedKey);
                   
-                  // HPKE encrypted keys contain: encapsulated_key (32 bytes) + ciphertext  
-                  const encapsulatedKey = keyData.slice(0, 32);
-                  const ciphertext = keyData.slice(32);
+                  // Quantum-safe encrypted keys contain: IV (12 bytes) + encapsulated_key (1088 bytes) + ciphertext
+                  const iv = keyData.slice(0, 12);
+                  const encapsulatedKey = keyData.slice(12, 12 + 1088);
+                  const ciphertext = keyData.slice(12 + 1088);
                   
                   const sharedSecret = await decryptData(
-                    { encapsulatedKey, ciphertext },
+                    { iv, encapsulatedKey, ciphertext },
                     privateKeyBytes
                   );
                   

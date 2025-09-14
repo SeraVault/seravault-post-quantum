@@ -86,39 +86,53 @@ const ShareDialog: React.FC<ShareDialogProps> = ({
 
   const loadData = async () => {
     if (!user) return;
+    console.log('🔄 ShareDialog loadData called:', {
+      userId: user.uid,
+      currentSharedWithLength: currentSharedWith.length,
+      currentSharedWith: currentSharedWith
+    });
+    
     try {
       const userGroups = await getUserGroups(user.uid);
       setGroups(userGroups);
+      console.log('📋 Groups loaded:', userGroups.length);
       
       // Load current share information
       if (currentSharedWith.length > 0) {
-        const sharePromises = currentSharedWith
-          .filter(userId => userId !== user.uid) // Exclude owner
-          .map(async (userId) => {
-            try {
-              const profile = await getUserProfile(userId);
-              return {
-                id: userId,
-                email: profile?.email || 'Unknown',
-                displayName: profile?.displayName || 'Unknown User'
-              };
-            } catch (error) {
-              console.warn(`Failed to load profile for ${userId}:`, error);
-              return {
-                id: userId,
-                email: 'Unknown',
-                displayName: 'Unknown User'
-              };
-            }
-          });
+        console.log('👥 Processing current shares:', currentSharedWith);
+        const filteredUsers = currentSharedWith.filter(userId => userId !== user.uid); // Exclude owner
+        console.log('👤 Filtered users (excluding owner):', filteredUsers);
+        
+        const sharePromises = filteredUsers.map(async (userId) => {
+          try {
+            console.log(`🔍 Loading profile for user: ${userId}`);
+            const profile = await getUserProfile(userId);
+            const shareInfo = {
+              id: userId,
+              email: profile?.email || 'Unknown',
+              displayName: profile?.displayName || 'Unknown User'
+            };
+            console.log(`✅ Profile loaded for ${userId}:`, shareInfo);
+            return shareInfo;
+          } catch (error) {
+            console.warn(`❌ Failed to load profile for ${userId}:`, error);
+            return {
+              id: userId,
+              email: 'Unknown',
+              displayName: 'Unknown User'
+            };
+          }
+        });
         
         const shares = await Promise.all(sharePromises);
+        console.log('📊 Final shares processed:', shares);
         setCurrentShares(shares);
       } else {
+        console.log('📭 No current shares, setting empty array');
         setCurrentShares([]);
       }
     } catch (error) {
-      console.error('Error loading sharing data:', error);
+      console.error('❌ Error loading sharing data:', error);
     }
   };
 
@@ -382,9 +396,9 @@ const ShareDialog: React.FC<ShareDialogProps> = ({
             )}
           </TabPanel>
 
-          {(selectedRecipients.length > 0 || selectedGroups.length > 0) && (
-            <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-              <Typography variant="body2" color="text.secondary">
+          {(selectedRecipients.length > 0 || selectedGroups.length > 0) && totalRecipients > 0 && (
+            <Box sx={{ mt: 2, p: 2, bgcolor: 'action.selected', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+              <Typography variant="body2" color="text.primary">
                 Will share with {totalRecipients} recipient{totalRecipients !== 1 ? 's' : ''}
               </Typography>
             </Box>
