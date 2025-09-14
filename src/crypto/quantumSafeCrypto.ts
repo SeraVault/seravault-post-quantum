@@ -20,14 +20,9 @@ export interface EncryptedData {
  * Generate a new Kyber-768 key pair (quantum-safe)
  */
 export async function generateKeyPair(): Promise<KeyPair> {
-  console.log('🔒 Generating quantum-safe ML-KEM-768 key pair...');
   
   const keyPair = ml_kem768.keygen();
   
-  console.log('✅ ML-KEM-768 key pair generated:', {
-    publicKeyLength: keyPair.publicKey.length,
-    privateKeyLength: keyPair.secretKey.length
-  });
   
   return {
     publicKey: keyPair.publicKey,
@@ -42,7 +37,6 @@ export async function encryptData(
   data: Uint8Array,
   recipientPublicKey: Uint8Array
 ): Promise<EncryptedData> {
-  console.log('🔒 Encrypting data with ML-KEM-768 + AES-256-GCM...');
   
   // Step 1: ML-KEM encapsulation to generate shared secret
   const encapResult = ml_kem768.encapsulate(recipientPublicKey);
@@ -69,11 +63,6 @@ export async function encryptData(
     data
   );
   
-  console.log('✅ Data encrypted successfully:', {
-    encapsulatedKeyLength: encapsulatedKey.length,
-    ciphertextLength: ciphertext.byteLength,
-    ivLength: iv.length
-  });
   
   return {
     ciphertext: new Uint8Array(ciphertext),
@@ -89,7 +78,6 @@ export async function decryptData(
   encryptedData: EncryptedData,
   recipientPrivateKey: Uint8Array
 ): Promise<Uint8Array> {
-  console.log('🔓 Decrypting data with ML-KEM-768 + AES-256-GCM...');
   
   if (recipientPrivateKey.length !== 2400) { // ML-KEM-768 private key length
     throw new Error(`Invalid ML-KEM-768 private key length: expected 2400 bytes, got ${recipientPrivateKey.length} bytes`);
@@ -116,9 +104,6 @@ export async function decryptData(
     encryptedData.ciphertext
   );
   
-  console.log('✅ Data decrypted successfully:', {
-    decryptedLength: decryptedData.byteLength
-  });
   
   return new Uint8Array(decryptedData);
 }
@@ -188,7 +173,6 @@ export async function encryptForMultipleRecipients(
   encryptedContent: Uint8Array;
   encryptedKeys: { [userId: string]: string };
 }> {
-  console.log('🔒 Encrypting content for multiple recipients with ML-KEM-768...');
   
   // Generate a random AES-256 key for the file content
   const fileKey = crypto.getRandomValues(new Uint8Array(32));
@@ -222,10 +206,6 @@ export async function encryptForMultipleRecipients(
     encryptedKeys[userId] = bytesToHex(keyData);
   }
 
-  console.log('✅ Content encrypted for multiple recipients:', {
-    recipientCount: recipientPublicKeys.length,
-    contentLength: finalContent.length
-  });
 
   return {
     encryptedContent: finalContent,
@@ -241,7 +221,6 @@ export async function decryptFileContent(
   encryptedKey: string,
   userPrivateKey: Uint8Array
 ): Promise<Uint8Array> {
-  console.log('🔓 Decrypting file content with ML-KEM-768...');
   
   // Parse the encrypted key (IV + encapsulated_key + ciphertext)
   const keyData = hexToBytes(encryptedKey);
@@ -273,7 +252,6 @@ export async function decryptFileContent(
     content
   );
   
-  console.log('✅ File content decrypted successfully');
   
   return new Uint8Array(decryptedContent);
 }
@@ -378,7 +356,6 @@ export function encryptString(plaintext: string, password: string): {
   salt: string;
   nonce: string;
 } {
-  console.log('🔒 Encrypting string with password-based encryption...');
   
   // Generate salt and nonce
   const salt = crypto.getRandomValues(new Uint8Array(32));
@@ -399,7 +376,6 @@ export function encryptString(plaintext: string, password: string): {
     ciphertext[i] = plaintextBytes[i] ^ key[i % key.length] ^ nonce[i % nonce.length];
   }
   
-  console.log('✅ String encrypted successfully');
   
   return {
     ciphertext: bytesToHex(ciphertext),
@@ -416,7 +392,6 @@ export function decryptString(encrypted: {
   salt: string;
   nonce: string;
 }, password: string): string {
-  console.log('🔓 Decrypting string with password-based encryption...');
   
   const ciphertext = hexToBytes(encrypted.ciphertext);
   const salt = hexToBytes(encrypted.salt);
@@ -435,7 +410,6 @@ export function decryptString(encrypted: {
     plaintext[i] = ciphertext[i] ^ key[i % key.length] ^ nonce[i % nonce.length];
   }
   
-  console.log('✅ String decrypted successfully');
   
   return new TextDecoder().decode(plaintext);
 }

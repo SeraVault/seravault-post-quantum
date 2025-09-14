@@ -30,11 +30,9 @@ export const createFile = async (fileData: Omit<FileData, 'createdAt'>) => {
 };
 
 export const updateFile = async (fileId: string, data: Partial<FileData>) => {
-  console.log('updateFile called with:', { fileId, data });
   try {
     const docRef = doc(db, 'files', fileId);
     await updateDoc(docRef, data);
-    console.log('File updated successfully in Firestore');
   } catch (error) {
     console.error('Error updating file in Firestore:', error);
     throw error;
@@ -54,7 +52,6 @@ export const deleteFile = async (fileId: string) => {
       if (fileData.storagePath) {
         try {
           await deleteObject(ref(storage, fileData.storagePath));
-          console.log(`Successfully deleted file from storage: ${fileData.storagePath}`);
         } catch (storageError: any) {
           // Don't fail the entire operation if storage deletion fails
           // File might have already been deleted or path might be invalid
@@ -65,7 +62,6 @@ export const deleteFile = async (fileId: string) => {
     
     // Delete the Firestore document
     await deleteDoc(docRef);
-    console.log(`Successfully deleted file document: ${fileId}`);
     
   } catch (error) {
     console.error(`Error deleting file ${fileId}:`, error);
@@ -74,7 +70,6 @@ export const deleteFile = async (fileId: string) => {
 };
 
 export const createFileWithSharing = async (fileData: Omit<FileData, 'createdAt'>) => {
-  console.log('Creating file with automatic sharing inheritance:', fileData);
   
   try {
     // Initialize userFolders if not provided
@@ -124,7 +119,6 @@ export const createFileWithSharing = async (fileData: Omit<FileData, 'createdAt'
     };
     
     const docRef = await addDoc(collection(db, 'files'), newFile);
-    console.log('File created with inherited sharing:', { fileId: docRef.id, sharedWith: allSharedWith });
     return docRef.id;
   } catch (error) {
     console.error('Error creating file with sharing:', error);

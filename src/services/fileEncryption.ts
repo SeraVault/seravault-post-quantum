@@ -175,30 +175,15 @@ export class FileEncryptionService {
     userPrivateKey: string,
     newUserIds: string[]
   ): Promise<{ [userId: string]: string }> {
-    console.log('🔄 FileEncryptionService.shareFileWithUsers called:', {
-      originalEncryptedKeyLength: originalEncryptedKey.length,
-      userPrivateKeyLength: userPrivateKey.length,
-      newUserIdsCount: newUserIds.length
-    });
 
     // Decrypt the original file key  
     const keyData = hexToBytes(originalEncryptedKey);
-    console.log('🔐 Key data parsed:', {
-      keyDataLength: keyData.length,
-      expectedFormat: 'IV (12 bytes) + encapsulatedKey (1088 bytes) + ciphertext (ML-KEM-768)'
-    });
 
     // ML-KEM-768: IV (12 bytes) + encapsulated key (1088 bytes) + ciphertext
     const iv = keyData.slice(0, 12);
     const encapsulatedKey = keyData.slice(12, 12 + 1088);
     const ciphertext = keyData.slice(12 + 1088);
     
-    console.log('🔓 Attempting to decrypt file key with owner private key:', {
-      ivLength: iv.length,
-      encapsulatedKeyLength: encapsulatedKey.length,
-      ciphertextLength: ciphertext.length,
-      userPrivateKeyLength: userPrivateKey.length
-    });
 
     const privateKeyBytes = hexToBytes(userPrivateKey);
     
@@ -208,7 +193,6 @@ export class FileEncryptionService {
         privateKeyBytes
       );
       
-      console.log('✅ Successfully decrypted file key:', { fileKeyLength: fileKey.length });
     } catch (error) {
       console.error('❌ Failed to decrypt file key during sharing:', error);
       throw new Error(`Cannot decrypt file key for sharing: ${error instanceof Error ? error.message : String(error)}`);
@@ -223,7 +207,6 @@ export class FileEncryptionService {
     const newEncryptedKeys: { [userId: string]: string } = {};
     
     for (const userId of newUserIds) {
-      console.log(`🔄 Processing user ${userId} for file sharing...`);
       
       const userProfile = await getUserProfile(userId);
       if (!userProfile?.publicKey) {
@@ -231,13 +214,6 @@ export class FileEncryptionService {
         continue;
       }
 
-      console.log(`✅ User ${userId} profile found:`, {
-        userId: userId,
-        email: userProfile.email,
-        publicKeyLength: userProfile.publicKey.length,
-        publicKeyHex: userProfile.publicKey,
-        hasPublicKey: true
-      });
 
       // Validate public key format (should be 1184 bytes for ML-KEM-768)
       const publicKeyBytes = hexToBytes(userProfile.publicKey);
@@ -246,10 +222,6 @@ export class FileEncryptionService {
         continue;
       }
 
-      console.log(`🔐 Encrypting file key for user ${userId} using their public key:`, {
-        userId: userId,
-        publicKeyFirst8Bytes: Array.from(publicKeyBytes.slice(0, 8)).map(b => b.toString(16).padStart(2, '0')).join(' ')
-      });
 
       try {
         const encryptedKeyResult = await encryptData(fileKey, publicKeyBytes);
@@ -265,10 +237,6 @@ export class FileEncryptionService {
         combinedKeyData.set(encryptedKeyResult.ciphertext, encryptedKeyResult.iv.length + encryptedKeyResult.encapsulatedKey.length);
         
         newEncryptedKeys[userId] = bytesToHex(combinedKeyData);
-        console.log(`✅ Successfully generated encrypted key for user ${userId}:`, {
-          encryptedKeyLength: bytesToHex(combinedKeyData).length,
-          combinedDataLength: combinedKeyData.length
-        });
       } catch (error) {
         console.error(`❌ Failed to encrypt file key for user ${userId}:`, error);
         continue; // Skip this user but continue with others

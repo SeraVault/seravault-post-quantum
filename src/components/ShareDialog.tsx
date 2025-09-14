@@ -147,12 +147,10 @@ const ShareDialog: React.FC<ShareDialogProps> = ({
     }
     
     if (!emailRegex.test(email)) {
-      alert('Please enter a valid email address');
       return;
     }
     
     if (selectedRecipients.includes(email)) {
-      alert('This email is already added');
       return;
     }
     
@@ -182,7 +180,6 @@ const ShareDialog: React.FC<ShareDialogProps> = ({
 
   const handleUnshare = async () => {
     if (!onUnshare || selectedToUnshare.length === 0) {
-      alert('Please select at least one person to unshare with.');
       return;
     }
 
@@ -209,7 +206,6 @@ const ShareDialog: React.FC<ShareDialogProps> = ({
     }
 
     if (allRecipients.length === 0) {
-      alert('Please select at least one recipient or group.');
       return;
     }
 

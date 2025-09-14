@@ -148,7 +148,6 @@ const FileUploadArea: React.FC<FileUploadAreaProps> = ({
     
     // Show summary only if there were failures
     if (failCount > 0) {
-      alert(`Upload completed: ${successCount} successful, ${failCount} failed. Check console for details.`);
     }
     
     // Notify parent of upload completion
