@@ -87,14 +87,11 @@ const GroupManagement: React.FC<GroupManagementProps> = ({ open, onClose }) => {
   };
 
   const handleDeleteGroup = async (groupId: string) => {
-    if (window.confirm('Are you sure you want to delete this group?')) {
-      try {
-        await deleteGroup(groupId);
-        await loadGroups();
-      } catch (error) {
-        console.error('Error deleting group:', error);
-        alert('Failed to delete group.');
-      }
+    try {
+      await deleteGroup(groupId);
+      await loadGroups();
+    } catch (error) {
+      console.error('Error deleting group:', error);
     }
   };
 
@@ -121,7 +118,6 @@ const GroupManagement: React.FC<GroupManagementProps> = ({ open, onClose }) => {
       setFormData({ name: '', description: '', members: [] });
     } catch (error) {
       console.error('Error saving group:', error);
-      alert('Failed to save group.');
     }
   };
 

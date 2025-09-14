@@ -610,7 +610,6 @@ const FileTable: React.FC<FileTableProps> = ({
                   type: 'folder',
                   name: folder.name
                 };
-                console.log('🚀 FileTable: Starting drag for folder:', dragData);
                 e.dataTransfer.setData('application/json', JSON.stringify(dragData));
                 e.dataTransfer.effectAllowed = 'move';
               }}
@@ -727,7 +726,6 @@ const FileTable: React.FC<FileTableProps> = ({
                     type: 'file',
                     name: file.name
                   };
-                  console.log('🚀 FileTable: Starting drag for file:', dragData);
                   e.dataTransfer.setData('application/json', JSON.stringify(dragData));
                   e.dataTransfer.effectAllowed = 'move';
                   // Add a visual ghost image

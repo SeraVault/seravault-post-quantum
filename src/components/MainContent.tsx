@@ -651,7 +651,6 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
       
     } catch (error) {
       console.error('Error deleting items:', error);
-      alert('Some items could not be deleted. Please try again.');
     }
   };
 
@@ -678,7 +677,6 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
       
     } catch (error) {
       console.error('Delete operation failed:', error);
-      alert('Delete operation failed: ' + (error instanceof Error ? error.message : 'Unknown error'));
     } finally {
       setItemToDelete(null);
     }
@@ -688,11 +686,7 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
     const totalFiles = selectedFiles.size;
     if (!user || totalFiles === 0) return;
 
-    const confirmUnshare = window.confirm(
-      `Are you sure you want to unshare ${totalFiles} file${totalFiles !== 1 ? 's' : ''}? This will revoke access for all shared users.`
-    );
-
-    if (!confirmUnshare) return;
+    // Unshare all selected files
 
     try {
       const { updateDoc, doc } = await import('firebase/firestore');
@@ -708,7 +702,6 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
       clearAllSelections();
     } catch (error) {
       console.error('Error unsharing files:', error);
-      alert('Some files could not be unshared. Please try again.');
     }
   };
 
@@ -769,16 +762,6 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
   // Load files for current folder
   // Subscribe to files with real-time updates
   useEffect(() => {
-    console.log('🔧 MainContent real-time subscription triggered:', {
-      hasUser: !!user,
-      hasPrivateKey: !!privateKey,
-      userId: user?.uid,
-      privateKeyLength: privateKey?.length,
-      currentFolder,
-      isRecentsView,
-      isFavoritesView,
-      isSharedView
-    });
     
     if (!user || !privateKey || isRecentsView || isFavoritesView || isSharedView) {
       console.log('🔧 MainContent early exit:', {
@@ -836,7 +819,6 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
     };
 
     const handleFilesUpdate = async (rawFiles: any[]) => {
-      console.log('🔧 Real-time files update received:', { count: rawFiles.length });
       try {
         const processedFiles = await processFiles(rawFiles);
         const sortedFiles = processedFiles.sort((a, b) => {
@@ -865,7 +847,6 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
     const setupSubscription = async () => {
       try {
         const { subscribeToFilesInFolder } = await import('../firestore');
-        console.log('🔧 Setting up real-time subscription for folder:', currentFolder);
         unsubscribe = subscribeToFilesInFolder(
           currentFolder,
           user.uid,
@@ -887,7 +868,6 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
 
     // Cleanup subscription on unmount or dependency change
     return () => {
-      console.log('🔧 Cleaning up real-time subscription');
       if (unsubscribe) {
         unsubscribe();
       }
@@ -1177,7 +1157,6 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
       onError: (error: string) => {
         console.error('Error opening file:', error);
         setFileContentLoading(false); // Clear loading state on error
-        alert(`Failed to open file: ${error}`);
       }
     });
   };
@@ -1201,7 +1180,6 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Error downloading file:', error);
-      alert('Failed to download file');
     }
   };
 
@@ -1224,7 +1202,6 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Error downloading form file:', error);
-      alert('Failed to download form file');
     }
   };
 
@@ -1250,7 +1227,6 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
       
     } catch (error) {
       console.error('Error loading form for editing:', error);
-      alert('Failed to load form for editing');
     }
   };
 
@@ -1384,7 +1360,6 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
       clearClipboard();
     } catch (error) {
       console.error('Paste operation failed:', error);
-      alert('Paste operation failed');
     }
   };
 
@@ -1433,7 +1408,6 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
       
     } catch (error) {
       console.error('Error toggling favorite:', error);
-      alert('Failed to toggle favorite status');
     }
   };
 
@@ -1457,12 +1431,10 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
 
       await updateFile(fileToShare.id!, updates);
 
-      alert(`File unshared with ${userIdsToUnshare.length} recipient${userIdsToUnshare.length !== 1 ? 's' : ''}`);
       setShareDialogOpen(false);
       
     } catch (error) {
       console.error('Error unsharing file:', error);
-      alert('Failed to unshare file: ' + (error instanceof Error ? error.message : 'Unknown error'));
     }
   };
 
@@ -1483,7 +1455,6 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
           
           if (!recipient) {
             console.warn(`❌ User ${email} not found in database`);
-            alert(`User ${email} not found. They may need to sign up first.`);
             continue;
           }
 
@@ -1491,7 +1462,6 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
           
           if (!recipient.profile.publicKey) {
             console.warn(`User ${email} does not have a public key`);
-            alert(`User ${email} does not have encryption keys set up. They need to log in and set up their encryption keys first.`);
             continue;
           }
 
@@ -1505,12 +1475,10 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
 
         } catch (error) {
           console.error(`Error processing recipient ${email}:`, error);
-          alert(`Failed to process recipient ${email}. ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
       }
 
       if (recipientUserIds.length === 0) {
-        alert('No valid recipients found');
         return;
       }
 
@@ -1531,12 +1499,10 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
         sharedWith: [...prevFile.sharedWith, ...recipientUserIds]
       } : null);
 
-      alert(`File shared with ${recipientUserIds.length} recipient${recipientUserIds.length !== 1 ? 's' : ''}`);
       setShareDialogOpen(false);
       
     } catch (error) {
       console.error('Failed to share file:', error);
-      alert(`Failed to share file: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -1989,8 +1955,7 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
               URL.revokeObjectURL(url);
             } catch (error) {
               console.error('Error downloading file:', error);
-              alert('Failed to download file');
-            }
+                    }
             setMobileActionMenu({ open: false, item: null, type: 'file' });
           } : undefined}
           onShare={() => {
@@ -2057,7 +2022,6 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
                 setRenameDialog({ open: false, item: null, type: 'file', currentName: '' });
               } catch (error) {
                 console.error('Rename operation failed:', error);
-                alert('Rename operation failed');
               }
             }
           }}

@@ -220,14 +220,6 @@ export class FileOperationsService {
     userPrivateKey: string,
     newUserIds: string[]
   ): Promise<void> {
-    console.log('🔄 FileOperationsService.shareFileWithUsers called:', {
-      fileId: file.id,
-      fileName: typeof file.name === 'string' ? file.name : '[Encrypted]',
-      currentUserId,
-      newUserIds,
-      currentSharedWith: file.sharedWith,
-      hasCurrentUserKey: !!file.encryptedKeys[currentUserId]
-    });
 
     // Get current user's encrypted key
     const currentUserEncryptedKey = file.encryptedKeys[currentUserId];
@@ -236,17 +228,14 @@ export class FileOperationsService {
       throw new Error('Cannot share file: no access to file key');
     }
 
-    console.log('🔐 Current user encrypted key found, length:', currentUserEncryptedKey.length);
 
     // Encrypt file key for new users
-    console.log('🔄 Calling FileEncryptionService.shareFileWithUsers...');
     const newEncryptedKeys = await FileEncryptionService.shareFileWithUsers(
       currentUserEncryptedKey,
       userPrivateKey,
       newUserIds
     );
 
-    console.log('✅ Generated encrypted keys for new users:', Object.keys(newEncryptedKeys));
 
     // Update file record with new keys and shared users
     const updatedEncryptedKeys = { ...file.encryptedKeys, ...newEncryptedKeys };
@@ -364,7 +353,6 @@ export class FileOperationsService {
       ...favoriteUpdates
     ]);
 
-    console.log('✅ File sharing completed successfully');
   }
 
   /**
