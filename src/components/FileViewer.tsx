@@ -31,6 +31,7 @@ import {
 import { Document, Page, pdfjs } from 'react-pdf';
 import { useTranslation } from 'react-i18next';
 import type { FileData } from '../files';
+import { getUserProfile, type UserProfile } from '../firestore';
 
 // Set up PDF.js worker - use local worker file for self-contained deployment
 if (typeof window !== 'undefined') {
@@ -45,6 +46,8 @@ interface FileViewerProps {
   loading?: boolean;
   onClose: () => void;
   onDownload?: () => void;
+  userId?: string;
+  onShare?: () => void;
 }
 
 interface ViewerState {
@@ -64,12 +67,15 @@ const FileViewer: React.FC<FileViewerProps> = ({
   fileContent, 
   loading = false,
   onClose, 
-  onDownload 
+  onDownload,
+  userId,
+  onShare
 }) => {
   const { t } = useTranslation();
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const [ownerDisplayName, setOwnerDisplayName] = useState<string | null>(null);
   const [viewerState, setViewerState] = useState<ViewerState>({
     zoom: 1,
     rotation: 0,
@@ -90,6 +96,23 @@ const FileViewer: React.FC<FileViewerProps> = ({
   const fileExtension = fileName.split('.').pop()?.toLowerCase() || '';
   const mimeType = getMimeType(fileExtension);
   const fileType = getFileType(fileExtension);
+
+  // Load owner display name
+  useEffect(() => {
+    const loadOwnerDisplayName = async () => {
+      if (file?.owner) {
+        try {
+          const ownerProfile = await getUserProfile(file.owner);
+          setOwnerDisplayName(ownerProfile?.displayName || file.owner);
+        } catch (error) {
+          console.error('Failed to load owner profile:', error);
+          setOwnerDisplayName(file.owner);
+        }
+      }
+    };
+    
+    loadOwnerDisplayName();
+  }, [file?.owner]);
 
   // Create object URL when content is available
   useEffect(() => {
@@ -551,29 +574,93 @@ const FileViewer: React.FC<FileViewerProps> = ({
       </DialogContent>
 
       <DialogActions sx={{ 
-        justifyContent: 'flex-end', 
+        justifyContent: 'space-between', 
         gap: 1, 
         px: 3, 
         py: 2,
         flexShrink: 0, // Prevent footer from shrinking
       }}>
-        {onDownload && (
-          <Button 
-            variant="outlined" 
-            startIcon={<Download />} 
-            onClick={onDownload}
-            sx={{ minWidth: 120 }}
-          >
-            {t('common.download')}
-          </Button>
+        {file && (
+          <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap', alignItems: 'center' }}>
+            {file.createdAt && (
+              <Box>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Created
+                </Typography>
+                <Typography variant="body2">
+                  {typeof file.createdAt === 'object' && 'toDate' in file.createdAt
+                    ? (file.createdAt as any).toDate().toLocaleDateString()
+                    : new Date(file.createdAt).toLocaleDateString()}
+                </Typography>
+              </Box>
+            )}
+            
+            {file.modifiedAt && (
+              <Box>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Modified
+                </Typography>
+                <Typography variant="body2">
+                  {typeof file.modifiedAt === 'object' && 'toDate' in file.modifiedAt
+                    ? (file.modifiedAt as any).toDate().toLocaleDateString()
+                    : new Date(file.modifiedAt).toLocaleDateString()}
+                </Typography>
+              </Box>
+            )}
+            
+            {file.owner && (
+              <Box>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Owner
+                </Typography>
+                <Typography variant="body2">
+                  {userId && file.owner === userId ? 'You' : (ownerDisplayName || file.owner)}
+                </Typography>
+              </Box>
+            )}
+            
+            {Array.isArray(file.sharedWith) && userId && file.sharedWith.filter((id: string) => id !== userId).length > 0 && (
+              <Box>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Shared with
+                </Typography>
+                <Typography 
+                  variant="body2" 
+                  sx={{ 
+                    cursor: onShare ? 'pointer' : 'default',
+                    color: onShare ? 'primary.main' : 'text.primary',
+                    textDecoration: onShare ? 'underline' : 'none',
+                    '&:hover': onShare ? { textDecoration: 'underline' } : {}
+                  }}
+                  onClick={onShare}
+                >
+                  {file.sharedWith.filter((id: string) => id !== userId).length} user{file.sharedWith.filter((id: string) => id !== userId).length !== 1 ? 's' : ''}
+                  {onShare && ' (click to manage)'}
+                </Typography>
+              </Box>
+            )}
+          </Box>
         )}
-        <Button 
-          variant="contained" 
-          onClick={onClose}
-          sx={{ minWidth: 100 }}
-        >
-          {t('common.close')}
-        </Button>
+        
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          {onDownload && (
+            <Button 
+              variant="outlined" 
+              startIcon={<Download />} 
+              onClick={onDownload}
+              sx={{ minWidth: 120 }}
+            >
+              {t('common.download')}
+            </Button>
+          )}
+          <Button 
+            variant="contained" 
+            onClick={onClose}
+            sx={{ minWidth: 100 }}
+          >
+            {t('common.close')}
+          </Button>
+        </Box>
       </DialogActions>
     </Dialog>
   );

@@ -30,6 +30,7 @@ import type { SecureFormData } from '../utils/formFiles';
 import type { FileData } from '../files';
 import { getFile } from '../storage';
 import { getFieldAttachments } from '../utils/formFiles';
+import { getUserProfile, type UserProfile } from '../firestore';
 
 interface FormFileViewerProps {
   file: FileData;
@@ -46,9 +47,26 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
   const [formData, setFormData] = useState<SecureFormData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [ownerDisplayName, setOwnerDisplayName] = useState<string | null>(null);
   const [visibleFields, setVisibleFields] = useState<Set<string>>(new Set());
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [loadAttempts, setLoadAttempts] = useState(0);
+
+  useEffect(() => {
+    const loadOwnerDisplayName = async () => {
+      if (file?.owner) {
+        try {
+          const ownerProfile = await getUserProfile(file.owner);
+          setOwnerDisplayName(ownerProfile?.displayName || file.owner);
+        } catch (error) {
+          console.error('Failed to load owner profile:', error);
+          setOwnerDisplayName(file.owner);
+        }
+      }
+    };
+    
+    loadOwnerDisplayName();
+  }, [file?.owner]);
 
   useEffect(() => {
     const loadFormData = async (retryCount = 0) => {
@@ -647,64 +665,74 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
           </Box>
 
           {/* Metadata */}
-          <Divider sx={{ my: 3 }} />
-          
-          <Box sx={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-            <Box>
-              <Typography variant="caption" color="text.secondary">
-                Created
-              </Typography>
-              <Typography variant="body2">
-                {new Date(formData.metadata.created).toLocaleDateString()}
-              </Typography>
-            </Box>
-            
-            <Box>
-              <Typography variant="caption" color="text.secondary">
-                Updated
-              </Typography>
-              <Typography variant="body2">
-                {new Date(formData.metadata.modified).toLocaleDateString()}
-              </Typography>
-            </Box>
-            
-            {Array.isArray(file.sharedWith) && file.sharedWith.filter((id: string) => id !== userId).length > 0 && (
-              <Box>
-                <Typography variant="caption" color="text.secondary">
-                  Shared with
-                </Typography>
-                <Typography 
-                  variant="body2" 
-                  sx={{ 
-                    cursor: onShare ? 'pointer' : 'default',
-                    color: onShare ? 'primary.main' : 'text.primary',
-                    textDecoration: onShare ? 'underline' : 'none',
-                    '&:hover': onShare ? { textDecoration: 'underline' } : {}
-                  }}
-                  onClick={onShare}
-                >
-                  {file.sharedWith.filter((id: string) => id !== userId).length} user{file.sharedWith.filter((id: string) => id !== userId).length !== 1 ? 's' : ''}
-                  {onShare && ' (click to manage)'}
-                </Typography>
-              </Box>
-            )}
-          </Box>
         </Box>
       </DialogContent>
 
-      <DialogActions sx={{ px: 3, pb: 2, justifyContent: 'flex-end', gap: 1 }}>
-        {onDownload && (
-          <Button 
-            onClick={onDownload} 
-            variant="outlined"
-            startIcon={<Download />}
-          >
-            Download
+      <DialogActions sx={{ px: 3, pb: 2, justifyContent: 'space-between', gap: 1 }}>
+        <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap', alignItems: 'center' }}>
+          <Box>
+            <Typography variant="caption" color="text.secondary" display="block">
+              Created
+            </Typography>
+            <Typography variant="body2">
+              {new Date(formData.metadata.created).toLocaleDateString()}
+            </Typography>
+          </Box>
+          
+          <Box>
+            <Typography variant="caption" color="text.secondary" display="block">
+              Updated
+            </Typography>
+            <Typography variant="body2">
+              {new Date(formData.metadata.modified).toLocaleDateString()}
+            </Typography>
+          </Box>
+          
+          <Box>
+            <Typography variant="caption" color="text.secondary" display="block">
+              Owner
+            </Typography>
+            <Typography variant="body2">
+              {file.owner === userId ? 'You' : (ownerDisplayName || file.owner)}
+            </Typography>
+          </Box>
+          
+          {Array.isArray(file.sharedWith) && file.sharedWith.filter((id: string) => id !== userId).length > 0 && (
+            <Box>
+              <Typography variant="caption" color="text.secondary" display="block">
+                Shared with
+              </Typography>
+              <Typography 
+                variant="body2" 
+                sx={{ 
+                  cursor: onShare ? 'pointer' : 'default',
+                  color: onShare ? 'primary.main' : 'text.primary',
+                  textDecoration: onShare ? 'underline' : 'none',
+                  '&:hover': onShare ? { textDecoration: 'underline' } : {}
+                }}
+                onClick={onShare}
+              >
+                {file.sharedWith.filter((id: string) => id !== userId).length} user{file.sharedWith.filter((id: string) => id !== userId).length !== 1 ? 's' : ''}
+                {onShare && ' (click to manage)'}
+              </Typography>
+            </Box>
+          )}
+        </Box>
+        
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          {onDownload && (
+            <Button 
+              onClick={onDownload} 
+              variant="outlined"
+              startIcon={<Download />}
+            >
+              Download
+            </Button>
+          )}
+          <Button onClick={onClose} variant="contained">
+            Close
           </Button>
-        )}
-        <Button onClick={onClose} variant="contained">
-          Close
-        </Button>
+        </Box>
       </DialogActions>
     </Dialog>
   );

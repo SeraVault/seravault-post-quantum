@@ -16,6 +16,7 @@ export interface ColumnVisibility {
   type: boolean;
   size: boolean;
   shared: boolean;
+  created: boolean;
   modified: boolean;
   owner: boolean;
 }
@@ -108,6 +109,16 @@ export const ColumnSelector: React.FC<ColumnSelectorProps> = ({
                 />
               }
               label={t('fileTable.columns.shared', 'Shared')}
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={columnVisibility.created}
+                  onChange={() => handleColumnToggle('created')}
+                  size="small"
+                />
+              }
+              label={t('fileTable.columns.created', 'Created')}
             />
             <FormControlLabel
               control={

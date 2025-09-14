@@ -2071,6 +2071,13 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
           loading={fileContentLoading}
           onClose={handleCloseFileViewer}
           onDownload={handleDownloadFile}
+          userId={user?.uid || ''}
+          onShare={() => {
+            if (selectedFile) {
+              setShareDialogFile(selectedFile);
+              setShareDialogOpen(true);
+            }
+          }}
         />
 
         {/* FormInstanceFiller for both new and existing forms */}

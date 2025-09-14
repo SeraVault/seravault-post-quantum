@@ -65,7 +65,7 @@ interface FileTableProps {
   currentUserId?: string; // Current user ID for profile updates
 }
 
-type SortField = 'name' | 'type' | 'size' | 'shared' | 'modified' | 'owner';
+type SortField = 'name' | 'type' | 'size' | 'shared' | 'created' | 'modified' | 'owner';
 type SortDirection = 'asc' | 'desc';
 
 const FileTable: React.FC<FileTableProps> = ({
@@ -101,6 +101,7 @@ const FileTable: React.FC<FileTableProps> = ({
     type: true,
     size: true,
     shared: true,
+    created: true,
     modified: true,
     owner: true,
   };
@@ -202,6 +203,25 @@ const FileTable: React.FC<FileTableProps> = ({
     }
     
     // Fall back to createdAt if lastModified is not available
+    if (file.createdAt) {
+      // Firebase Timestamp handling
+      if (typeof file.createdAt === 'object' && 'toDate' in file.createdAt) {
+        return (file.createdAt as any).toDate();
+      }
+      // Date object or string
+      if (file.createdAt instanceof Date) {
+        return file.createdAt;
+      }
+      if (typeof file.createdAt === 'string') {
+        return new Date(file.createdAt);
+      }
+    }
+    
+    return null;
+  };
+
+  // Helper function to get file created date (createdAt only)
+  const getCreatedDate = (file: FileData): Date | null => {
     if (file.createdAt) {
       // Firebase Timestamp handling
       if (typeof file.createdAt === 'object' && 'toDate' in file.createdAt) {
@@ -392,6 +412,27 @@ const FileTable: React.FC<FileTableProps> = ({
           bValue = bIsShared ? 1 : 0;
           break;
         }
+        case 'created': {
+          // Sort by createdAt date
+          const aDate = Object.prototype.hasOwnProperty.call(a, 'createdAt') ? getCreatedDate(a as FileData) : null;
+          const bDate = Object.prototype.hasOwnProperty.call(b, 'createdAt') ? getCreatedDate(b as FileData) : null;
+          
+          // Folders don't have dates, so put them last
+          if (!aDate && !bDate) {
+            aValue = 0;
+            bValue = 0;
+          } else if (!aDate) {
+            aValue = -1; // Sort folders last
+            bValue = bDate!.getTime();
+          } else if (!bDate) {
+            aValue = aDate.getTime();
+            bValue = -1; // Sort folders last
+          } else {
+            aValue = aDate.getTime();
+            bValue = bDate.getTime();
+          }
+          break;
+        }
         case 'modified': {
           // Sort by lastModified date (or createdAt as fallback)
           const aDate = Object.prototype.hasOwnProperty.call(a, 'lastModified') ? getFileDate(a as FileData) : null;
@@ -555,6 +596,23 @@ const FileTable: React.FC<FileTableProps> = ({
                 </Box>
               </TableCell>
             )}
+            {!isMobile && columnVisibility.created && (
+              <TableCell 
+                sx={{ 
+                  width: '12%', 
+                  cursor: 'pointer',
+                  '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' }
+                }}
+                onClick={() => handleSort('created')}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  Created
+                  {sortField === 'created' && (
+                    sortDirection === 'asc' ? <ArrowUpward fontSize="small" /> : <ArrowDownward fontSize="small" />
+                  )}
+                </Box>
+              </TableCell>
+            )}
             {!isMobile && columnVisibility.modified && (
               <TableCell 
                 sx={{ 
@@ -663,6 +721,28 @@ const FileTable: React.FC<FileTableProps> = ({
                 <TableCell>
                   <Typography variant="body2" color="text.secondary">
                     —
+                  </Typography>
+                </TableCell>
+              )}
+              {!isMobile && columnVisibility.created && (
+                <TableCell>
+                  <Typography variant="body2" color="text.secondary">
+                    {(() => {
+                      // Folders may have createdAt if we add it in the future
+                      if ((folder as any).createdAt) {
+                        const createdDate = (folder as any).createdAt;
+                        if (typeof createdDate === 'object' && 'toDate' in createdDate) {
+                          return createdDate.toDate().toLocaleDateString();
+                        }
+                        if (createdDate instanceof Date) {
+                          return createdDate.toLocaleDateString();
+                        }
+                        if (typeof createdDate === 'string') {
+                          return new Date(createdDate).toLocaleDateString();
+                        }
+                      }
+                      return '—';
+                    })()}
                   </Typography>
                 </TableCell>
               )}
@@ -817,6 +897,16 @@ const FileTable: React.FC<FileTableProps> = ({
                         </Typography>
                       )}
                     </Box>
+                  </TableCell>
+                )}
+                {!isMobile && columnVisibility.created && (
+                  <TableCell>
+                    <Typography variant="body2" color="text.secondary">
+                      {(() => {
+                        const createdDate = getCreatedDate(file);
+                        return createdDate ? createdDate.toLocaleDateString() : '—';
+                      })()}
+                    </Typography>
                   </TableCell>
                 )}
                 {!isMobile && columnVisibility.modified && (
