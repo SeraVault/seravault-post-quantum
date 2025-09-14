@@ -20,10 +20,6 @@ export default defineConfig({
                 maxEntries: 100,
                 maxAgeSeconds: 60 * 60 * 24 * 30, // 30 days
               },
-              cacheKeyWillBeUsed: async ({ request }) => {
-                // Cache files by their full URL to handle authentication
-                return request.url;
-              },
             },
           },
           {
@@ -43,21 +39,21 @@ export default defineConfig({
         name: 'SeraVault',
         short_name: 'SeraVault',
         description: 'Secure file storage and form management',
-        theme_color: '#000000',
+        theme_color: '#242424',
         background_color: '#ffffff',
         display: 'standalone',
         scope: '/',
         start_url: '/',
         icons: [
           {
-            src: 'pwa-192x192.png',
+            src: 'vite.svg',
             sizes: '192x192',
-            type: 'image/png'
+            type: 'image/svg+xml'
           },
           {
-            src: 'pwa-512x512.png',
+            src: 'vite.svg',
             sizes: '512x512',
-            type: 'image/png'
+            type: 'image/svg+xml'
           }
         ]
       }
