@@ -1,6 +1,5 @@
-import { doc, getDoc, setDoc, collection, addDoc, serverTimestamp, query, where, getDocs, FieldValue, updateDoc, deleteDoc } from 'firebase/firestore';
-import { deleteObject, ref } from 'firebase/storage';
-import { db, storage } from './firebase';
+import { doc, getDoc, setDoc, collection, addDoc, serverTimestamp, query, where, getDocs, onSnapshot, FieldValue, updateDoc, deleteDoc } from 'firebase/firestore';
+import { db } from './firebase';
 
 export interface UserProfile {
   displayName: string;
@@ -16,6 +15,14 @@ export interface UserProfile {
   };
   // Legacy field - will be migrated
   legacyEncryptedPrivateKey?: string;
+  // UI preferences
+  columnVisibility?: {
+    type: boolean;
+    size: boolean;
+    shared: boolean;
+    modified: boolean;
+    owner: boolean;
+  };
 }
 
 export interface Folder {
@@ -61,9 +68,32 @@ export const getUserByEmail = async (email: string): Promise<{ id: string; profi
   return { id: doc.id, profile: doc.data() as UserProfile };
 };
 
-export const createUserProfile = async (uid: string, data: UserProfile) => {
+export const updateUserColumnVisibility = async (uid: string, columnVisibility: UserProfile['columnVisibility']) => {
   const docRef = doc(db, 'users', uid);
-  await setDoc(docRef, data);
+  await updateDoc(docRef, { columnVisibility });
+};
+
+export const createUserProfile = async (uid: string, data: UserProfile) => {
+  console.log('🔄 createUserProfile: Starting Firestore write operation...', {
+    uid,
+    publicKeyLength: data.publicKey?.length || 0,
+    hasEncryptedPrivateKey: !!data.encryptedPrivateKey,
+    displayName: data.displayName
+  });
+
+  try {
+    const docRef = doc(db, 'users', uid);
+    await setDoc(docRef, data);
+    
+    console.log('✅ createUserProfile: Firestore write completed successfully');
+    
+    // Add a small delay to ensure Firestore consistency
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+  } catch (error) {
+    console.error('❌ createUserProfile: Firestore write failed:', error);
+    throw new Error(`Failed to write user profile to Firestore: ${error instanceof Error ? error.message : String(error)}`);
+  }
 };
 
 export const updateUserProfile = async (uid: string, updates: Partial<UserProfile>) => {
@@ -71,59 +101,26 @@ export const updateUserProfile = async (uid: string, updates: Partial<UserProfil
   await updateDoc(docRef, updates);
 };
 
-export const createFolder = async (owner: string, name: string, parent: string | null) => {
-  // Import encryption functions
-  const { encryptData, encryptMetadata } = await import('./crypto/hpkeCrypto');
+export const createFolder = async (owner: string, name: string, parent: string | null, privateKeyHex: string) => {
+  // Use centralized FolderEncryptionService
+  const { FolderEncryptionService } = await import('./services/folderEncryption');
   
-  // Get user's public key for encryption
-  const userProfile = await getUserProfile(owner);
-  if (!userProfile?.publicKey) {
-    throw new Error('User public key not found. Cannot encrypt folder name.');
-  }
-
-  // Generate shared secret for encryption
-  const hexToBytes = (hex: string) => {
-    const bytes = new Uint8Array(hex.length / 2);
-    for (let i = 0; i < hex.length; i += 2) {
-      bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
-    }
-    return bytes;
-  };
-
-  const publicKey = hexToBytes(userProfile.publicKey);
-  
-  // Generate a random key for folder metadata encryption
-  const metadataKey = crypto.getRandomValues(new Uint8Array(32));
-  
-  // Encrypt the metadata key using HPKE
-  const encryptedKeyResult = await encryptData(metadataKey, publicKey);
-  const encapsulatedKey = encryptedKeyResult.encapsulatedKey;
-  const cipherText = encryptedKeyResult.ciphertext;
-  
-  // Combine encapsulated key and ciphertext for storage
-  const combinedKeyData = new Uint8Array(encapsulatedKey.length + cipherText.length);
-  combinedKeyData.set(encapsulatedKey, 0);
-  combinedKeyData.set(cipherText, encapsulatedKey.length);
-  
-  const sharedSecret = metadataKey;
-  
-  // Encrypt the folder name
-  const encryptedMetadata = await encryptMetadata(
-    { name: name, size: '0' }, // folders don't have size, but encryptMetadata expects it
-    sharedSecret
+  // Encrypt folder for the owner
+  const encryptionResult = await FolderEncryptionService.encryptFolderForUser(
+    name,
+    owner,
+    privateKeyHex
   );
 
-  const bytesToHex = (bytes: Uint8Array) =>
-    bytes.reduce((str, byte) => str + byte.toString(16).padStart(2, '0'), '');
-
-  const newFolder: Folder = {
+  // Create the folder document
+  const folderDocument = FolderEncryptionService.createFolderDocument(
     owner,
-    name: encryptedMetadata.name,
-    parent,
-    encryptedKeys: { [owner]: bytesToHex(combinedKeyData) },
-    createdAt: serverTimestamp(),
-  };
-  await addDoc(collection(db, 'folders'), newFolder);
+    encryptionResult.encryptedMetadata,
+    encryptionResult.encryptedKeys,
+    parent
+  );
+
+  await addDoc(collection(db, 'folders'), folderDocument);
 };
 
 export const updateFolder = async (folderId: string, updates: Partial<Folder>) => {
@@ -141,7 +138,7 @@ export const updateFolder = async (folderId: string, updates: Partial<Folder>) =
 export const renameFolderWithEncryption = async (folderId: string, newName: string, userId: string) => {
   try {
     // Import encryption functions
-    const { encryptData, encryptMetadata } = await import('./crypto/hpkeCrypto');
+    const { encryptData, encryptMetadata } = await import('./crypto/quantumSafeCrypto');
     
     // Get user's public key for encryption
     const userProfile = await getUserProfile(userId);
@@ -181,8 +178,6 @@ export const renameFolderWithEncryption = async (folderId: string, newName: stri
       sharedSecret
     );
 
-    const bytesToHex = (bytes: Uint8Array) =>
-      bytes.reduce((str, byte) => str + byte.toString(16).padStart(2, '0'), '');
 
     // Update the folder with encrypted name and new key
     await updateFolder(folderId, {
@@ -393,14 +388,65 @@ export const getAllFoldersForUser = async (uid: string): Promise<Folder[]> => {
   return querySnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Folder));
 };
 
-export const getAllFilesInFolder = async (folderId: string | null, ownerUid: string): Promise<any[]> => {
+export const getAllFilesInFolder = async (folderId: string | null, userId: string): Promise<any[]> => {
+  // Query files where the user has access (owner or shared) and is in the specified folder for this user
   const q = query(
     collection(db, 'files'),
-    where('owner', '==', ownerUid),
-    where('parent', '==', folderId)
+    where('sharedWith', 'array-contains', userId)
   );
   const querySnapshot = await getDocs(q);
-  return querySnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+  
+  // Filter files that are in the specified folder for this user
+  return querySnapshot.docs
+    .map(doc => ({ ...doc.data(), id: doc.id }))
+    .filter((file: any) => {
+      // Check if file has userFolders defined
+      if (file.userFolders && typeof file.userFolders === 'object') {
+        return file.userFolders[userId] === folderId;
+      }
+      // Fallback to legacy parent field for backward compatibility
+      return file.parent === folderId;
+    });
+};
+
+// Real-time version using onSnapshot for reactive updates
+export const subscribeToFilesInFolder = (
+  folderId: string | null, 
+  userId: string, 
+  onUpdate: (files: any[]) => void,
+  onError?: (error: Error) => void
+): (() => void) => {
+  // Query files where the user has access (owner or shared)
+  const q = query(
+    collection(db, 'files'),
+    where('sharedWith', 'array-contains', userId)
+  );
+  
+  const unsubscribe = onSnapshot(q, 
+    (querySnapshot) => {
+      // Filter files that are in the specified folder for this user
+      const files = querySnapshot.docs
+        .map(doc => ({ ...doc.data(), id: doc.id }))
+        .filter((file: any) => {
+          // Check if file has userFolders defined
+          if (file.userFolders && typeof file.userFolders === 'object') {
+            return file.userFolders[userId] === folderId;
+          }
+          // Fallback to legacy parent field for backward compatibility
+          return file.parent === folderId;
+        });
+      
+      onUpdate(files);
+    },
+    (error) => {
+      console.error('Error in files subscription:', error);
+      if (onError) {
+        onError(error);
+      }
+    }
+  );
+  
+  return unsubscribe;
 };
 
 export const getSubfolders = async (parentId: string | null, ownerUid: string): Promise<Folder[]> => {
@@ -413,17 +459,17 @@ export const getSubfolders = async (parentId: string | null, ownerUid: string): 
   return querySnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Folder));
 };
 
-export const getAllFilesRecursively = async (folderId: string | null, ownerUid: string): Promise<any[]> => {
+export const getAllFilesRecursively = async (folderId: string | null, userId: string): Promise<any[]> => {
   const allFiles: any[] = [];
   
   // Get files in current folder
-  const files = await getAllFilesInFolder(folderId, ownerUid);
+  const files = await getAllFilesInFolder(folderId, userId);
   allFiles.push(...files);
   
-  // Get subfolders and recursively get their files
-  const subfolders = await getSubfolders(folderId, ownerUid);
+  // Get subfolders owned by the user and recursively get their files
+  const subfolders = await getSubfolders(folderId, userId);
   for (const subfolder of subfolders) {
-    const subFiles = await getAllFilesRecursively(subfolder.id!, ownerUid);
+    const subFiles = await getAllFilesRecursively(subfolder.id!, userId);
     allFiles.push(...subFiles);
   }
   
@@ -473,7 +519,7 @@ export const encryptGroupData = async (
   };
   memberKeys: { [userId: string]: string };
 }> => {
-  const { encryptData } = await import('./crypto/hpkeCrypto');
+  const { encryptData } = await import('./crypto/quantumSafeCrypto');
   
   // Generate nonces for AES-GCM encryption
   const nameNonce = crypto.getRandomValues(new Uint8Array(12));
@@ -568,15 +614,16 @@ export const decryptGroupForUser = async (
   }
   
   try {
-    const { decryptData } = await import('./crypto/hpkeCrypto');
+    const { decryptData } = await import('./crypto/quantumSafeCrypto');
     
     // Decrypt the group key
     const encryptedGroupKey = hexToBytes(group.memberKeys[userId]);
-    const encapsulatedKey = encryptedGroupKey.slice(0, 32);
-    const ciphertext = encryptedGroupKey.slice(32);
+    const iv = encryptedGroupKey.slice(0, 12);
+    const encapsulatedKey = encryptedGroupKey.slice(12, 12 + 1088);
+    const ciphertext = encryptedGroupKey.slice(12 + 1088);
     
     const groupKey = await decryptData(
-      { encapsulatedKey, ciphertext },
+      { iv, encapsulatedKey, ciphertext },
       userPrivateKey
     );
     

@@ -4,36 +4,69 @@ import { type Folder as FolderData } from '../firestore';
 
 interface ClipboardItem {
   type: 'file' | 'folder';
-  data: FileData | FolderData;
+  item: FileData | FolderData;
   operation: 'cut' | 'copy';
 }
 
+interface ClipboardState {
+  items: ClipboardItem[];
+  operation: 'cut' | 'copy' | null;
+}
+
 interface ClipboardContextType {
-  clipboardItem: ClipboardItem | null;
+  clipboardItem: ClipboardItem | null; // Backward compatibility
+  clipboardItems: ClipboardItem[];
+  hasMultipleItems: boolean;
+  operation: 'cut' | 'copy' | null;
   cutItem: (type: 'file' | 'folder', data: FileData | FolderData) => void;
   copyItem: (type: 'file' | 'folder', data: FileData | FolderData) => void;
+  cutItems: (items: ClipboardItem[]) => void;
+  copyItems: (items: ClipboardItem[]) => void;
   clearClipboard: () => void;
 }
 
 const ClipboardContext = createContext<ClipboardContextType | undefined>(undefined);
 
 export const ClipboardProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [clipboardItem, setClipboardItem] = useState<ClipboardItem | null>(null);
+  const [clipboardState, setClipboardState] = useState<ClipboardState>({ items: [], operation: null });
 
+  // Backward compatibility - return first item for single-item operations
+  const clipboardItem = clipboardState.items.length > 0 ? clipboardState.items[0] : null;
+  
   const cutItem = (type: 'file' | 'folder', data: FileData | FolderData) => {
-    setClipboardItem({ type, data, operation: 'cut' });
+    setClipboardState({ items: [{ type, item: data, operation: 'cut' }], operation: 'cut' });
   };
 
   const copyItem = (type: 'file' | 'folder', data: FileData | FolderData) => {
-    setClipboardItem({ type, data, operation: 'copy' });
+    setClipboardState({ items: [{ type, item: data, operation: 'copy' }], operation: 'copy' });
+  };
+
+  const cutItems = (items: ClipboardItem[]) => {
+    const itemsWithOperation = items.map(item => ({ ...item, operation: 'cut' as const }));
+    setClipboardState({ items: itemsWithOperation, operation: 'cut' });
+  };
+
+  const copyItems = (items: ClipboardItem[]) => {
+    const itemsWithOperation = items.map(item => ({ ...item, operation: 'copy' as const }));
+    setClipboardState({ items: itemsWithOperation, operation: 'copy' });
   };
 
   const clearClipboard = () => {
-    setClipboardItem(null);
+    setClipboardState({ items: [], operation: null });
   };
 
   return (
-    <ClipboardContext.Provider value={{ clipboardItem, cutItem, copyItem, clearClipboard }}>
+    <ClipboardContext.Provider value={{ 
+      clipboardItem,
+      clipboardItems: clipboardState.items,
+      hasMultipleItems: clipboardState.items.length > 1,
+      operation: clipboardState.operation,
+      cutItem, 
+      copyItem, 
+      cutItems,
+      copyItems,
+      clearClipboard 
+    }}>
       {children}
     </ClipboardContext.Provider>
   );

@@ -58,15 +58,68 @@ service cloud.firestore {
       // Read access: owner or explicitly shared user
       allow read: if hasAccess(resource);
       
-      // Write access: only owner can modify
+      // List access: allow querying files where user is owner or in sharedWith array
+      allow list: if request.auth != null;
+      
+      // Write access: only owner can modify most fields
       allow update, delete: if request.auth != null && 
         request.auth.uid == resource.data.owner;
       
-      // Allow users with access to update only their favorite status
+      // Allow users with access to update only their favorite status (legacy field)
       allow update: if request.auth != null && 
         hasAccess(resource) &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isFavorite', 'lastModified']) &&
         request.resource.data.isFavorite is bool;
+        
+      // Allow users with access to update their own favorite status in userFavorites
+      allow update: if request.auth != null && 
+        hasAccess(resource) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['userFavorites', 'lastModified']) &&
+        request.resource.data.userFavorites is map &&
+        // Only allow modification of the user's own favorite status
+        request.auth.uid in request.resource.data.userFavorites.keys() &&
+        request.resource.data.userFavorites[request.auth.uid] is bool;
+      
+      // Allow users with access to update their own folder association in userFolders
+      allow update: if request.auth != null && 
+        hasAccess(resource) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['userFolders']) &&
+        request.resource.data.userFolders is map &&
+        // Only allow modification of the user's own folder association
+        (request.resource.data.userFolders.size() == resource.data.get('userFolders', {}).size() ||
+         request.resource.data.userFolders.size() == resource.data.get('userFolders', {}).size() + 1) &&
+        // Ensure user can only modify their own entry
+        request.auth.uid in request.resource.data.userFolders.keys();
+      
+      // Allow users with access to update their own encrypted tags in userTags
+      allow update: if request.auth != null && 
+        hasAccess(resource) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['userTags']) &&
+        request.resource.data.userTags is map &&
+        // Only allow modification of the user's own encrypted tags
+        (request.resource.data.userTags.size() == resource.data.get('userTags', {}).size() ||
+         request.resource.data.userTags.size() == resource.data.get('userTags', {}).size() + 1) &&
+        // Ensure user can only modify their own entry and it's properly encrypted
+        request.auth.uid in request.resource.data.userTags.keys() &&
+        request.resource.data.userTags[request.auth.uid] is map &&
+        request.resource.data.userTags[request.auth.uid].keys().hasAll(['ciphertext', 'nonce']) &&
+        request.resource.data.userTags[request.auth.uid].ciphertext is string &&
+        request.resource.data.userTags[request.auth.uid].nonce is string;
+      
+      // Allow users with access to update their own personalized name in userNames
+      allow update: if request.auth != null && 
+        hasAccess(resource) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['userNames', 'lastModified']) &&
+        request.resource.data.userNames is map &&
+        // Only allow modification of the user's own personalized name
+        (request.resource.data.userNames.size() == resource.data.get('userNames', {}).size() ||
+         request.resource.data.userNames.size() == resource.data.get('userNames', {}).size() + 1) &&
+        // Ensure user can only modify their own entry and it's properly encrypted
+        request.auth.uid in request.resource.data.userNames.keys() &&
+        request.resource.data.userNames[request.auth.uid] is map &&
+        request.resource.data.userNames[request.auth.uid].keys().hasAll(['ciphertext', 'nonce']) &&
+        request.resource.data.userNames[request.auth.uid].ciphertext is string &&
+        request.resource.data.userNames[request.auth.uid].nonce is string;
       
       // Create access: must be owner and include self in sharedWith
       allow create: if isOwner(request.resource.data) && 
@@ -80,7 +133,19 @@ service cloud.firestore {
         // Ensure user has an encrypted key for the file
         request.auth.uid in request.resource.data.encryptedKeys &&
         // Parent folder validation (if specified)
-        (request.resource.data.parent == null || request.resource.data.parent is string);
+        (request.resource.data.parent == null || request.resource.data.parent is string) &&
+        // userFolders validation (if specified)
+        (!request.resource.data.keys().hasAny(['userFolders']) || 
+         (request.resource.data.userFolders is map && 
+          request.auth.uid in request.resource.data.userFolders.keys())) &&
+        // userFavorites validation (if specified)
+        (!request.resource.data.keys().hasAny(['userFavorites']) || 
+         (request.resource.data.userFavorites is map && 
+          request.auth.uid in request.resource.data.userFavorites.keys())) &&
+        // userNames validation (if specified)
+        (!request.resource.data.keys().hasAny(['userNames']) || 
+         (request.resource.data.userNames is map && 
+          request.auth.uid in request.resource.data.userNames.keys()));
     }
     
     // Groups - users can access groups they own or are members of

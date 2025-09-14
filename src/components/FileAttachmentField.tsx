@@ -20,9 +20,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { uploadFileData } from '../storage';
 import { createFileWithSharing } from '../files';
-import { getUserProfile } from '../firestore';
-import { encryptData } from '../crypto/hpkeCrypto';
-import { encryptMetadata, hexToBytes, bytesToHex } from '../crypto/hpkeCrypto';
+import { FileEncryptionService } from '../services/fileEncryption';
 import type { FormFieldDefinition, AttachedFile } from '../utils/formFiles';
 
 interface FileAttachmentFieldProps {
@@ -117,12 +115,6 @@ const FileAttachmentField: React.FC<FileAttachmentFieldProps> = ({
     setUploading(true);
 
     try {
-      // Get user profile for public key
-      const userProfile = await getUserProfile(userId);
-      if (!userProfile?.publicKey) {
-        throw new Error('Public key not found for the user.');
-      }
-
       setUploadProgress(20);
 
       // Read file as ArrayBuffer
@@ -131,71 +123,34 @@ const FileAttachmentField: React.FC<FileAttachmentFieldProps> = ({
 
       setUploadProgress(40);
 
-      // Encrypt file using HPKE
-      const publicKey = hexToBytes(userProfile.publicKey);
-      
-      // Generate a random file key for AES encryption
-      const fileKey = crypto.getRandomValues(new Uint8Array(32));
-      
-      // Encrypt the file key using HPKE
-      const encryptedFileKey = await encryptData(fileKey, publicKey);
-      
-      // Combine encapsulated key and ciphertext for storage
-      const combinedKeyData = new Uint8Array(
-        encryptedFileKey.encapsulatedKey.length + 
-        encryptedFileKey.ciphertext.length
-      );
-      combinedKeyData.set(encryptedFileKey.encapsulatedKey, 0);
-      combinedKeyData.set(
-        encryptedFileKey.ciphertext, 
-        encryptedFileKey.encapsulatedKey.length
-      );
-      
-      const cipherText = combinedKeyData;
-      const sharedSecret = fileKey;
-
-      setUploadProgress(60);
-
-      // Encrypt file content
-      const iv = crypto.getRandomValues(new Uint8Array(12));
-      const key = await crypto.subtle.importKey('raw', sharedSecret, { name: 'AES-GCM' }, false, ['encrypt']);
-      const encryptedContent = await crypto.subtle.encrypt(
-        { name: 'AES-GCM', iv }, 
-        key, 
-        fileData
+      // Use the centralized encryption service
+      const encryptionResult = await FileEncryptionService.encryptFileForUsers(
+        fileData,
+        file.name,
+        file.size,
+        [userId], // Only current user
+        userId,
+        parentFolder // Files attached to forms go in same folder as form
       );
 
-      // Encrypt metadata
-      const encryptedMetadata = await encryptMetadata(
-        { name: file.name, size: file.size.toString() },
-        sharedSecret
-      );
+      setUploadProgress(70);
 
-      setUploadProgress(80);
-
-      // Create storage path
-      const storagePath = `files/${userId}/${crypto.randomUUID()}`;
-      
-      // Combine IV and encrypted content
-      const combinedData = new Uint8Array(iv.length + encryptedContent.byteLength);
-      combinedData.set(iv, 0);
-      combinedData.set(new Uint8Array(encryptedContent), iv.length);
-      
       // Upload encrypted content to storage
-      await uploadFileData(storagePath, combinedData);
+      await uploadFileData(encryptionResult.storagePath, encryptionResult.encryptedContent);
 
       setUploadProgress(90);
 
       // Create file record
-      const fileId = await createFileWithSharing({
-        owner: userId,
-        name: encryptedMetadata.name,
-        parent: parentFolder, // Files attached to forms go in same folder as form
-        size: encryptedMetadata.size,
-        storagePath,
-        encryptedKeys: { [userId]: bytesToHex(cipherText) },
-        sharedWith: [userId],
-      });
+      const fileRecord = await FileEncryptionService.createFileRecord(
+        userId,
+        encryptionResult.encryptedMetadata,
+        encryptionResult.storagePath,
+        encryptionResult.encryptedKeys,
+        [userId], // Only current user
+        parentFolder
+      );
+
+      const fileId = await createFileWithSharing(fileRecord);
 
       // Add to form
       onFileAdded(fileId, {

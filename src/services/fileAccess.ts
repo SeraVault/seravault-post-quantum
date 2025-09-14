@@ -1,6 +1,6 @@
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { decryptFileContent, decryptData, hexToBytes, decryptMetadata } from '../crypto/hpkeCrypto';
+import { decryptData, hexToBytes, decryptMetadata } from '../crypto/quantumSafeCrypto';
 import { isFormFile } from '../utils/formFiles';
 import type { FileData } from '../files';
 
@@ -30,31 +30,31 @@ export class FileAccessService {
     }
 
     try {
-      // Check if this is a new HPKE-encrypted file or legacy ML-KEM768 file
+      // Decrypt file metadata using ML-KEM-768
       const userEncryptedKey = data.encryptedKeys[userId];
       
-      // Try HPKE decryption first (new format)
       let decryptedName: string;
       let decryptedSize: string;
       
       try {
         const privateKeyBytes = hexToBytes(privateKey);
         
-        // For HPKE, first decrypt the shared secret, then decrypt metadata
+        // Parse ML-KEM-768 encrypted key format
         const keyData = hexToBytes(userEncryptedKey);
         
-        // HPKE encrypted keys contain: encapsulated_key (32 bytes) + ciphertext  
-        const encapsulatedKey = keyData.slice(0, 32);
-        const ciphertext = keyData.slice(32);
+        // ML-KEM-768: IV (12 bytes) + encapsulated key (1088 bytes) + ciphertext
+        const iv = keyData.slice(0, 12);
+        const encapsulatedKey = keyData.slice(12, 12 + 1088);
+        const ciphertext = keyData.slice(12 + 1088);
         
-        const sharedSecret = await decryptData(
-          { encapsulatedKey, ciphertext },
+        const fileKey = await decryptData(
+          { iv, encapsulatedKey, ciphertext },
           privateKeyBytes
         );
 
-        // Use HPKE metadata decryption for all files
-        decryptedName = await decryptMetadata(data.name as { ciphertext: string; nonce: string }, sharedSecret);
-        decryptedSize = await decryptMetadata(data.size as { ciphertext: string; nonce: string }, sharedSecret);
+        // Decrypt metadata using the file key
+        decryptedName = await decryptMetadata(data.name as { ciphertext: string; nonce: string }, fileKey);
+        decryptedSize = await decryptMetadata(data.size as { ciphertext: string; nonce: string }, fileKey);
       } catch (error) {
         console.error('Error decrypting file metadata:', error);
         decryptedName = '[Decryption Failed]';
@@ -85,54 +85,44 @@ export class FileAccessService {
     const { getFile } = await import('../storage');
     const encryptedContent = await getFile(file.storagePath);
     
-    // Try HPKE decryption first (new format)
+    // Decrypt file content using ML-KEM-768
     const userEncryptedKey = file.encryptedKeys[userId];
     const privateKeyBytes = hexToBytes(privateKey);
     
     try {
-      // Try HPKE decryption
-      const decryptedContent = await decryptFileContent(
-        new Uint8Array(encryptedContent), 
-        userEncryptedKey, 
+      // Parse ML-KEM-768 encrypted key format
+      const keyData = hexToBytes(userEncryptedKey);
+      
+      // ML-KEM-768: IV (12 bytes) + encapsulated key (1088 bytes) + ciphertext
+      const keyIv = keyData.slice(0, 12);
+      const encapsulatedKey = keyData.slice(12, 12 + 1088);
+      const keyCiphertext = keyData.slice(12 + 1088);
+      
+      // Decrypt the file key using ML-KEM-768
+      const fileKey = await decryptData(
+        { iv: keyIv, encapsulatedKey, ciphertext: keyCiphertext },
         privateKeyBytes
       );
-      return decryptedContent.buffer;
-    } catch (hpkeError) {
-      console.log('HPKE decryption failed, trying HPKE key decryption:', hpkeError);
       
-      // Fall back to HPKE key decryption for files
-      try {
-        const keyData = hexToBytes(userEncryptedKey);
+      // Files are encrypted with AES-GCM with IV prepended
+      if (encryptedContent.byteLength > 12) {
+        const contentIv = encryptedContent.slice(0, 12);
+        const encryptedData = encryptedContent.slice(12);
         
-        // HPKE encrypted keys contain: encapsulated_key (32 bytes) + ciphertext  
-        const encapsulatedKey = keyData.slice(0, 32);
-        const ciphertext = keyData.slice(32);
-        
-        const sharedSecret = await decryptData(
-          { encapsulatedKey, ciphertext },
-          privateKeyBytes
+        const aesKey = await crypto.subtle.importKey('raw', fileKey, { name: 'AES-GCM' }, false, ['decrypt']);
+        const decryptedContent = await crypto.subtle.decrypt(
+          { name: 'AES-GCM', iv: contentIv }, 
+          aesKey, 
+          encryptedData
         );
         
-        // Files are encrypted with AES-GCM with IV prepended
-        if (encryptedContent.byteLength > 12) {
-          const iv = encryptedContent.slice(0, 12);
-          const ciphertextData = encryptedContent.slice(12);
-          
-          const key = await crypto.subtle.importKey('raw', sharedSecret, { name: 'AES-GCM' }, false, ['decrypt']);
-          const decryptedContent = await crypto.subtle.decrypt(
-            { name: 'AES-GCM', iv: iv }, 
-            key, 
-            ciphertextData
-          );
-          
-          return decryptedContent;
-        } else {
-          throw new Error('Invalid encrypted content format');
-        }
-      } catch (legacyError) {
-        console.warn('Both HPKE and ML-KEM768 decryption failed, returning as-is:', legacyError);
-        return encryptedContent;
+        return decryptedContent;
+      } else {
+        throw new Error('Invalid encrypted content format');
       }
+    } catch (error) {
+      console.error('ML-KEM-768 file content decryption failed:', error);
+      throw new Error(`Failed to decrypt file content: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

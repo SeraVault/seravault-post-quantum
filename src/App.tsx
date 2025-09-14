@@ -11,7 +11,7 @@ import ProtectedRoute from './auth/ProtectedRoute';
 import ProfileCheck from './auth/ProfileCheck';
 import { useAuth } from './auth/AuthContext';
 import { usePassphrase } from './auth/PassphraseContext';
-import { Box, CircularProgress, Typography, useTheme, Dialog, DialogContent } from '@mui/material';
+import { CircularProgress, Typography, useTheme, Dialog, DialogContent } from '@mui/material';
 import { ClipboardProvider } from './context/ClipboardContext';
 import { LoadingProvider, useGlobalLoading } from './context/LoadingContext';
 import { RecentsProvider } from './context/RecentsContext';

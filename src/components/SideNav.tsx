@@ -25,17 +25,15 @@ import {
   Assignment,
   Info,
   ChevronLeft,
-  ChevronRight,
-  Person,
-  ExitToApp
+  ChevronRight
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import FolderTree from './FolderTree';
+import TagFilter from './TagFilter';
 import { useFolders } from '../hooks/useFolders';
 import { useRecents } from '../context/RecentsContext';
-import { useAuth } from '../auth/AuthContext';
-import { auth } from '../firebase';
-import { signOut } from 'firebase/auth';
+import { updateFolder } from '../firestore';
+import { updateFile } from '../files';
 
 interface SideNavProps {
   drawerWidth: number;
@@ -47,6 +45,14 @@ interface SideNavProps {
   onOpenTemplateDesigner?: () => void;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
+  // Tag filtering props
+  files?: any[];
+  userId?: string;
+  userPrivateKey?: string;
+  selectedTags?: string[];
+  onTagSelectionChange?: (tags: string[]) => void;
+  matchAllTags?: boolean;
+  onMatchModeChange?: (matchAll: boolean) => void;
 }
 
 const SideNav: React.FC<SideNavProps> = ({
@@ -59,18 +65,93 @@ const SideNav: React.FC<SideNavProps> = ({
   onOpenTemplateDesigner,
   collapsed = false,
   onToggleCollapse,
+  // Tag filtering props
+  files = [],
+  userId,
+  userPrivateKey,
+  selectedTags = [],
+  onTagSelectionChange,
+  matchAllTags = false,
+  onMatchModeChange,
 }) => {
   const { t } = useTranslation();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { allFolders } = useFolders();
   const { isRecentsView, setIsRecentsView, isFavoritesView, setIsFavoritesView, isSharedView, setIsSharedView } = useRecents();
-  const { user } = useAuth();
+  
+  // Root folder drop zone state
+  const [isRootDropZone, setIsRootDropZone] = React.useState(false);
 
-  const handleLogout = () => {
-    signOut(auth);
+  // Handle moving items (files or folders) to different folders
+  const handleMoveItem = async (itemId: string, itemType: 'file' | 'folder', targetFolderId: string | null) => {
+    try {
+      console.log('🔄 SideNav handleMoveItem called:', { itemId, itemType, targetFolderId });
+      
+      if (itemType === 'folder') {
+        console.log('📁 Updating folder parent...');
+        await updateFolder(itemId, { parent: targetFolderId });
+        console.log('✅ Folder moved successfully');
+      } else if (itemType === 'file') {
+        console.log('📄 Updating file parent...');
+        await updateFile(itemId, { parent: targetFolderId });
+        console.log('✅ File moved successfully');
+      } else {
+        console.warn('❌ Unknown item type:', itemType);
+      }
+    } catch (error) {
+      console.error('❌ Error moving item:', error);
+      // You could add a toast notification here
+    }
   };
 
+  // Root folder drop handlers
+  const handleRootDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setIsRootDropZone(true);
+  };
+
+  const handleRootDragLeave = (e: React.DragEvent) => {
+    // Only set dragOver to false if we're actually leaving this element
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX;
+    const y = e.clientY;
+    
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+      setIsRootDropZone(false);
+    }
+  };
+
+  const handleRootDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsRootDropZone(false);
+    
+    console.log('🎯 Root folder drop event triggered');
+    console.log('🎯 Event dataTransfer types:', Array.from(e.dataTransfer.types));
+    console.log('🎯 Raw drag data:', e.dataTransfer.getData('application/json'));
+    
+    try {
+      const dragData = e.dataTransfer.getData('application/json');
+      if (!dragData) {
+        console.warn('❌ No drag data found');
+        return;
+      }
+      
+      const data = JSON.parse(dragData);
+      console.log('🎯 Parsed drag data:', data);
+      console.log('🎯 Moving to root folder (null parent)');
+      
+      if (handleMoveItem && data.id) {
+        console.log('✅ Calling handleMoveItem with root target');
+        handleMoveItem(data.id, data.type, null); // null = root folder
+      } else {
+        console.warn('❌ handleMoveItem not available or no item ID');
+      }
+    } catch (error) {
+      console.error('❌ Error handling root drop:', error);
+    }
+  };
 
   const collapsedWidth = 64;
   const currentWidth = collapsed && !isMobile ? collapsedWidth : drawerWidth;
@@ -246,12 +327,18 @@ const SideNav: React.FC<SideNavProps> = ({
       <List dense sx={{ px: 1, flexGrow: 1 }}>
         <ListItemButton 
           onClick={() => setCurrentFolder(null)}
+          onDragOver={handleRootDragOver}
+          onDragLeave={handleRootDragLeave}
+          onDrop={handleRootDrop}
           sx={{
             borderRadius: 1,
             mx: 1,
             mb: 0.5,
+            backgroundColor: isRootDropZone ? 'primary.light' : 'transparent',
+            border: isRootDropZone ? '2px dashed' : '2px solid transparent',
+            borderColor: isRootDropZone ? 'primary.main' : 'transparent',
             '&:hover': {
-              backgroundColor: 'action.hover',
+              backgroundColor: isRootDropZone ? 'primary.light' : 'action.hover',
             }
           }}
         >
@@ -265,7 +352,11 @@ const SideNav: React.FC<SideNavProps> = ({
         </ListItemButton>
         
         <Box sx={{ ml: 1 }}>
-          <FolderTree folders={allFolders} onFolderClick={setCurrentFolder} />
+          <FolderTree 
+            folders={allFolders} 
+            onFolderClick={setCurrentFolder}
+            onMoveItem={handleMoveItem}
+          />
         </Box>
         
         <ListItemButton
@@ -338,63 +429,22 @@ const SideNav: React.FC<SideNavProps> = ({
           )}
         </ListItemButton>
 
-        {/* User Actions - Profile and Logout */}
-        {user && (
-          <>
-            <Divider sx={{ mx: 2, my: 1 }} />
-            
-            <ListItemButton
-              component={Link}
-              to="/profile"
-              sx={{
-                borderRadius: 1,
-                mx: 1,
-                mb: 0.5,
-                justifyContent: collapsed && !isMobile ? 'center' : 'flex-start',
-                '&:hover': {
-                  backgroundColor: 'action.hover',
-                }
-              }}
-              title={collapsed && !isMobile ? t('navigation.profile', 'Profile') : undefined}
-            >
-              <ListItemIcon sx={{ minWidth: collapsed && !isMobile ? 'auto' : 32 }}>
-                <Person fontSize="small" />
-              </ListItemIcon>
-              {(!collapsed || isMobile) && (
-                <ListItemText 
-                  primary={t('navigation.profile', 'Profile')} 
-                  primaryTypographyProps={{ fontSize: '14px' }}
-                />
-              )}
-            </ListItemButton>
-            
-            <ListItemButton
-              onClick={handleLogout}
-              sx={{
-                borderRadius: 1,
-                mx: 1,
-                mb: 0.5,
-                justifyContent: collapsed && !isMobile ? 'center' : 'flex-start',
-                '&:hover': {
-                  backgroundColor: 'action.hover',
-                },
-                color: 'error.main'
-              }}
-              title={collapsed && !isMobile ? t('navigation.logout', 'Logout') : undefined}
-            >
-              <ListItemIcon sx={{ minWidth: collapsed && !isMobile ? 'auto' : 32 }}>
-                <ExitToApp fontSize="small" color="error" />
-              </ListItemIcon>
-              {(!collapsed || isMobile) && (
-                <ListItemText 
-                  primary={t('navigation.logout', 'Logout')} 
-                  primaryTypographyProps={{ fontSize: '14px', color: 'error.main' }}
-                />
-              )}
-            </ListItemButton>
-          </>
-        )}
       </List>
+      
+      {/* Tag Filter */}
+      {(!collapsed || isMobile) && userId && userPrivateKey && onTagSelectionChange && (
+        <Box sx={{ px: 2, py: 1, borderTop: 1, borderColor: 'divider' }}>
+          <TagFilter
+            files={files}
+            userId={userId}
+            userPrivateKey={userPrivateKey}
+            selectedTags={selectedTags}
+            onTagSelectionChange={onTagSelectionChange}
+            matchAllTags={matchAllTags}
+            onMatchModeChange={onMatchModeChange || (() => {})}
+          />
+        </Box>
+      )}
       
       {/* Storage Info */}
       {(!collapsed || isMobile) && (

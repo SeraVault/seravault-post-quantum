@@ -32,7 +32,19 @@
       "Bash(npm run test:run:*)",
       "Bash(npx tsx:*)",
       "Bash(firebase --version)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(firebase help:*)",
+      "Bash(lsof:*)",
+      "Bash(kill:*)",
+      "Bash(npm run typecheck:*)",
+      "Bash(npm run:*)",
+      "Bash(npm view:*)",
+      "Bash(pkill:*)",
+      "WebFetch(domain:firebase.google.com)",
+      "Bash(xargs kill:*)",
+      "Bash(ulimit:*)",
+      "Bash(VITE_FORCE_OPTIMIZE_DEPS=true npm run dev)",
+      "Bash(npm start)"
     ],
     "deny": []
   }

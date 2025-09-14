@@ -26,7 +26,7 @@ import {
 import { useAuth } from '../auth/AuthContext';
 import { usePassphrase } from '../auth/PassphraseContext';
 import { type Group, createGroup, updateGroup, deleteGroup, getUserGroups } from '../firestore';
-import { hexToBytes } from '../crypto/hpkeCrypto';
+import { hexToBytes } from '../crypto/quantumSafeCrypto';
 
 interface GroupManagementProps {
   open: boolean;

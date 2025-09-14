@@ -1,48 +1,45 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import * as hpkeCrypto from '@/crypto/hpkeCrypto'
-import * as postQuantumCrypto from '@/crypto/postQuantumCrypto'
+import * as quantumSafeCrypto from '@/crypto/quantumSafeCrypto'
 
-// Mock the actual crypto implementations for isolated testing
-vi.mock('@hpke/core', () => ({
-  Kem: { DhkemX25519HkdfSha256: 0 },
-  Kdf: { HkdfSha256: 1 },
-  Aead: { Chacha20Poly1305: 3 },
+// Mock the ML-KEM-768 implementation for isolated testing
+vi.mock('@noble/post-quantum/ml-kem', () => ({
+  ml_kem768: {
+    keygen: () => ({
+      publicKey: new Uint8Array(1184).fill(2),
+      secretKey: new Uint8Array(2400).fill(1),
+    }),
+    encapsulate: () => ({
+      sharedSecret: new Uint8Array(32).fill(3),
+      cipherText: new Uint8Array(1088).fill(4),
+    }),
+    decapsulate: () => new Uint8Array(32).fill(3),
+  },
+})
 }))
 
-vi.mock('@hpke/dhkem-x25519', () => ({
-  DhkemX25519HkdfSha256: class {
-    static async generateKeyPair() {
-      return {
-        privateKey: new Uint8Array(32).fill(1),
-        publicKey: new Uint8Array(32).fill(2),
-      }
-    }
-  }
-}))
-
-describe('HPKE Crypto Functions', () => {
+describe('Quantum-Safe Crypto Functions', () => {
   const mockData = new TextEncoder().encode('test data')
-  const mockPublicKey = new Uint8Array(32).fill(2)
-  const mockPrivateKey = new Uint8Array(32).fill(1)
+  const mockPublicKey = new Uint8Array(1184).fill(2)
+  const mockPrivateKey = new Uint8Array(2400).fill(1)
 
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
   describe('Key Generation', () => {
-    it('should generate valid key pairs', async () => {
-      const keyPair = await hpkeCrypto.generateKeyPair()
+    it('should generate valid ML-KEM-768 key pairs', async () => {
+      const keyPair = await quantumSafeCrypto.generateKeyPair()
       
       expect(keyPair).toBeDefined()
       expect(keyPair.publicKey).toBeInstanceOf(Uint8Array)
       expect(keyPair.privateKey).toBeInstanceOf(Uint8Array)
-      expect(keyPair.publicKey.length).toBe(32)
-      expect(keyPair.privateKey.length).toBe(32)
+      expect(keyPair.publicKey.length).toBe(1184)
+      expect(keyPair.privateKey.length).toBe(2400)
     })
 
     it('should generate different keys each time', async () => {
-      const keyPair1 = await hpkeCrypto.generateKeyPair()
-      const keyPair2 = await hpkeCrypto.generateKeyPair()
+      const keyPair1 = await quantumSafeCrypto.generateKeyPair()
+      const keyPair2 = await quantumSafeCrypto.generateKeyPair()
       
       expect(keyPair1.publicKey).not.toEqual(keyPair2.publicKey)
       expect(keyPair1.privateKey).not.toEqual(keyPair2.privateKey)

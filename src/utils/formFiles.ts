@@ -5,7 +5,8 @@
 import { createFileWithSharing, updateFile } from '../files';
 import { uploadFileData } from '../storage';
 import { getUserProfile } from '../firestore';
-import { encryptForMultipleRecipients, encryptData, decryptData, encryptMetadata as hpkeEncryptMetadata } from '../crypto/hpkeCrypto';
+import { FileEncryptionService } from '../services/fileEncryption';
+import { decryptData, hexToBytes } from '../crypto/quantumSafeCrypto';
 
 export interface FormFieldDefinition {
   id: string;
@@ -164,17 +165,7 @@ export function createBlankForm(name: string, author?: string): SecureFormData {
   };
 }
 
-// Helper functions for encryption (copied from MainContent pattern)
-const hexToBytes = (hex: string) => {
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < hex.length; i += 2) {
-    bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
-  }
-  return bytes;
-};
-
-const bytesToHex = (bytes: Uint8Array) =>
-  bytes.reduce((str, byte) => str + byte.toString(16).padStart(2, '0'), '');
+// Helper functions removed - now using imports from crypto module
 
 /**
  * Generate document filename based on template's titleField
@@ -242,13 +233,14 @@ export async function updateFormFile(
     const privateKeyBytes = hexToBytes(privateKey);
     const keyData = hexToBytes(userEncryptedKey);
     
-    // HPKE encrypted keys contain: encapsulated_key (32 bytes) + ciphertext  
-    const encapsulatedKey = keyData.slice(0, 32);
-    const ciphertext = keyData.slice(32);
+    // ML-KEM-768 encrypted keys contain: IV (12 bytes) + encapsulated_key (1088 bytes) + ciphertext  
+    const iv = keyData.slice(0, 12);
+    const encapsulatedKey = keyData.slice(12, 12 + 1088);
+    const ciphertext = keyData.slice(12 + 1088);
     
-    // Decrypt the file key using the existing encryption
+    // Decrypt the file key using ML-KEM-768
     const fileKey = await decryptData(
-      { encapsulatedKey, ciphertext },
+      { iv, encapsulatedKey, ciphertext },
       privateKeyBytes
     );
 
@@ -265,38 +257,37 @@ export async function updateFormFile(
     const jsonString = JSON.stringify(updatedFormData, null, 2);
     
     // Use the existing file key for AES encryption
-    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const contentIv = crypto.getRandomValues(new Uint8Array(12));
     const encryptedContent = await crypto.subtle.encrypt(
-      { name: 'AES-GCM', iv },
+      { name: 'AES-GCM', iv: contentIv },
       await crypto.subtle.importKey('raw', fileKey, 'AES-GCM', false, ['encrypt']),
       new TextEncoder().encode(jsonString)
     );
 
-    // Create filename and encrypt metadata using HPKE
+    // Create filename - encryption handled by FileEncryptionService
     const fileName = generateDocumentName(updatedFormData);
-    const metadataResult = await hpkeEncryptMetadata(
-      { name: fileName, size: jsonString.length.toString() },
-      fileKey
-    );
 
     // Use the same storage path pattern as regular files
     const storagePath = `files/${userId}/${crypto.randomUUID()}`;
     
     // Combine IV and encrypted content (same format as regular files)
-    const combinedData = new Uint8Array(iv.length + encryptedContent.byteLength);
-    combinedData.set(iv, 0);
-    combinedData.set(new Uint8Array(encryptedContent), iv.length);
+    const combinedData = new Uint8Array(contentIv.length + encryptedContent.byteLength);
+    combinedData.set(contentIv, 0);
+    combinedData.set(new Uint8Array(encryptedContent), contentIv.length);
     
     // Upload encrypted content to storage
     await uploadFileData(storagePath, combinedData);
 
-    // Update file record with new encrypted name and content
+    // Update the user's personalized file name based on the form title
+    const { setUserFileName } = await import('../services/userNamesManagement');
+    await setUserFileName(fileId, fileName.replace('.form', ''), userId, privateKey, existingFile);
+
+    // Update file record with new content path
     // Keep the existing encryptedKeys to preserve sharing permissions
     const updateData = {
-      name: metadataResult.name,
-      size: metadataResult.size,
       storagePath,
       // Don't update encryptedKeys - preserve existing sharing
+      // Metadata (name/size) remains encrypted with existing keys
     };
 
     await updateFile(fileId, updateData);
@@ -333,9 +324,9 @@ export async function saveFormAsFile(
     console.log('Has legacyEncryptedPrivateKey:', !!userProfile.legacyEncryptedPrivateKey);
     console.log('========================');
     
-    // HPKE expects 32-byte X25519 public keys
-    if (publicKeyBytes.length !== 32) {
-      throw new Error(`Invalid HPKE public key length: expected 32 bytes, got ${publicKeyBytes.length} bytes. Please regenerate your keys from the Profile page.`);
+    // ML-KEM-768 expects 1184-byte public keys
+    if (publicKeyBytes.length !== 1184) {
+      throw new Error(`Invalid ML-KEM-768 public key length: expected 1184 bytes, got ${publicKeyBytes.length} bytes. Please regenerate your keys from the Profile page.`);
     }
 
     // Update timestamp
@@ -351,88 +342,43 @@ export async function saveFormAsFile(
     const jsonString = JSON.stringify(updatedFormData, null, 2);
     console.log('JSON content created, length:', jsonString.length);
     
-    // Generate a file key for AES encryption (same approach as FileUploadArea)
-    const fileKey = crypto.getRandomValues(new Uint8Array(32));
-    console.log('Generated file key for encryption');
-    
-    // Encrypt file content with AES-GCM
+    // Convert JSON to bytes for encryption
     const content = new TextEncoder().encode(jsonString);
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const aesKey = await crypto.subtle.importKey('raw', fileKey, { name: 'AES-GCM' }, false, ['encrypt']);
-    const encryptedFileContent = await crypto.subtle.encrypt(
-      { name: 'AES-GCM', iv },
-      aesKey,
-      content
-    );
     
-    // Combine IV and encrypted content
-    const encryptedContent = new Uint8Array(12 + encryptedFileContent.byteLength);
-    encryptedContent.set(iv, 0);
-    encryptedContent.set(new Uint8Array(encryptedFileContent), 12);
-    console.log('Content encrypted with AES-GCM successfully');
-    
-    // Encrypt the file key using HPKE
-    const publicKey = hexToBytes(userProfile.publicKey);
-    console.log('=== HPKE ENCRYPTION DEBUG ===');
-    console.log('About to encrypt file key with HPKE...');
-    console.log('File key length:', fileKey.length);
-    console.log('Public key length:', publicKey.length);
-    console.log('Public key bytes:', Array.from(publicKey.slice(0, 8)).map(b => b.toString(16).padStart(2, '0')).join(' ') + '...');
-    
-    let encryptedKeyResult;
-    try {
-      encryptedKeyResult = await encryptData(fileKey, publicKey);
-      console.log('HPKE encryption successful!');
-      console.log('Encapsulated key length:', encryptedKeyResult.encapsulatedKey.length);
-      console.log('Ciphertext length:', encryptedKeyResult.ciphertext.length);
-    } catch (hpkeError) {
-      console.error('=== HPKE ENCRYPTION FAILED ===');
-      console.error('HPKE Error:', hpkeError);
-      console.error('Error message:', hpkeError instanceof Error ? hpkeError.message : String(hpkeError));
-      console.error('Error stack:', hpkeError instanceof Error ? hpkeError.stack : 'No stack');
-      console.error('==============================');
-      throw new Error(`HPKE encryption failed: ${hpkeError instanceof Error ? hpkeError.message : String(hpkeError)}`);
-    }
-    
-    // Store as: encapsulated_key + ciphertext
-    const keyData = new Uint8Array(encryptedKeyResult.encapsulatedKey.length + encryptedKeyResult.ciphertext.length);
-    keyData.set(encryptedKeyResult.encapsulatedKey, 0);
-    keyData.set(encryptedKeyResult.ciphertext, encryptedKeyResult.encapsulatedKey.length);
-    
-    const encryptedKeys = {
-      [userId]: bytesToHex(keyData)
-    };
-    console.log('File key encrypted with HPKE successfully');
-    
-    // Encrypt metadata with the same file key  
     // Use titleField from template to generate document name
     const fileName = generateDocumentName(updatedFormData);
-    const encryptedMetadata = await hpkeEncryptMetadata(
-      { name: fileName, size: jsonString.length.toString() },
-      fileKey
+    
+    // Use the centralized encryption service
+    console.log('Encrypting form with FileEncryptionService...');
+    const encryptionResult = await FileEncryptionService.encryptFileForUsers(
+      content,
+      fileName,
+      jsonString.length,
+      [userId], // Only current user initially
+      userId,
+      parentFolder
     );
-    console.log('Metadata encrypted successfully');
-
-    // Use the same storage path pattern as regular files
-    const storagePath = `files/${userId}/${crypto.randomUUID()}`;
-    console.log('Storage path generated:', storagePath);
+    console.log('Form encrypted successfully');
+    
+    console.log('FileEncryptionService completed all encryption tasks');
     
     // Upload encrypted content to storage
     console.log('Uploading file data to storage...');
-    await uploadFileData(storagePath, encryptedContent);
+    await uploadFileData(encryptionResult.storagePath, encryptionResult.encryptedContent);
     console.log('File data uploaded successfully');
 
-    // Create file record using existing file sharing system with encrypted metadata
+    // Create file record using existing file sharing system
     console.log('Creating file record in database...');
-    const fileId = await createFileWithSharing({
-      owner: userId,
-      name: encryptedMetadata.name,
-      parent: parentFolder,
-      size: encryptedMetadata.size,
-      storagePath,
-      encryptedKeys: encryptedKeys,
-      sharedWith: [userId],
-    });
+    const fileRecord = await FileEncryptionService.createFileRecord(
+      userId,
+      encryptionResult.encryptedMetadata,
+      encryptionResult.storagePath,
+      encryptionResult.encryptedKeys,
+      [userId], // Only current user initially
+      parentFolder
+    );
+    
+    const fileId = await createFileWithSharing(fileRecord);
     console.log('File record created successfully, fileId:', fileId);
 
     return fileId;
