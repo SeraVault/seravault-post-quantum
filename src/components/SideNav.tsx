@@ -87,6 +87,14 @@ const SideNav: React.FC<SideNavProps> = ({
   // Root folder drop zone state
   const [isRootDropZone, setIsRootDropZone] = React.useState(false);
 
+  // Handle folder clicks - reset all view states and set folder
+  const handleFolderClick = (folderId: string | null) => {
+    setCurrentFolder(folderId);
+    setIsRecentsView(false);
+    setIsFavoritesView(false);
+    setIsSharedView(false);
+  };
+
   // Handle moving items (files or folders) to different folders
   const handleMoveItem = async (itemId: string, itemType: 'file' | 'folder', targetFolderId: string | null) => {
     try {
@@ -358,7 +366,7 @@ const SideNav: React.FC<SideNavProps> = ({
         <Box sx={{ ml: 1 }}>
           <FolderTree 
             folders={allFolders} 
-            onFolderClick={setCurrentFolder}
+            onFolderClick={handleFolderClick}
             onMoveItem={handleMoveItem}
           />
         </Box>
