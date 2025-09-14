@@ -2,6 +2,7 @@ import { collection, addDoc, serverTimestamp, doc, updateDoc, FieldValue, delete
 import { deleteObject, ref } from 'firebase/storage';
 import { db, storage } from './firebase';
 import { getFolderSharingPermissions } from './firestore';
+import { invalidateStorageUsage } from './services/simpleStorageUsage';
 
 export interface FileData {
   id?: string;
@@ -27,6 +28,9 @@ export const createFile = async (fileData: Omit<FileData, 'createdAt'>) => {
     createdAt: serverTimestamp(),
   };
   await addDoc(collection(db, 'files'), newFile);
+  
+  // Invalidate storage usage cache for the file owner
+  invalidateStorageUsage(fileData.owner);
 };
 
 export const updateFile = async (fileId: string, data: Partial<FileData>) => {
@@ -43,10 +47,13 @@ export const deleteFile = async (fileId: string) => {
   try {
     const docRef = doc(db, 'files', fileId);
     
-    // First get the file document to retrieve the storage path
+    // First get the file document to retrieve the storage path and owner
     const fileDoc = await getDoc(docRef);
+    let fileOwner: string | undefined;
+    
     if (fileDoc.exists()) {
       const fileData = fileDoc.data() as FileData;
+      fileOwner = fileData.owner;
       
       // Delete from Firebase Storage if storage path exists
       if (fileData.storagePath) {
@@ -62,6 +69,11 @@ export const deleteFile = async (fileId: string) => {
     
     // Delete the Firestore document
     await deleteDoc(docRef);
+    
+    // Invalidate storage usage cache for the file owner
+    if (fileOwner) {
+      invalidateStorageUsage(fileOwner);
+    }
     
   } catch (error) {
     console.error(`Error deleting file ${fileId}:`, error);
@@ -119,6 +131,10 @@ export const createFileWithSharing = async (fileData: Omit<FileData, 'createdAt'
     };
     
     const docRef = await addDoc(collection(db, 'files'), newFile);
+    
+    // Invalidate storage usage cache for the file owner
+    invalidateStorageUsage(fileData.owner);
+    
     return docRef.id;
   } catch (error) {
     console.error('Error creating file with sharing:', error);

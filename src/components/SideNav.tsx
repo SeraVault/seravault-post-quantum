@@ -32,6 +32,7 @@ import FolderTree from './FolderTree';
 import TagFilter from './TagFilter';
 import { useFolders } from '../hooks/useFolders';
 import { useRecents } from '../context/RecentsContext';
+import { useSimpleStorageUsage } from '../hooks/useSimpleStorageUsage';
 import { updateFolder } from '../firestore';
 import { updateFile } from '../files';
 
@@ -79,6 +80,9 @@ const SideNav: React.FC<SideNavProps> = ({
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { allFolders } = useFolders();
   const { isRecentsView, setIsRecentsView, isFavoritesView, setIsFavoritesView, isSharedView, setIsSharedView } = useRecents();
+  
+  // Storage usage
+  const { usage: storageUsage, loading: storageLoading, refresh: refreshStorage } = useSimpleStorageUsage();
   
   // Root folder drop zone state
   const [isRootDropZone, setIsRootDropZone] = React.useState(false);
@@ -449,29 +453,51 @@ const SideNav: React.FC<SideNavProps> = ({
       {/* Storage Info */}
       {(!collapsed || isMobile) && (
         <Box sx={{ px: 2, py: 1, borderTop: 1, borderColor: 'divider' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-            <CloudSync fontSize="small" sx={{ mr: 1, color: 'text.secondary' }} />
-            <Typography variant="caption" color="text.secondary">
-              Storage: 2.1 GB of 15 GB used
-            </Typography>
-          </Box>
-          <Box 
-            sx={{ 
-              height: 4, 
-              backgroundColor: 'grey.300',
-              borderRadius: 2,
-              overflow: 'hidden'
-            }}
-          >
-            <Box 
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 1, cursor: 'pointer' }} onClick={refreshStorage}>
+            <CloudSync 
+              fontSize="small" 
               sx={{ 
-                height: '100%', 
-                width: '14%',
-                backgroundColor: 'primary.main',
-                borderRadius: 2
+                mr: 1, 
+                color: storageLoading ? 'primary.main' : 'text.secondary',
+                animation: storageLoading ? 'spin 1s linear infinite' : 'none',
+                '@keyframes spin': {
+                  '0%': { transform: 'rotate(0deg)' },
+                  '100%': { transform: 'rotate(360deg)' }
+                }
               }} 
             />
+            <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
+              {storageLoading ? (
+                'Calculating...'
+              ) : storageUsage ? (
+                `Storage: ${storageUsage.usedFormatted} of ${storageUsage.totalFormatted} used`
+              ) : (
+                'Storage: Click to calculate'
+              )}
+            </Typography>
           </Box>
+          {storageUsage && !storageLoading && (
+            <Box 
+              sx={{ 
+                height: 4, 
+                backgroundColor: 'grey.300',
+                borderRadius: 2,
+                overflow: 'hidden'
+              }}
+            >
+              <Box 
+                sx={{ 
+                  height: '100%', 
+                  width: `${storageUsage.percentage}%`,
+                  backgroundColor: storageUsage.percentage > 80 ? 'error.main' : 
+                                  storageUsage.percentage > 60 ? 'warning.main' : 
+                                  'primary.main',
+                  borderRadius: 2,
+                  transition: 'width 0.3s ease-in-out'
+                }} 
+              />
+            </Box>
+          )}
         </Box>
       )}
     </Box>

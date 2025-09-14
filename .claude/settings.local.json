@@ -44,7 +44,9 @@
       "Bash(xargs kill:*)",
       "Bash(ulimit:*)",
       "Bash(VITE_FORCE_OPTIMIZE_DEPS=true npm run dev)",
-      "Bash(npm start)"
+      "Bash(npm start)",
+      "WebFetch(domain:seravault.com)",
+      "Bash(convert:*)"
     ],
     "deny": []
   }
