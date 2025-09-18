@@ -43,6 +43,68 @@ export const updateFile = async (fileId: string, data: Partial<FileData>) => {
   }
 };
 
+/**
+ * Update a file and optionally send modification notifications to shared users
+ */
+export const updateFileWithNotifications = async (
+  fileId: string, 
+  data: Partial<FileData>,
+  currentUserId?: string,
+  isContentModification = false
+) => {
+  try {
+    // Update the file first
+    await updateFile(fileId, data);
+    
+    // Send notifications if this is a content modification and we have current user info
+    if (isContentModification && currentUserId) {
+      try {
+        // Get the current file data to find shared users
+        const { getDoc, doc: docRef } = await import('firebase/firestore');
+        const fileDoc = await getDoc(docRef(db, 'files', fileId));
+        
+        if (fileDoc.exists()) {
+          const fileData = { id: fileDoc.id, ...fileDoc.data() } as FileData;
+          
+          // Only notify if the file is shared with others
+          if (fileData.sharedWith && fileData.sharedWith.length > 1) {
+            const { NotificationService } = await import('./services/notificationService');
+            const { getUserProfile } = await import('./firestore');
+            
+            // Get sender display name
+            const senderProfile = await getUserProfile(currentUserId);
+            const senderDisplayName = senderProfile?.displayName || 'Someone';
+            
+            // Get file name for notification
+            let fileName = '[Encrypted File]';
+            if (typeof fileData.name === 'string') {
+              fileName = fileData.name;
+            } else if (typeof fileData.name === 'object') {
+              // For modifications, we can't easily decrypt the name without the user's private key
+              // Use a generic name for now - this could be improved by passing the decrypted name
+              fileName = 'Shared file';
+            }
+            
+            await NotificationService.notifyFileModified(
+              fileId,
+              fileName,
+              currentUserId,
+              senderDisplayName,
+              fileData.sharedWith
+            );
+          }
+        }
+      } catch (notificationError) {
+        console.error('Failed to send file modification notifications:', notificationError);
+        // Don't fail the entire operation if notification fails
+      }
+    }
+  } catch (error) {
+    console.error('Error updating file with notifications:', error);
+    throw error;
+  }
+};
+
 export const deleteFile = async (fileId: string) => {
   try {
     const docRef = doc(db, 'files', fileId);

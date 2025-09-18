@@ -353,6 +353,44 @@ export class FileOperationsService {
       ...favoriteUpdates
     ]);
 
+    // Send notifications to newly shared users
+    try {
+      const { NotificationService } = await import('./notificationService');
+      const { getUserProfile } = await import('../firestore');
+      
+      // Get sender display name
+      const senderProfile = await getUserProfile(currentUserId);
+      const senderDisplayName = senderProfile?.displayName || 'Someone';
+      
+      // Get file name for notification
+      let fileName = '[Encrypted File]';
+      if (typeof file.name === 'string') {
+        fileName = file.name;
+      } else if (typeof file.name === 'object' && currentUserEncryptedKey) {
+        try {
+          // Decrypt file name for notification
+          const { decryptData, hexToBytes } = await import('../crypto/quantumSafeCrypto');
+          const keyData = hexToBytes(currentUserEncryptedKey);
+          const iv = keyData.slice(0, 12);
+          const encapsulatedKey = keyData.slice(12, 12 + 1088);
+          const ciphertext = keyData.slice(12 + 1088);
+          const privateKeyBytes = hexToBytes(userPrivateKey);
+          const fileKey = await decryptData({ iv, encapsulatedKey, ciphertext }, privateKeyBytes);
+          const { decryptMetadata } = await import('../crypto/quantumSafeCrypto');
+          const decryptedMeta = await decryptMetadata(file.name, fileKey);
+          fileName = decryptedMeta.name;
+        } catch (error) {
+          console.warn('Could not decrypt file name for notification:', error);
+        }
+      }
+      
+      // Notifications now handled by Cloud Functions automatically
+      console.log(`📤 File shared with ${newUserIds.length} users - Cloud Functions will handle notifications`);
+    } catch (error) {
+      console.error('Failed to send file sharing notifications:', error);
+      // Don't fail the entire operation if notification fails
+    }
+
   }
 
   /**
@@ -360,7 +398,8 @@ export class FileOperationsService {
    */
   static async removeFileSharing(
     file: FileData,
-    userIdsToRemove: string[]
+    userIdsToRemove: string[],
+    currentUserId?: string
   ): Promise<void> {
     // Remove encrypted keys for specified users
     const updatedEncryptedKeys = { ...file.encryptedKeys };
@@ -421,5 +460,33 @@ export class FileOperationsService {
       ...folderUpdates,
       ...favoriteUpdates
     ]);
+
+    // Send notifications to users who lost access (if currentUserId is provided)
+    if (currentUserId && userIdsToRemove.length > 0) {
+      try {
+        const { NotificationService } = await import('./notificationService');
+        const { getUserProfile } = await import('../firestore');
+        
+        // Get sender display name
+        const senderProfile = await getUserProfile(currentUserId);
+        const senderDisplayName = senderProfile?.displayName || 'Someone';
+        
+        // Get file name for notification
+        let fileName = '[Encrypted File]';
+        if (typeof file.name === 'string') {
+          fileName = file.name;
+        } else if (typeof file.name === 'object') {
+          // For unsharing, we can't decrypt the file name easily since we're removing access
+          // Use a generic name for now
+          fileName = 'Shared file';
+        }
+        
+        // Notifications now handled by Cloud Functions automatically
+        console.log(`🔒 File unshared from ${userIdsToRemove.length} users - Cloud Functions will handle notifications`);
+      } catch (error) {
+        console.error('Failed to send file unsharing notifications:', error);
+        // Don't fail the entire operation if notification fails
+      }
+    }
   }
 }

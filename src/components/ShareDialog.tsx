@@ -25,7 +25,10 @@ import {
   RemoveCircleOutline,
 } from '@mui/icons-material';
 import { useAuth } from '../auth/AuthContext';
+import { usePassphrase } from '../auth/PassphraseContext';
 import { type Group, getUserGroups, getUserProfile } from '../firestore';
+import { ContactService, type Contact } from '../services/contactService';
+import { hexToBytes } from '../crypto/quantumSafeCrypto';
 import GroupManagement from './GroupManagement';
 
 interface ShareDialogProps {
@@ -69,8 +72,9 @@ const ShareDialog: React.FC<ShareDialogProps> = ({
   currentSharedWith = []
 }) => {
   const { user } = useAuth();
+  const { privateKey } = usePassphrase();
   const [tabValue, setTabValue] = useState(0);
-  const [emailInput, setEmailInput] = useState('');
+  const [contacts, setContacts] = useState<Contact[]>([]);
   const [selectedRecipients, setSelectedRecipients] = useState<string[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
@@ -82,7 +86,7 @@ const ShareDialog: React.FC<ShareDialogProps> = ({
     if (user && open) {
       loadData();
     }
-  }, [user, open, currentSharedWith]);
+  }, [user, open, currentSharedWith, privateKey]);
 
   const loadData = async () => {
     if (!user) return;
@@ -93,8 +97,18 @@ const ShareDialog: React.FC<ShareDialogProps> = ({
     });
     
     try {
-      const userGroups = await getUserGroups(user.uid);
+      // Convert private key string to Uint8Array if available
+      const privateKeyBytes = privateKey ? hexToBytes(privateKey) : undefined;
+      
+      // Load contacts and groups in parallel
+      const [userContacts, userGroups] = await Promise.all([
+        ContactService.getUserContacts(user.uid),
+        getUserGroups(user.uid, privateKeyBytes)
+      ]);
+      
+      setContacts(userContacts);
       setGroups(userGroups);
+      console.log('👥 Contacts loaded:', userContacts.length);
       console.log('📋 Groups loaded:', userGroups.length);
       
       // Load current share information
@@ -136,30 +150,39 @@ const ShareDialog: React.FC<ShareDialogProps> = ({
     }
   };
 
-  const handleAddEmail = () => {
-    const email = emailInput.trim();
-    
-    // Basic email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    
-    if (!email) {
-      return; // Empty input
-    }
-    
-    if (!emailRegex.test(email)) {
-      return;
-    }
-    
-    if (selectedRecipients.includes(email)) {
-      return;
-    }
-    
-    setSelectedRecipients([...selectedRecipients, email]);
-    setEmailInput('');
+  const getContactDisplayInfo = (contact: Contact, currentUserId: string) => {
+    const isUser1 = contact.userId1 === currentUserId;
+    return {
+      name: isUser1 ? contact.user2DisplayName : contact.user1DisplayName,
+      email: isUser1 ? contact.user2Email : contact.user1Email,
+      userId: isUser1 ? contact.userId2 : contact.userId1,
+    };
   };
 
-  const handleRemoveRecipient = (email: string) => {
-    setSelectedRecipients(selectedRecipients.filter(r => r !== email));
+  const getMemberDisplayNames = (memberIds: string[]) => {
+    if (!user) return [];
+    return memberIds.map(memberId => {
+      const contact = contacts.find(c => 
+        (c.userId1 === user.uid && c.userId2 === memberId) ||
+        (c.userId2 === user.uid && c.userId1 === memberId)
+      );
+      if (contact) {
+        return getContactDisplayInfo(contact, user.uid).name;
+      }
+      return 'Unknown User';
+    });
+  };
+
+  const handleContactToggle = (contactUserId: string) => {
+    setSelectedRecipients(prev => 
+      prev.includes(contactUserId)
+        ? prev.filter(id => id !== contactUserId)
+        : [...prev, contactUserId]
+    );
+  };
+
+  const handleRemoveRecipient = (userId: string) => {
+    setSelectedRecipients(selectedRecipients.filter(r => r !== userId));
   };
 
   const handleGroupToggle = (groupId: string) => {
@@ -221,16 +244,8 @@ const ShareDialog: React.FC<ShareDialogProps> = ({
     setSelectedRecipients([]);
     setSelectedGroups([]);
     setSelectedToUnshare([]);
-    setEmailInput('');
     setTabValue(0);
     onClose();
-  };
-
-  const handleKeyPress = (event: React.KeyboardEvent) => {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      handleAddEmail();
-    }
   };
 
 
@@ -259,33 +274,68 @@ const ShareDialog: React.FC<ShareDialogProps> = ({
           </Box>
 
           <TabPanel value={tabValue} index={0}>
-            <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-              <TextField
-                size="small"
-                label="Email address"
-                value={emailInput}
-                onChange={(e) => setEmailInput(e.target.value)}
-                onKeyPress={handleKeyPress}
-                variant="outlined"
-                fullWidth
-                placeholder="user@example.com"
-              />
-              <Button onClick={handleAddEmail} variant="outlined">
-                Add
-              </Button>
-            </Box>
+            {contacts.length === 0 ? (
+              <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
+                No contacts yet. Add contacts to share files with them.
+              </Typography>
+            ) : (
+              <>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Select contacts to share with
+                </Typography>
+                <List dense sx={{ maxHeight: 300, overflow: 'auto' }}>
+                  {contacts.map((contact) => {
+                    const { name, email, userId } = getContactDisplayInfo(contact, user!.uid);
+                    return (
+                      <ListItem 
+                        key={contact.id} 
+                        dense 
+                        onClick={() => handleContactToggle(userId)}
+                        sx={{ cursor: 'pointer', '&:hover': { backgroundColor: 'action.hover' } }}
+                      >
+                        <ListItemIcon>
+                          <Checkbox
+                            edge="start"
+                            checked={selectedRecipients.includes(userId)}
+                            onChange={() => handleContactToggle(userId)}
+                            tabIndex={-1}
+                            disableRipple
+                          />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary={name}
+                          secondary={email}
+                        />
+                      </ListItem>
+                    );
+                  })}
+                </List>
+              </>
+            )}
 
             {selectedRecipients.length > 0 && (
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
-                {selectedRecipients.map((email) => (
-                  <Chip
-                    key={email}
-                    label={email}
-                    onDelete={() => handleRemoveRecipient(email)}
-                    size="small"
-                    icon={<Person />}
-                  />
-                ))}
+              <Box sx={{ mt: 2 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  Selected contacts ({selectedRecipients.length}):
+                </Typography>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                  {selectedRecipients.map((userId) => {
+                    const contact = contacts.find(c => 
+                      getContactDisplayInfo(c, user!.uid).userId === userId
+                    );
+                    if (!contact) return null;
+                    const { name } = getContactDisplayInfo(contact, user!.uid);
+                    return (
+                      <Chip
+                        key={userId}
+                        label={name}
+                        onDelete={() => handleRemoveRecipient(userId)}
+                        size="small"
+                        icon={<Person />}
+                      />
+                    );
+                  })}
+                </Box>
               </Box>
             )}
           </TabPanel>
@@ -328,7 +378,7 @@ const ShareDialog: React.FC<ShareDialogProps> = ({
                     </ListItemIcon>
                     <ListItemText
                       primary={group.name}
-                      secondary={`${group.members.length} member${group.members.length !== 1 ? 's' : ''}: ${group.members.join(', ')}`}
+                      secondary={`${Array.isArray(group.members) ? group.members.length : 0} member${(Array.isArray(group.members) ? group.members.length : 0) !== 1 ? 's' : ''}: ${Array.isArray(group.members) ? getMemberDisplayNames(group.members).join(', ') : 'No members'}`}
                     />
                   </ListItem>
                 ))}

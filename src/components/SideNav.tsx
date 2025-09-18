@@ -13,7 +13,7 @@ import {
   ListItemIcon,
   IconButton,
 } from '@mui/material';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   Home,
   Share,
@@ -25,7 +25,8 @@ import {
   Assignment,
   Info,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  People
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import FolderTree from './FolderTree';
@@ -76,6 +77,7 @@ const SideNav: React.FC<SideNavProps> = ({
   onMatchModeChange,
 }) => {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { allFolders } = useFolders();
@@ -89,6 +91,11 @@ const SideNav: React.FC<SideNavProps> = ({
 
   // Handle folder clicks - reset all view states and set folder
   const handleFolderClick = (folderId: string | null) => {
+    // Navigate to HomePage with folder parameter using client-side navigation
+    const folderParam = folderId ? `?folder=${folderId}` : '';
+    navigate(`/${folderParam}`, { replace: false });
+    
+    // Also update local state for when we're already on HomePage
     setCurrentFolder(folderId);
     setIsRecentsView(false);
     setIsFavoritesView(false);
@@ -211,6 +218,7 @@ const SideNav: React.FC<SideNavProps> = ({
       <List dense sx={{ px: 1 }}>
         <ListItemButton 
           onClick={() => {
+            navigate('/');
             setCurrentFolder(null);
             setIsRecentsView(false);
             setIsFavoritesView(false);
@@ -241,6 +249,7 @@ const SideNav: React.FC<SideNavProps> = ({
         
         <ListItemButton
           onClick={() => {
+            navigate('/?view=favorites');
             setCurrentFolder(null);
             setIsRecentsView(false);
             setIsFavoritesView(true);
@@ -267,6 +276,7 @@ const SideNav: React.FC<SideNavProps> = ({
         
         <ListItemButton
           onClick={() => {
+            navigate('/?view=recents');
             setCurrentFolder(null);
             setIsRecentsView(true);
             setIsFavoritesView(false);
@@ -338,7 +348,10 @@ const SideNav: React.FC<SideNavProps> = ({
       
       <List dense sx={{ px: 1, flexGrow: 1 }}>
         <ListItemButton 
-          onClick={() => setCurrentFolder(null)}
+          onClick={() => {
+            navigate('/');
+            setCurrentFolder(null);
+          }}
           onDragOver={handleRootDragOver}
           onDragLeave={handleRootDragLeave}
           onDrop={handleRootDrop}
@@ -373,6 +386,7 @@ const SideNav: React.FC<SideNavProps> = ({
         
         <ListItemButton
           onClick={() => {
+            navigate('/?view=shared');
             setCurrentFolder(null);
             setIsRecentsView(false);
             setIsFavoritesView(false);
@@ -395,6 +409,31 @@ const SideNav: React.FC<SideNavProps> = ({
             primary={t('navigation.shared')} 
             primaryTypographyProps={{ fontSize: '14px' }}
           />
+        </ListItemButton>
+        
+        <ListItemButton
+          component={Link}
+          to="/contacts"
+          sx={{
+            borderRadius: 1,
+            mx: 1,
+            mb: 0.5,
+            justifyContent: collapsed && !isMobile ? 'center' : 'flex-start',
+            '&:hover': {
+              backgroundColor: 'action.hover',
+            }
+          }}
+          title={collapsed && !isMobile ? t('navigation.contacts', 'Contacts') : undefined}
+        >
+          <ListItemIcon sx={{ minWidth: collapsed && !isMobile ? 'auto' : 32 }}>
+            <People fontSize="small" />
+          </ListItemIcon>
+          {(!collapsed || isMobile) && (
+            <ListItemText 
+              primary={t('navigation.contacts', 'Contacts')} 
+              primaryTypographyProps={{ fontSize: '14px' }}
+            />
+          )}
         </ListItemButton>
         
         <ListItemButton

@@ -33,7 +33,6 @@ function formatBytes(bytes: number): string {
  */
 export async function calculateStorageUsage(userId: string): Promise<StorageUsage> {
   try {
-    console.log(`📊 Calculating storage for user ${userId}...`);
     
     // Query only files owned by this user
     const filesQuery = query(
@@ -46,14 +45,12 @@ export async function calculateStorageUsage(userId: string): Promise<StorageUsag
     let processedFiles = 0;
     let failedFiles = 0;
     
-    console.log(`📊 Found ${filesSnapshot.docs.length} owned files`);
     
     // Process each file owned by the user
     for (const fileDoc of filesSnapshot.docs) {
       const fileData = fileDoc.data();
       
       if (!fileData.storagePath) {
-        console.warn(`⚠️ File ${fileDoc.id} has no storagePath`);
         continue;
       }
       
@@ -66,10 +63,8 @@ export async function calculateStorageUsage(userId: string): Promise<StorageUsag
         totalUsedBytes += fileSize;
         processedFiles++;
         
-        console.log(`📄 File ${fileDoc.id}: ${formatBytes(fileSize)} (${fileData.storagePath})`);
         
       } catch (error) {
-        console.warn(`⚠️ Failed to get size for file ${fileDoc.id} at ${fileData.storagePath}:`, error);
         failedFiles++;
         // Continue processing other files
       }
@@ -85,13 +80,10 @@ export async function calculateStorageUsage(userId: string): Promise<StorageUsag
       percentage: Math.min(percentage, 100), // Cap at 100%
     };
     
-    console.log(`✅ Storage calculation complete: ${usage.usedFormatted} of ${usage.totalFormatted} used (${usage.percentage}%)`);
-    console.log(`📊 Processed: ${processedFiles} files, Failed: ${failedFiles} files`);
     
     return usage;
     
   } catch (error) {
-    console.error('❌ Error calculating storage usage:', error);
     
     // Return default values on error
     return {
@@ -121,17 +113,14 @@ export async function getStorageUsage(
       if (cached) {
         const { data, timestamp } = JSON.parse(cached);
         if (Date.now() - timestamp < cacheTimeout) {
-          console.log('📊 Using cached storage usage data');
           return data;
         }
       }
     } catch (error) {
-      console.warn('⚠️ Error reading cached storage usage:', error);
     }
   }
   
   // Calculate fresh usage
-  console.log('📊 Calculating fresh storage usage...');
   const usage = await calculateStorageUsage(userId);
   
   // Cache the result
@@ -141,7 +130,6 @@ export async function getStorageUsage(
       timestamp: Date.now(),
     }));
   } catch (error) {
-    console.warn('⚠️ Error caching storage usage:', error);
   }
   
   return usage;
@@ -153,7 +141,6 @@ export async function getStorageUsage(
 export function clearStorageUsageCache(userId: string): void {
   const cacheKey = `simple_storage_usage_${userId}`;
   localStorage.removeItem(cacheKey);
-  console.log('🗑️ Cleared storage usage cache');
 }
 
 /**
@@ -168,5 +155,4 @@ export function invalidateStorageUsage(userId: string): void {
     detail: { userId }
   }));
   
-  console.log('📊 Storage usage invalidated for user:', userId);
 }

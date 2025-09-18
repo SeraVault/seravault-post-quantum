@@ -36,6 +36,7 @@ import { useFolders } from '../hooks/useFolders';
 import { 
   createFolder, 
   getUserProfile, 
+  getUserPublicProfile,
   getUserByEmail, 
   updateFolder, 
   deleteFolder, 
@@ -750,29 +751,49 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
     let errorCount = 0;
 
     try {
-      // Process recipients to validate and convert emails to user IDs (same logic as handleShareFile)
+      // Process recipients to validate and convert email/userID to user IDs (same logic as handleShareFile)
       const recipientUserIds: string[] = [];
 
-      for (const email of recipients) {
+      for (const recipient of recipients) {
         try {
-          console.log(`🔍 Looking up user by email: ${email}`);
-          const recipient = await getUserByEmail(email);
+          let userProfile;
+          let userId;
           
-          if (!recipient) {
-            console.warn(`❌ User ${email} not found in database`);
+          // Check if recipient looks like a user ID (not an email)
+          const isUserId = !recipient.includes('@');
+          
+          if (isUserId) {
+            console.log(`🔍 Looking up user by ID: ${recipient}`);
+            userProfile = await getUserPublicProfile(recipient);
+            userId = recipient;
+            
+            if (!userProfile) {
+              console.warn(`❌ User ${recipient} not found in database`);
+              continue;
+            }
+            console.log(`✅ Found user ${recipient} with profile:`, userProfile.displayName);
+          } else {
+            console.log(`🔍 Looking up user by email: ${recipient}`);
+            const userWithProfile = await getUserByEmail(recipient);
+            
+            if (!userWithProfile) {
+              console.warn(`❌ User ${recipient} not found in database`);
+              continue;
+            }
+            
+            userProfile = userWithProfile.profile;
+            userId = userWithProfile.id;
+            console.log(`✅ Found user ${recipient} with ID: ${userId}`);
+          }
+          
+          if (!userProfile.publicKey) {
+            console.warn(`User ${recipient} does not have a public key`);
             continue;
           }
 
-          console.log(`✅ Found user ${email} with ID: ${recipient.id}`);
-          
-          if (!recipient.profile.publicKey) {
-            console.warn(`User ${email} does not have a public key`);
-            continue;
-          }
-
-          recipientUserIds.push(recipient.id);
+          recipientUserIds.push(userId);
         } catch (error) {
-          console.error(`Error processing recipient ${email}:`, error);
+          console.error(`Error processing recipient ${recipient}:`, error);
         }
       }
 
@@ -1516,18 +1537,12 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
     }
 
     try {
-      // Remove users from sharedWith array and remove their encrypted keys
-      const updates: any = {
-        sharedWith: fileToShare.sharedWith.filter(userId => !userIdsToUnshare.includes(userId)),
-        lastModified: new Date().toISOString(),
-      };
-
-      // Remove encrypted keys for unshared users
-      userIdsToUnshare.forEach(userId => {
-        updates[`encryptedKeys.${userId}`] = deleteField();
-      });
-
-      await updateFile(fileToShare.id!, updates);
+      // Use the FileOperationsService for proper unsharing with notifications
+      await FileOperationsService.removeFileSharing(
+        fileToShare,
+        userIdsToUnshare,
+        user.uid // Pass current user ID for notifications
+      );
 
       setShareDialogOpen(false);
       
@@ -1545,34 +1560,54 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
     try {
       const recipientUserIds: string[] = [];
 
-      // Process each recipient to validate and convert email to user ID
-      for (const email of recipients) {
+      // Process each recipient to validate and convert email/userID to user ID
+      for (const recipient of recipients) {
         try {
-          console.log(`🔍 Looking up user by email: ${email}`);
-          const recipient = await getUserByEmail(email);
+          let userProfile;
+          let userId;
           
-          if (!recipient) {
-            console.warn(`❌ User ${email} not found in database`);
-            continue;
+          // Check if recipient looks like a user ID (not an email)
+          const isUserId = !recipient.includes('@');
+          
+          if (isUserId) {
+            console.log(`🔍 Looking up user by ID: ${recipient}`);
+            userProfile = await getUserPublicProfile(recipient);
+            userId = recipient;
+            
+            if (!userProfile) {
+              console.warn(`❌ User ${recipient} not found in database`);
+              continue;
+            }
+            console.log(`✅ Found user ${recipient} with profile:`, userProfile.displayName);
+          } else {
+            console.log(`🔍 Looking up user by email: ${recipient}`);
+            const userWithProfile = await getUserByEmail(recipient);
+            
+            if (!userWithProfile) {
+              console.warn(`❌ User ${recipient} not found in database`);
+              continue;
+            }
+            
+            userProfile = userWithProfile.profile;
+            userId = userWithProfile.id;
+            console.log(`✅ Found user ${recipient} with ID: ${userId}`);
           }
-
-          console.log(`✅ Found user ${email} with ID: ${recipient.id}`);
           
-          if (!recipient.profile.publicKey) {
-            console.warn(`User ${email} does not have a public key`);
+          if (!userProfile.publicKey) {
+            console.warn(`User ${recipient} does not have a public key`);
             continue;
           }
 
           // Skip if already shared with this user
-          if (fileToShare.sharedWith.includes(recipient.id)) {
-            console.log(`File already shared with ${email}`);
+          if (fileToShare.sharedWith.includes(userId)) {
+            console.log(`File already shared with ${recipient}`);
             continue;
           }
 
-          recipientUserIds.push(recipient.id);
+          recipientUserIds.push(userId);
 
         } catch (error) {
-          console.error(`Error processing recipient ${email}:`, error);
+          console.error(`Error processing recipient ${recipient}:`, error);
         }
       }
 

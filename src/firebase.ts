@@ -32,14 +32,18 @@ export const storage = getStorage(app);
 export const messaging = getMessaging(app);
 export const functions = getFunctions(app);
 
-// Connect to Firebase Functions emulator if running locally
+// Connect to Firebase Functions emulator if running locally AND emulator is available
 if (import.meta.env.DEV) {
+  // For now, use production Cloud Functions directly
+  // Uncomment below to use local emulator when it's running:
+  /*
   try {
     connectFunctionsEmulator(functions, "localhost", 5001);
   } catch (error) {
-    // Emulator connection might fail if already connected or not running
-    console.log('Functions emulator connection skipped');
+    console.log('Functions emulator connection skipped - using production functions');
   }
+  */
+  console.log('Using production Cloud Functions in development mode');
 }
 
 console.log('✅ Firebase initialized with offline persistence');

@@ -46,7 +46,21 @@
       "Bash(VITE_FORCE_OPTIMIZE_DEPS=true npm run dev)",
       "Bash(npm start)",
       "WebFetch(domain:seravault.com)",
-      "Bash(convert:*)"
+      "Bash(convert:*)",
+      "Bash(firebase init:*)",
+      "Bash(printf \"TypeScript\\nY\\nY\\n\")",
+      "Bash(firebase functions:log:*)",
+      "Bash(GOOGLE_APPLICATION_CREDENTIALS=./service-account-key.json node test-notifications.js)",
+      "Bash(GOOGLE_APPLICATION_CREDENTIALS=./service-account-key.json node test-notifications.cjs)",
+      "Bash(/dev/null)",
+      "Read(//home/dguedry/WIP/**)",
+      "Bash(curl:*)",
+      "Bash(gcloud functions list:*)",
+      "Bash(gcloud config set:*)",
+      "Bash(gcloud functions add-iam-policy-binding:*)",
+      "Bash(gcloud functions add-invoker-policy-binding:*)",
+      "Bash(firebase functions:delete:*)",
+      "Bash(gcloud functions delete:*)"
     ],
     "deny": []
   }
