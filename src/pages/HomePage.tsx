@@ -26,14 +26,20 @@ const HomePage: React.FC = () => {
     navigate(`/?folder=${folderId || ''}`, { replace: true });
   };
 
-  // Initialize folder from URL parameters
+  // Initialize folder and view from URL parameters
   useEffect(() => {
     const folderParam = searchParams.get('folder');
+    const viewParam = searchParams.get('view');
+    
+    // Handle folder parameter
     if (folderParam && folderParam !== '') {
       setCurrentFolder(folderParam);
     } else {
       setCurrentFolder(null);
     }
+    
+    // Handle view parameter - this will be used by AppLayout/SideNav to set the appropriate view state
+    // The view state is managed in the RecentsContext and will be handled by the SideNav component
   }, [searchParams]);
 
   const handleOpenTemplateDesigner = () => {

@@ -7,6 +7,7 @@ import SecurityStatusIndicator from './SecurityStatusIndicator';
 import LanguageSwitcher from './LanguageSwitcher';
 import ThemeSwitcher from './ThemeSwitcher';
 import UserAvatar from './UserAvatar';
+import NotificationBell from './NotificationBell';
 
 interface TopBarProps {
   handleDrawerToggle: () => void;
@@ -33,6 +34,7 @@ const TopBar: React.FC<TopBarProps> = ({ handleDrawerToggle }) => {
         {user ? (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <SecurityStatusIndicator />
+            <NotificationBell />
             <ThemeSwitcher />
             <LanguageSwitcher />
             <UserAvatar />

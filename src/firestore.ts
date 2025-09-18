@@ -58,6 +58,22 @@ export const getUserProfile = async (uid: string): Promise<UserProfile | null> =
   }
 };
 
+export const getUserPublicProfile = async (uid: string): Promise<{ displayName: string; email: string; publicKey?: string } | null> => {
+  const docRef = doc(db, 'users', uid);
+  const docSnap = await getDoc(docRef);
+  if (docSnap.exists()) {
+    const data = docSnap.data() as UserProfile;
+    // Return only public, non-sensitive fields
+    return {
+      displayName: data.displayName,
+      email: data.email,
+      publicKey: data.publicKey
+    };
+  } else {
+    return null;
+  }
+};
+
 export const getUserByEmail = async (email: string): Promise<{ id: string; profile: UserProfile } | null> => {
   const q = query(collection(db, 'users'), where('email', '==', email));
   const querySnapshot = await getDocs(q);
@@ -559,15 +575,18 @@ export const encryptGroupData = async (
     membersData
   );
   
-  // Encrypt the group key for each member using HPKE
+  // Encrypt the group key for each member using ML-KEM-768
   const memberKeys: { [userId: string]: string } = {};
   
   for (const { userId, publicKey } of memberPublicKeys) {
     const encryptedKey = await encryptData(groupKey, publicKey);
-    // Store as: encapsulated_key + ciphertext
-    const keyData = new Uint8Array(encryptedKey.encapsulatedKey.length + encryptedKey.ciphertext.length);
-    keyData.set(encryptedKey.encapsulatedKey, 0);
-    keyData.set(encryptedKey.ciphertext, encryptedKey.encapsulatedKey.length);
+    // Store as: IV + encapsulated_key + ciphertext (ML-KEM-768 format)
+    const keyData = new Uint8Array(
+      encryptedKey.iv.length + encryptedKey.encapsulatedKey.length + encryptedKey.ciphertext.length
+    );
+    keyData.set(encryptedKey.iv, 0);
+    keyData.set(encryptedKey.encapsulatedKey, encryptedKey.iv.length);
+    keyData.set(encryptedKey.ciphertext, encryptedKey.iv.length + encryptedKey.encapsulatedKey.length);
     memberKeys[userId] = bytesToHex(keyData);
   }
   
@@ -616,11 +635,19 @@ export const decryptGroupForUser = async (
   try {
     const { decryptData } = await import('./crypto/quantumSafeCrypto');
     
-    // Decrypt the group key
+    // Decrypt the group key using ML-KEM-768 format
     const encryptedGroupKey = hexToBytes(group.memberKeys[userId]);
+    
+    // ML-KEM-768 format: IV (12) + encapsulated_key (1088) + ciphertext (variable)
+    if (encryptedGroupKey.length < 12 + 1088) {
+      console.error(`Invalid encrypted group key format. Expected at least ${12 + 1088} bytes, got ${encryptedGroupKey.length} bytes`);
+      throw new Error('Invalid encrypted group key format');
+    }
+    
     const iv = encryptedGroupKey.slice(0, 12);
     const encapsulatedKey = encryptedGroupKey.slice(12, 12 + 1088);
     const ciphertext = encryptedGroupKey.slice(12 + 1088);
+    
     
     const groupKey = await decryptData(
       { iv, encapsulatedKey, ciphertext },

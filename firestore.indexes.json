@@ -39,6 +39,24 @@
         {
           "fieldPath": "sharedWith",
           "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "files",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "sharedWith",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "parent",
+          "order": "ASCENDING"
         }
       ]
     },
@@ -83,59 +101,79 @@
       ]
     },
     {
-      "collectionGroup": "formTemplates",
+      "collectionGroup": "contactRequests",
       "queryScope": "COLLECTION",
       "fields": [
         {
-          "fieldPath": "author",
+          "fieldPath": "status",
           "order": "ASCENDING"
         },
         {
-          "fieldPath": "isPublic",
+          "fieldPath": "toUserId",
           "order": "ASCENDING"
         },
         {
           "fieldPath": "createdAt",
           "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "contactRequests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "fromUserId",
+          "order": "ASCENDING"
         },
         {
-          "fieldPath": "__name__",
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "contacts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "userId1",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
           "order": "ASCENDING"
         }
       ]
     },
     {
-      "collectionGroup": "formTemplates",
+      "collectionGroup": "contacts",
       "queryScope": "COLLECTION",
       "fields": [
         {
-          "fieldPath": "sharedWith",
-          "arrayConfig": "CONTAINS"
+          "fieldPath": "userId2",
+          "order": "ASCENDING"
         },
         {
-          "fieldPath": "createdAt",
-          "order": "DESCENDING"
-        },
-        {
-          "fieldPath": "__name__",
+          "fieldPath": "status",
           "order": "ASCENDING"
         }
       ]
     },
     {
-      "collectionGroup": "formTemplates",
+      "collectionGroup": "userInvitations",
       "queryScope": "COLLECTION",
       "fields": [
         {
-          "fieldPath": "isPublic",
+          "fieldPath": "fromUserId",
           "order": "ASCENDING"
         },
         {
-          "fieldPath": "createdAt",
-          "order": "DESCENDING"
+          "fieldPath": "toEmail",
+          "order": "ASCENDING"
         },
         {
-          "fieldPath": "__name__",
+          "fieldPath": "status",
           "order": "ASCENDING"
         }
       ]

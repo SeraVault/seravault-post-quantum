@@ -15,6 +15,11 @@ import {
   Typography,
   Chip,
   Divider,
+  Checkbox,
+  ListItemAvatar,
+  Avatar,
+  Paper,
+  Alert,
 } from '@mui/material';
 import {
   Add,
@@ -22,11 +27,13 @@ import {
   Delete,
   Group as GroupIcon,
   Person,
+  Search,
 } from '@mui/icons-material';
 import { useAuth } from '../auth/AuthContext';
 import { usePassphrase } from '../auth/PassphraseContext';
 import { type Group, createGroup, updateGroup, deleteGroup, getUserGroups } from '../firestore';
 import { hexToBytes } from '../crypto/quantumSafeCrypto';
+import { ContactService, type Contact } from '../services/contactService';
 
 interface GroupManagementProps {
   open: boolean;
@@ -36,7 +43,7 @@ interface GroupManagementProps {
 interface GroupFormData {
   name: string;
   description: string;
-  members: string[];
+  members: string[]; // Array of user IDs
 }
 
 const GroupManagement: React.FC<GroupManagementProps> = ({ open, onClose }) => {
@@ -50,13 +57,29 @@ const GroupManagement: React.FC<GroupManagementProps> = ({ open, onClose }) => {
     description: '',
     members: [],
   });
-  const [memberInput, setMemberInput] = useState('');
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [contactsLoading, setContactsLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     if (user && open) {
       loadGroups();
+      loadContacts();
     }
   }, [user, open, privateKey]);
+
+  const loadContacts = async () => {
+    if (!user) return;
+    try {
+      setContactsLoading(true);
+      const userContacts = await ContactService.getUserContacts(user.uid);
+      setContacts(userContacts);
+    } catch (error) {
+      console.error('Error loading contacts:', error);
+    } finally {
+      setContactsLoading(false);
+    }
+  };
 
   const loadGroups = async () => {
     if (!user) return;
@@ -73,6 +96,7 @@ const GroupManagement: React.FC<GroupManagementProps> = ({ open, onClose }) => {
   const handleCreateGroup = () => {
     setEditingGroup(null);
     setFormData({ name: '', description: '', members: [] });
+    setSearchQuery('');
     setShowForm(true);
   };
 
@@ -83,6 +107,7 @@ const GroupManagement: React.FC<GroupManagementProps> = ({ open, onClose }) => {
       description: typeof group.description === 'string' ? (group.description || '') : '[Encrypted]',
       members: Array.isArray(group.members) ? group.members : [],
     });
+    setSearchQuery('');
     setShowForm(true);
   };
 
@@ -116,34 +141,60 @@ const GroupManagement: React.FC<GroupManagementProps> = ({ open, onClose }) => {
       await loadGroups();
       setShowForm(false);
       setFormData({ name: '', description: '', members: [] });
+      setSearchQuery('');
     } catch (error) {
       console.error('Error saving group:', error);
     }
   };
 
-  const handleAddMember = () => {
-    if (memberInput.trim() && !formData.members.includes(memberInput.trim())) {
+  const handleToggleContact = (contact: Contact) => {
+    if (!user) return;
+    
+    const { userId } = getContactDisplayInfo(contact, user.uid);
+    const isSelected = formData.members.includes(userId);
+    
+    if (isSelected) {
       setFormData({
         ...formData,
-        members: [...formData.members, memberInput.trim()],
+        members: formData.members.filter(m => m !== userId),
       });
-      setMemberInput('');
+    } else {
+      setFormData({
+        ...formData,
+        members: [...formData.members, userId],
+      });
     }
   };
 
-  const handleRemoveMember = (member: string) => {
-    setFormData({
-      ...formData,
-      members: formData.members.filter(m => m !== member),
+  const getContactDisplayInfo = (contact: Contact, currentUserId: string) => {
+    const isUser1 = contact.userId1 === currentUserId;
+    return {
+      name: isUser1 ? contact.user2DisplayName : contact.user1DisplayName,
+      email: isUser1 ? contact.user2Email : contact.user1Email,
+      userId: isUser1 ? contact.userId2 : contact.userId1,
+    };
+  };
+
+  const getSelectedContactsInfo = () => {
+    if (!user) return [];
+    return formData.members.map(memberId => {
+      const contact = contacts.find(c => 
+        (c.userId1 === user.uid && c.userId2 === memberId) ||
+        (c.userId2 === user.uid && c.userId1 === memberId)
+      );
+      if (contact) {
+        return getContactDisplayInfo(contact, user.uid);
+      }
+      return { name: 'Unknown User', email: 'unknown@example.com', userId: memberId };
     });
   };
 
-  const handleKeyPress = (event: React.KeyboardEvent) => {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      handleAddMember();
-    }
-  };
+  const filteredContacts = contacts.filter(contact => {
+    if (!user) return false;
+    const { name, email } = getContactDisplayInfo(contact, user.uid);
+    const query = searchQuery.toLowerCase();
+    return name.toLowerCase().includes(query) || email.toLowerCase().includes(query);
+  });
 
   if (showForm) {
     return (
@@ -176,40 +227,104 @@ const GroupManagement: React.FC<GroupManagementProps> = ({ open, onClose }) => {
           />
           
           <Typography variant="subtitle2" sx={{ mb: 1 }}>
-            Members
+            Select Members from Your Contacts
           </Typography>
           
-          <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-            <TextField
-              size="small"
-              label="Email address"
-              value={memberInput}
-              onChange={(e) => setMemberInput(e.target.value)}
-              onKeyPress={handleKeyPress}
-              variant="outlined"
-              fullWidth
-              placeholder="user@example.com"
-            />
-            <Button onClick={handleAddMember} variant="outlined">
-              Add
-            </Button>
-          </Box>
-          
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
-            {formData.members.map((member) => (
-              <Chip
-                key={member}
-                label={member}
-                onDelete={() => handleRemoveMember(member)}
+          {contacts.length === 0 ? (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              You don't have any contacts yet. Add contacts first to create groups with members.
+            </Alert>
+          ) : (
+            <>
+              <TextField
                 size="small"
-                icon={<Person />}
+                label="Search contacts"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                variant="outlined"
+                fullWidth
+                placeholder="Search by name or email"
+                sx={{ mb: 2 }}
+                InputProps={{
+                  startAdornment: <Search sx={{ mr: 1, color: 'text.secondary' }} />
+                }}
               />
-            ))}
-          </Box>
+              
+              <Paper variant="outlined" sx={{ maxHeight: 200, overflow: 'auto', mb: 2 }}>
+                <List dense>
+                  {filteredContacts.map((contact) => {
+                    if (!user) return null;
+                    const { name, email, userId } = getContactDisplayInfo(contact, user.uid);
+                    const isSelected = formData.members.includes(userId);
+                    
+                    return (
+                      <ListItem
+                        key={contact.id}
+                        component="div"
+                        onClick={() => handleToggleContact(contact)}
+                        divider
+                        sx={{ cursor: 'pointer' }}
+                      >
+                        <ListItemAvatar>
+                          <Avatar sx={{ width: 32, height: 32 }}>
+                            {name.charAt(0).toUpperCase()}
+                          </Avatar>
+                        </ListItemAvatar>
+                        <ListItemText
+                          primary={name}
+                          secondary={email}
+                          primaryTypographyProps={{ fontSize: '14px' }}
+                          secondaryTypographyProps={{ fontSize: '12px' }}
+                        />
+                        <Checkbox
+                          edge="end"
+                          checked={isSelected}
+                          tabIndex={-1}
+                          disableRipple
+                        />
+                      </ListItem>
+                    );
+                  })}
+                  {filteredContacts.length === 0 && (
+                    <ListItem>
+                      <ListItemText 
+                        primary="No contacts found"
+                        secondary={searchQuery ? "Try a different search term" : "Add contacts to create groups"}
+                      />
+                    </ListItem>
+                  )}
+                </List>
+              </Paper>
+            </>
+          )}
           
-          {formData.members.length === 0 && (
+          {formData.members.length > 0 && (
+            <>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                Selected Members ({formData.members.length})
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+                {getSelectedContactsInfo().map((memberInfo) => (
+                  <Chip
+                    key={memberInfo.userId}
+                    label={memberInfo.name}
+                    onDelete={() => {
+                      setFormData({
+                        ...formData,
+                        members: formData.members.filter(m => m !== memberInfo.userId),
+                      });
+                    }}
+                    size="small"
+                    icon={<Person />}
+                  />
+                ))}
+              </Box>
+            </>
+          )}
+          
+          {formData.members.length === 0 && contacts.length > 0 && (
             <Typography variant="body2" color="text.secondary">
-              No members added yet. Add email addresses to include users in this group.
+              Select contacts from the list above to add them to this group.
             </Typography>
           )}
         </DialogContent>
@@ -276,7 +391,16 @@ const GroupManagement: React.FC<GroupManagementProps> = ({ open, onClose }) => {
                             <>
                               {(group.members as string[]).length} member{(group.members as string[]).length !== 1 ? 's' : ''}
                               {(group.members as string[]).length > 0 && ': '}
-                              {(group.members as string[]).slice(0, 3).join(', ')}
+                              {(group.members as string[]).slice(0, 3).map(memberId => {
+                                const contact = contacts.find(c => 
+                                  (user && c.userId1 === user.uid && c.userId2 === memberId) ||
+                                  (user && c.userId2 === user.uid && c.userId1 === memberId)
+                                );
+                                if (contact && user) {
+                                  return getContactDisplayInfo(contact, user.uid).name;
+                                }
+                                return 'Unknown User';
+                              }).join(', ')}
                               {(group.members as string[]).length > 3 && ` and ${(group.members as string[]).length - 3} more`}
                             </>
                           ) : (

@@ -7,6 +7,7 @@ import SignupPage from './pages/SignupPage';
 import ProfilePage from './pages/ProfilePage';
 import CleanupPage from './pages/CleanupPage';
 import SecurityPage from './pages/SecurityPage';
+import ContactsPage from './pages/ContactsPage';
 import ProtectedRoute from './auth/ProtectedRoute';
 import ProfileCheck from './auth/ProfileCheck';
 import { useAuth } from './auth/AuthContext';
@@ -97,6 +98,7 @@ const App: React.FC = () => {
                 <Route path="/" element={<HomePage />} />
               </Route>
               <Route path="/profile" element={<ProfilePage />} />
+              <Route path="/contacts" element={<ContactsPage />} />
               <Route path="/cleanup" element={<CleanupPage />} />
               <Route path="/security" element={<SecurityPage />} />
             </Route>
