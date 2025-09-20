@@ -13,7 +13,7 @@ import {
   ListItemIcon,
   IconButton,
 } from '@mui/material';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import {
   Home,
   Share,
@@ -22,7 +22,6 @@ import {
   AccessTime,
   CloudSync,
   Security,
-  Assignment,
   Info,
   ChevronLeft,
   ChevronRight,
@@ -44,7 +43,6 @@ interface SideNavProps {
   handleDrawerToggle: () => void;
   currentFolder: string | null;
   setCurrentFolder: (folderId: string | null) => void;
-  onOpenTemplateDesigner?: () => void;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
   // Tag filtering props
@@ -64,7 +62,6 @@ const SideNav: React.FC<SideNavProps> = ({
   handleDrawerToggle,
   currentFolder: _, // Unused but required by interface
   setCurrentFolder,
-  onOpenTemplateDesigner,
   collapsed = false,
   onToggleCollapse,
   // Tag filtering props
@@ -301,29 +298,6 @@ const SideNav: React.FC<SideNavProps> = ({
           />
         </ListItemButton>
         
-        {onOpenTemplateDesigner && (
-          <ListItemButton
-            onClick={() => {
-              onOpenTemplateDesigner();
-            }}
-            sx={{
-              borderRadius: 1,
-              mx: 1,
-              mb: 0.5,
-              '&:hover': {
-                backgroundColor: 'action.hover',
-              }
-            }}
-          >
-            <ListItemIcon sx={{ minWidth: 32 }}>
-              <Assignment fontSize="small" />
-            </ListItemIcon>
-            <ListItemText 
-              primary={t('navigation.templateDesigner', 'Template Designer')} 
-              primaryTypographyProps={{ fontSize: '14px' }}
-            />
-          </ListItemButton>
-        )}
       </List>
       
       <Divider sx={{ mx: 2, my: 1 }} />
@@ -412,8 +386,7 @@ const SideNav: React.FC<SideNavProps> = ({
         </ListItemButton>
         
         <ListItemButton
-          component={Link}
-          to="/contacts"
+          onClick={() => navigate('/contacts')}
           sx={{
             borderRadius: 1,
             mx: 1,
@@ -456,8 +429,7 @@ const SideNav: React.FC<SideNavProps> = ({
         </ListItemButton>
 
         <ListItemButton
-          component={Link}
-          to="/security"
+          onClick={() => navigate('/security')}
           sx={{
             borderRadius: 1,
             mx: 1,

@@ -82,9 +82,9 @@ const BiometricSetup: React.FC = () => {
       const authResult = await authenticateWithBiometric(credentialId);
       
       if (authResult.success) {
-        // Store encrypted private key using biometric signature
-        await storeBiometricEncryptedKey(privateKey, authResult.signature, user.uid);
-        
+        // Store encrypted private key using stable credential ID
+        await storeBiometricEncryptedKey(privateKey, credentialId, user.uid);
+
         setIsSetup(true);
         setSuccess('Biometric authentication successfully set up! You can now use fingerprint/Face ID to unlock your private key.');
       } else {

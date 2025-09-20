@@ -14,7 +14,6 @@ import {
   Chip,
   Tab,
   Tabs,
-  Paper,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -27,6 +26,8 @@ import {
   FormGroup,
   Divider,
   Badge,
+  useTheme,
+  useMediaQuery,
 } from '@mui/material';
 import {
   Person,
@@ -39,8 +40,6 @@ import {
   Schedule,
   Group,
   Security,
-  Notifications,
-  Share,
 } from '@mui/icons-material';
 import { useAuth } from '../auth/AuthContext';
 import { usePassphrase } from '../auth/PassphraseContext';
@@ -67,9 +66,11 @@ function TabPanel({ children, value, index }: TabPanelProps) {
   );
 }
 
-const ContactManager: React.FC<ContactManagerProps> = ({ onClose }) => {
+const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _ }) => {
   const { user } = useAuth();
   const { privateKey } = usePassphrase();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [tabValue, setTabValue] = useState(0);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [contactRequests, setContactRequests] = useState<ContactRequest[]>([]);
@@ -134,7 +135,7 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose }) => {
     return unsubscribe;
   }, [user, privateKey]);
 
-  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+  const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
   };
 
@@ -150,13 +151,13 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose }) => {
       );
       
       // Check if result is an invitation (for non-existing users)
-      if (typeof result === 'object' && 'invitationId' in result) {
+      if (typeof result === 'object' && result && 'invitationId' in result && 'invitationData' in result) {
         console.log('📧 Invitation result detected:', result);
-        
+
         // Generate mailto link for invitation
         const mailtoLink = ContactService.generateInvitationMailtoLink(
-          result.invitationId,
-          result.invitationData
+          (result as any).invitationId,
+          (result as any).invitationData
         );
         
         console.log('📧 Generated mailto link:', mailtoLink);
@@ -245,19 +246,6 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose }) => {
     }
   };
 
-  const handleRemoveContact = async (contactUserId: string) => {
-    if (!user) return;
-    
-    try {
-      await ContactService.removeContact(user.uid, contactUserId);
-      // Refresh contacts list
-      const contactsData = await ContactService.getUserContacts(user.uid);
-      setContacts(contactsData);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to remove contact');
-    }
-  };
 
   const handleUpdateSettings = async (updates: Partial<ContactSettings>) => {
     if (!user || !contactSettings) return;
@@ -328,14 +316,33 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose }) => {
             Contacts
           </Typography>
           <Box>
-            <Button
-              startIcon={<PersonAdd />}
-              variant="contained"
-              onClick={() => setAddContactOpen(true)}
-              sx={{ mr: 1 }}
-            >
-              Add Contact
-            </Button>
+            {isMobile ? (
+              <Tooltip title="Add Contact">
+                <IconButton
+                  onClick={() => setAddContactOpen(true)}
+                  color="primary"
+                  sx={{
+                    mr: 1,
+                    backgroundColor: 'primary.main',
+                    color: 'primary.contrastText',
+                    '&:hover': {
+                      backgroundColor: 'primary.dark',
+                    }
+                  }}
+                >
+                  <PersonAdd />
+                </IconButton>
+              </Tooltip>
+            ) : (
+              <Button
+                startIcon={<PersonAdd />}
+                variant="contained"
+                onClick={() => setAddContactOpen(true)}
+                sx={{ mr: 1 }}
+              >
+                Add Contact
+              </Button>
+            )}
             <IconButton onClick={() => setSettingsOpen(true)}>
               <Settings />
             </IconButton>
@@ -392,13 +399,29 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose }) => {
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
               Add contacts to securely share files with them
             </Typography>
-            <Button
-              startIcon={<PersonAdd />}
-              variant="outlined"
-              onClick={() => setAddContactOpen(true)}
-            >
-              Add Your First Contact
-            </Button>
+            {isMobile ? (
+              <Tooltip title="Add Your First Contact">
+                <IconButton
+                  onClick={() => setAddContactOpen(true)}
+                  color="primary"
+                  size="large"
+                  sx={{
+                    border: '1px solid',
+                    borderColor: 'primary.main',
+                  }}
+                >
+                  <PersonAdd />
+                </IconButton>
+              </Tooltip>
+            ) : (
+              <Button
+                startIcon={<PersonAdd />}
+                variant="outlined"
+                onClick={() => setAddContactOpen(true)}
+              >
+                Add Your First Contact
+              </Button>
+            )}
           </Box>
         ) : (
           <List>
@@ -415,10 +438,10 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose }) => {
                     primary={name}
                     secondary={
                       <>
-                        <Typography variant="body2" color="text.secondary" sx={{ display: 'block' }}>
+                        <Typography component="span" variant="body2" color="text.secondary" sx={{ display: 'block' }}>
                           {email}
                         </Typography>
-                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                        <Typography component="span" variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                           Connected on {formatDate(contact.acceptedAt)}
                         </Typography>
                         {contact.metadata?.sharedFilesCount && (
@@ -474,10 +497,10 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose }) => {
                 <ListItemText
                   primary={
                     <Box>
-                      <Typography variant="subtitle1">
+                      <Typography component="span" variant="subtitle1">
                         Contact request from {request.fromUserDisplayName}
                       </Typography>
-                      <Typography variant="body2" color="text.secondary">
+                      <Typography component="span" variant="body2" color="text.secondary" sx={{ display: 'block' }}>
                         {request.fromUserEmail}
                       </Typography>
                     </Box>
@@ -485,7 +508,7 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose }) => {
                   secondary={
                     <>
                       {request.message && (
-                        <Typography variant="body2" sx={{ mb: 1, display: 'block' }}>
+                        <Typography component="span" variant="body2" sx={{ mb: 1, display: 'block' }}>
                           "{request.message}"
                         </Typography>
                       )}
@@ -496,7 +519,7 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose }) => {
                           </Typography>
                         </Alert>
                       )}
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
+                      <Typography component="span" variant="caption" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
                         <Schedule sx={{ fontSize: 16, mr: 0.5 }} />
                         Received {formatDate(request.createdAt)}
                       </Typography>
@@ -540,13 +563,27 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose }) => {
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
               Create groups to easily share files with multiple contacts at once
             </Typography>
-            <Button
-              startIcon={<Group />}
-              variant="outlined"
-              onClick={() => setGroupManagementOpen(true)}
-            >
-              Create Your First Group
-            </Button>
+            {isMobile ? (
+              <IconButton
+                onClick={() => setGroupManagementOpen(true)}
+                color="primary"
+                size="large"
+                sx={{
+                  border: '1px solid',
+                  borderColor: 'primary.main',
+                }}
+              >
+                <Group />
+              </IconButton>
+            ) : (
+              <Button
+                startIcon={<Group />}
+                variant="outlined"
+                onClick={() => setGroupManagementOpen(true)}
+              >
+                Create Your First Group
+              </Button>
+            )}
           </Box>
         ) : (
           <>
@@ -554,14 +591,32 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose }) => {
               <Typography variant="body2" color="text.secondary">
                 Manage your groups for easy file sharing
               </Typography>
-              <Button
-                startIcon={<Group />}
-                variant="contained"
-                size="small"
-                onClick={() => setGroupManagementOpen(true)}
-              >
-                Manage Groups
-              </Button>
+              {isMobile ? (
+                <Tooltip title="Manage Groups">
+                  <IconButton
+                    onClick={() => setGroupManagementOpen(true)}
+                    color="primary"
+                    sx={{
+                      backgroundColor: 'primary.main',
+                      color: 'primary.contrastText',
+                      '&:hover': {
+                        backgroundColor: 'primary.dark',
+                      }
+                    }}
+                  >
+                    <Group />
+                  </IconButton>
+                </Tooltip>
+              ) : (
+                <Button
+                  startIcon={<Group />}
+                  variant="contained"
+                  size="small"
+                  onClick={() => setGroupManagementOpen(true)}
+                >
+                  Manage Groups
+                </Button>
+              )}
             </Box>
             <List>
               {groups.map((group) => (
@@ -575,10 +630,10 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose }) => {
                     primary={group.name}
                     secondary={
                       <>
-                        <Typography variant="body2" color="text.secondary" sx={{ display: 'block' }}>
+                        <Typography component="span" variant="body2" color="text.secondary" sx={{ display: 'block' }}>
                           {Array.isArray(group.members) ? group.members.length : 0} member{(Array.isArray(group.members) ? group.members.length : 0) !== 1 ? 's' : ''}
                         </Typography>
-                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                        <Typography component="span" variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                           {Array.isArray(group.members) ? getMemberDisplayNames(group.members).join(', ') : 'No members'}
                         </Typography>
                       </>

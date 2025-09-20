@@ -24,7 +24,7 @@ export const useProfileManagement = (): UseProfileManagementReturn => {
   const [loading, setLoading] = useState(true);
   const [editMode, setEditMode] = useState(false);
   const [displayName, setDisplayName] = useState('');
-  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
   const [error, setError] = useState<string | null>(null);
 
   const fetchProfile = useCallback(async (user: User | null) => {

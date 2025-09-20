@@ -1220,6 +1220,7 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
   };
 
   const handleFormFileClick = async (fileInfo: FileData | { id: string; name?: string; parent?: string | null }) => {
+    console.log('handleFormFileClick called with:', fileInfo);
     // Don't allow file operations if private key isn't available
     if (!user || !privateKey) {
       console.warn('Cannot open file: User or private key not available');

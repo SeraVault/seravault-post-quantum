@@ -24,7 +24,7 @@ const SignupPage: React.FC = () => {
       await createUserProfile(user.uid, {
         displayName: user.displayName || email,
         email: user.email || '',
-        theme: 'light',
+        theme: 'dark',
       });
       navigate('/');
     } catch (error: unknown) {
@@ -41,7 +41,7 @@ const SignupPage: React.FC = () => {
       await createUserProfile(user.uid, {
         displayName: user.displayName || user.email || 'User',
         email: user.email || '',
-        theme: 'light',
+        theme: 'dark',
       });
       navigate('/');
     } catch (error: unknown) {

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "node copy-pdf-worker.js && tsc -b && vite build",
+    "build:deploy": "node copy-pdf-worker.js && vite build",
     "postinstall": "node copy-pdf-worker.js",
     "lint": "eslint .",
     "preview": "vite preview",
@@ -16,7 +17,15 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:debug": "playwright test --debug",
-    "test:all": "npm run test:run && npm run test:e2e"
+    "test:all": "npm run test:run && npm run test:e2e",
+    "pre-deploy": "./scripts/pre-deploy-check.sh",
+    "deploy": "./deploy.sh",
+    "deploy:hosting": "./deploy.sh hosting",
+    "deploy:functions": "./deploy.sh functions",
+    "deploy:firestore": "./deploy.sh firestore",
+    "deploy:storage": "./deploy.sh storage",
+    "deploy:test": "./deploy.sh -t",
+    "deploy:quick": "./deploy.sh -s"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

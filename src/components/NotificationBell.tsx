@@ -219,16 +219,16 @@ const NotificationBell: React.FC<NotificationBellProps> = ({ className }) => {
 
         <Divider />
 
-        {/* Notifications list */}
-        {notifications.length === 0 ? (
+        {/* Notifications list - only show unread notifications */}
+        {notifications.filter(n => !n.isRead).length === 0 ? (
           <Box sx={{ p: 3, textAlign: 'center' }}>
             <NotificationsNone sx={{ fontSize: 48, color: 'text.secondary', mb: 1 }} />
             <Typography variant="body2" color="text.secondary">
-              No notifications yet
+              No unread notifications
             </Typography>
           </Box>
         ) : (
-          notifications.map((notification) => (
+          notifications.filter(n => !n.isRead).map((notification) => (
             <MenuItem
               key={notification.id}
               onClick={() => handleNotificationClick(notification)}
@@ -297,8 +297,8 @@ const NotificationBell: React.FC<NotificationBellProps> = ({ className }) => {
           ))
         )}
 
-        {/* Show more option if there are many notifications */}
-        {notifications.length >= 20 && (
+        {/* Show more option if there are many unread notifications */}
+        {notifications.filter(n => !n.isRead).length >= 20 && (
           <>
             <Divider />
             <MenuItem onClick={handleClose} sx={{ justifyContent: 'center' }}>

@@ -9,7 +9,6 @@ interface AppLayoutProps {
   children: React.ReactNode;
   currentFolder?: string | null;
   setCurrentFolder?: (folderId: string | null) => void;
-  onOpenTemplateDesigner?: () => void;
   // Tag filtering props
   files?: any[];
   userId?: string;
@@ -24,7 +23,6 @@ const AppLayout: React.FC<AppLayoutProps> = ({
   children, 
   currentFolder, 
   setCurrentFolder, 
-  onOpenTemplateDesigner,
   // Tag filtering props
   files,
   userId,
@@ -63,7 +61,6 @@ const AppLayout: React.FC<AppLayoutProps> = ({
           handleDrawerToggle={handleDrawerToggle}
           currentFolder={currentFolder}
           setCurrentFolder={setCurrentFolder}
-          onOpenTemplateDesigner={onOpenTemplateDesigner}
           collapsed={collapsed}
           onToggleCollapse={handleToggleCollapse}
           // Tag filtering props

@@ -22,9 +22,7 @@ const PassphraseContext = createContext<PassphraseContextType>({
   refreshPrivateKey: () => {},
 });
 
-export const usePassphrase = () => useContext(PassphraseContext);
-
-export const PassphraseProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+const PassphraseProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
   const [privateKey, setPrivateKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -182,3 +180,6 @@ export const PassphraseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     </PassphraseContext.Provider>
   );
 };
+
+export const usePassphrase = () => useContext(PassphraseContext);
+export { PassphraseProvider };

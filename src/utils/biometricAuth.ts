@@ -164,18 +164,23 @@ export async function authenticateWithBiometric(credentialId: string): Promise<{
 
 /**
  * Store encrypted private key that can be unlocked with biometrics
- * This encrypts the private key with a key derived from the biometric credential
+ * This encrypts the private key with a key derived from the credential ID (which is stable)
  */
 export async function storeBiometricEncryptedKey(
-  privateKey: string, 
-  biometricSignature: ArrayBuffer,
+  privateKey: string,
+  credentialId: string,
   userId: string
 ): Promise<string> {
   try {
-    // Derive encryption key from biometric signature
+    // Use credential ID as the base for key derivation (this is stable across authentications)
+    const credentialBytes = new Uint8Array(
+      credentialId.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16))
+    );
+
+    // Derive encryption key from stable credential ID
     const keyMaterial = await crypto.subtle.importKey(
       'raw',
-      biometricSignature.slice(0, 32), // Use first 32 bytes of signature
+      credentialBytes,
       { name: 'PBKDF2' },
       false,
       ['deriveBits', 'deriveKey']
@@ -198,7 +203,7 @@ export async function storeBiometricEncryptedKey(
     // Encrypt the private key
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const privateKeyBytes = new TextEncoder().encode(privateKey);
-    
+
     const encryptedData = await crypto.subtle.encrypt(
       { name: 'AES-GCM', iv: iv },
       encryptionKey,
@@ -211,11 +216,12 @@ export async function storeBiometricEncryptedKey(
       salt: Array.from(salt).map(b => b.toString(16).padStart(2, '0')).join(''),
       iv: Array.from(iv).map(b => b.toString(16).padStart(2, '0')).join(''),
       userId,
+      credentialId, // Store credential ID for verification
     };
 
     // Store in localStorage (could be moved to secure storage)
     localStorage.setItem(`biometric_key_${userId}`, JSON.stringify(result));
-    
+
     return 'stored';
   } catch (error) {
     console.error('Failed to store biometric encrypted key:', error);
@@ -225,9 +231,10 @@ export async function storeBiometricEncryptedKey(
 
 /**
  * Retrieve and decrypt private key using biometric authentication
+ * Now uses the stable credential ID instead of the variable signature
  */
 export async function retrieveBiometricEncryptedKey(
-  biometricSignature: ArrayBuffer,
+  credentialId: string,
   userId: string
 ): Promise<string> {
   try {
@@ -236,12 +243,22 @@ export async function retrieveBiometricEncryptedKey(
       throw new Error('No biometric encrypted key found');
     }
 
-    const { encryptedKey, salt, iv } = JSON.parse(storedData);
+    const { encryptedKey, salt, iv, credentialId: storedCredentialId } = JSON.parse(storedData);
 
-    // Recreate encryption key from biometric signature
+    // Verify credential ID matches
+    if (storedCredentialId && storedCredentialId !== credentialId) {
+      throw new Error('Credential ID mismatch - this may be a different biometric setup');
+    }
+
+    // Use the same stable credential ID for key derivation
+    const credentialBytes = new Uint8Array(
+      credentialId.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16))
+    );
+
+    // Recreate encryption key from stable credential ID
     const keyMaterial = await crypto.subtle.importKey(
       'raw',
-      biometricSignature.slice(0, 32),
+      credentialBytes,
       { name: 'PBKDF2' },
       false,
       ['deriveBits', 'deriveKey']

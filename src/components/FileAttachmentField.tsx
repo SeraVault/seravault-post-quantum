@@ -2,8 +2,6 @@ import React, { useState, useRef } from 'react';
 import {
   Box,
   Typography,
-  Button,
-  Chip,
   IconButton,
   Alert,
   LinearProgress,
@@ -11,9 +9,7 @@ import {
   Divider,
 } from '@mui/material';
 import {
-  AttachFile,
   Delete,
-  Upload,
   Description,
   CloudUpload,
 } from '@mui/icons-material';
@@ -38,7 +34,7 @@ const FileAttachmentField: React.FC<FileAttachmentFieldProps> = ({
   field,
   attachments,
   userId,
-  privateKey,
+  privateKey: _,
   parentFolder,
   onFileAdded,
   onFileRemoved,

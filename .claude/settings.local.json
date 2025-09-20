@@ -60,7 +60,12 @@
       "Bash(gcloud functions add-iam-policy-binding:*)",
       "Bash(gcloud functions add-invoker-policy-binding:*)",
       "Bash(firebase functions:delete:*)",
-      "Bash(gcloud functions delete:*)"
+      "Bash(gcloud functions delete:*)",
+      "Bash(vite build)",
+      "Bash(npx vite:*)",
+      "Bash(chmod:*)",
+      "Bash(./deploy.sh:*)",
+      "Bash(./scripts/pre-deploy-check.sh:*)"
     ],
     "deny": []
   }

@@ -59,7 +59,7 @@ export async function generateAndEncryptKeyPair(passphrase: string): Promise<Enc
   }
   
   console.log('🔑 Encrypting private key with PBKDF2...');
-  const encryptedPrivateKey = await encryptString(privateKeyHex, passphrase);
+  const encryptedPrivateKey = encryptString(privateKeyHex, passphrase);
   
   return {
     publicKey: publicKeyHex,
@@ -75,8 +75,55 @@ export async function decryptPrivateKey(
   passphrase: string
 ): Promise<string> {
   console.log('🔓 Decrypting private key from PBKDF2...');
-  const decryptedHex = await decryptString(encryptedPrivateKey, passphrase);
+  const decryptedHex = decryptString(encryptedPrivateKey, passphrase);
   console.log('🔓 Private key decrypted, length:', decryptedHex.length);
+  console.log('🔓 Decrypted hex preview:', decryptedHex.substring(0, 20) + '...');
+
+  // First check if it looks like valid hex at all
+  const isHex = /^[a-fA-F0-9]+$/.test(decryptedHex);
+  console.log('🔓 Is valid hex:', isHex, 'Length:', decryptedHex.length);
+
+  if (!isHex) {
+    console.error('🔓 Decryption failed: Result is not valid hexadecimal');
+    console.error('🔓 First 100 chars of decrypted result:', decryptedHex.substring(0, 100));
+    throw new Error('Incorrect passphrase. Please try again.');
+  }
+
+  // Check for expected ML-KEM-768 private key length (4800 hex chars = 2400 bytes)
+  if (decryptedHex.length === 4800) {
+    console.log('🔓 Detected ML-KEM-768 private key (4800 hex chars)');
+    try {
+      const privateKeyBytes = hexToBytes(decryptedHex);
+      console.log('🔓 Converted to bytes, length:', privateKeyBytes.length);
+      if (privateKeyBytes.length !== 2400) {
+        console.error('🔓 Byte conversion mismatch for ML-KEM-768 key');
+        throw new Error('Incorrect passphrase. Please try again.');
+      }
+    } catch (hexError) {
+      console.error('🔓 Failed to convert ML-KEM-768 hex to bytes:', hexError);
+      throw new Error('Incorrect passphrase. Please try again.');
+    }
+  }
+  // Check for other possible key sizes (legacy RSA, other quantum-safe algorithms, etc.)
+  else if (decryptedHex.length >= 64 && decryptedHex.length <= 8192 && decryptedHex.length % 2 === 0) {
+    console.log('🔓 Detected private key with length:', decryptedHex.length, 'hex chars');
+    try {
+      const privateKeyBytes = hexToBytes(decryptedHex);
+      console.log('🔓 Converted to bytes, length:', privateKeyBytes.length);
+      // Allow various key sizes but validate hex conversion
+    } catch (hexError) {
+      console.error('🔓 Failed to convert hex to bytes:', hexError);
+      throw new Error('Incorrect passphrase. Please try again.');
+    }
+  }
+  // Invalid key size
+  else {
+    console.error('🔓 Decryption failed: Invalid private key length. Got:', decryptedHex.length, 'hex chars');
+    console.error('🔓 Expected lengths: ML-KEM-768 (4800), or other valid key sizes (64-8192, even numbers)');
+    console.error('🔓 First 100 chars of decrypted result:', decryptedHex.substring(0, 100));
+    throw new Error('Incorrect passphrase. Please try again.');
+  }
+
   console.log('🔓 Decrypted private key preview:', decryptedHex.substring(0, 16) + '...');
   return decryptedHex;
 }
@@ -141,7 +188,7 @@ export async function createUserWithKeys(
   displayName: string,
   email: string,
   passphrase: string,
-  theme: 'light' | 'dark' = 'light'
+  theme: 'light' | 'dark' = 'dark'
 ): Promise<{ profile: UserProfile; privateKey: string }> {
   const keyPair = await generateAndEncryptKeyPair(passphrase);
   
@@ -170,7 +217,7 @@ export async function regenerateUserKeys(
   displayName: string,
   email: string,
   passphrase: string,
-  theme: 'light' | 'dark'
+  theme: 'light' | 'dark' = 'dark'
 ): Promise<{ profile: UserProfile; privateKey: string }> {
   // Same as create - just overwrites existing profile
   return await createUserWithKeys(userId, displayName, email, passphrase, theme);

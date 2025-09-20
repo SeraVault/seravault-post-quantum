@@ -16,17 +16,17 @@ const ContactsPage: React.FC = () => {
   const { user } = useAuth();
   const { privateKey } = usePassphrase();
 
-  // Redirect to login if not authenticated
+  // This check is redundant since we're inside ProtectedRoute
+  // The ProtectedRoute component already handles authentication
+
   if (!user) {
-    navigate('/login');
-    return null;
+    return null; // Loading state, ProtectedRoute will handle redirect
   }
 
   return (
     <AppLayout 
       currentFolder={null}
       setCurrentFolder={() => {}}
-      onOpenTemplateDesigner={() => {}}
       // Tag filtering props for SideNav
       files={files}
       userId={user?.uid}

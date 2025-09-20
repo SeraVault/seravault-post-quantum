@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { usePassphrase } from '../auth/PassphraseContext';
@@ -9,7 +9,6 @@ const HomePage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [currentFolder, setCurrentFolder] = useState<string | null>(null);
-  const mainContentRef = useRef<{ openTemplateDesigner: () => void }>(null);
   
   // Get user context for tag filtering
   const { user } = useAuth();
@@ -42,15 +41,11 @@ const HomePage: React.FC = () => {
     // The view state is managed in the RecentsContext and will be handled by the SideNav component
   }, [searchParams]);
 
-  const handleOpenTemplateDesigner = () => {
-    mainContentRef.current?.openTemplateDesigner();
-  };
 
   return (
     <AppLayout 
       currentFolder={currentFolder} 
       setCurrentFolder={handleFolderNavigation}
-      onOpenTemplateDesigner={handleOpenTemplateDesigner}
       // Tag filtering props for SideNav
       files={files}
       userId={user?.uid}
@@ -61,7 +56,6 @@ const HomePage: React.FC = () => {
       onMatchModeChange={setMatchAllTags}
     >
       <MainContent 
-        ref={mainContentRef}
         currentFolder={currentFolder} 
         setCurrentFolder={handleFolderNavigation}
         // Tag filtering props for MainContent

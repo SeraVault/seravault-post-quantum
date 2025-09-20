@@ -14,6 +14,10 @@ import {
   InputAdornment,
   Tooltip,
   CircularProgress,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  ListItemText,
 } from '@mui/material';
 import {
   Edit,
@@ -24,6 +28,7 @@ import {
   Download,
   Extension,
   Share,
+  MoreVert,
 } from '@mui/icons-material';
 import MDEditor from '@uiw/react-md-editor';
 import type { SecureFormData } from '../utils/formFiles';
@@ -51,6 +56,7 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
   const [visibleFields, setVisibleFields] = useState<Set<string>>(new Set());
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [loadAttempts, setLoadAttempts] = useState(0);
+  const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
 
   useEffect(() => {
     const loadOwnerDisplayName = async () => {
@@ -555,17 +561,45 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
     return (
       <Dialog open onClose={onClose} maxWidth="md" fullWidth>
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          Error Loading Form
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            {onDownload && (
-              <IconButton onClick={onDownload} title="Download">
-                <Download />
-              </IconButton>
-            )}
+          <Box sx={{
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            pr: 1,
+            minWidth: 0,
+            fontSize: '1.25rem',
+            fontWeight: 500,
+            lineHeight: 1.3,
+            wordBreak: 'break-word'
+          }}>
+            Error Loading Form
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1, flexShrink: 0 }}>
+            <IconButton
+              onClick={(e) => setMenuAnchorEl(e.currentTarget)}
+              title="Actions"
+            >
+              <MoreVert />
+            </IconButton>
             <IconButton onClick={onClose} title="Close">
               <Close />
             </IconButton>
           </Box>
+          <Menu
+            anchorEl={menuAnchorEl}
+            open={Boolean(menuAnchorEl)}
+            onClose={() => setMenuAnchorEl(null)}
+            transformOrigin={{ horizontal: 'right', vertical: 'top' }}
+            anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+          >
+            {onDownload && (
+              <MenuItem onClick={() => { onDownload(); setMenuAnchorEl(null); }}>
+                <ListItemIcon>
+                  <Download fontSize="small" />
+                </ListItemIcon>
+                <ListItemText>Download</ListItemText>
+              </MenuItem>
+            )}
+          </Menu>
         </DialogTitle>
         <DialogContent>
           <Typography color="error" gutterBottom>
@@ -577,21 +611,9 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
             </Typography>
           )}
         </DialogContent>
-        <DialogActions sx={{ justifyContent: 'flex-end', gap: 1 }}>
+        <DialogActions sx={{ justifyContent: 'center', gap: 1 }}>
           <Button onClick={handleManualRetry} variant="outlined">
             Retry
-          </Button>
-          {onDownload && (
-            <Button 
-              onClick={onDownload} 
-              variant="outlined"
-              startIcon={<Download />}
-            >
-              Download
-            </Button>
-          )}
-          <Button onClick={onClose} variant="contained">
-            Close
           </Button>
         </DialogActions>
       </Dialog>
@@ -605,35 +627,59 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
     <Dialog open onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          {formData.metadata.name}
-          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-            <Button
-              startIcon={<Edit />}
-              onClick={onEdit}
-              variant="outlined"
-              size="small"
+          <Box sx={{
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            pr: 1,
+            minWidth: 0,
+            fontSize: '1.25rem',
+            fontWeight: 500,
+            lineHeight: 1.3,
+            wordBreak: 'break-word'
+          }}>
+            {formData.metadata.name}
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1, flexShrink: 0 }}>
+            <IconButton
+              onClick={(e) => setMenuAnchorEl(e.currentTarget)}
+              title="Actions"
             >
-              Edit
-            </Button>
-            {onShare && (
-              <Button
-                startIcon={<Share />}
-                onClick={onShare}
-                variant="outlined"
-                size="small"
-              >
-                Share
-              </Button>
-            )}
-            {onDownload && (
-              <IconButton onClick={onDownload} title="Download" size="small">
-                <Download />
-              </IconButton>
-            )}
-            <IconButton onClick={onClose} title="Close" size="small">
+              <MoreVert />
+            </IconButton>
+            <IconButton onClick={onClose} title="Close">
               <Close />
             </IconButton>
           </Box>
+          <Menu
+            anchorEl={menuAnchorEl}
+            open={Boolean(menuAnchorEl)}
+            onClose={() => setMenuAnchorEl(null)}
+            transformOrigin={{ horizontal: 'right', vertical: 'top' }}
+            anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+          >
+            <MenuItem onClick={() => { onEdit(); setMenuAnchorEl(null); }}>
+              <ListItemIcon>
+                <Edit fontSize="small" />
+              </ListItemIcon>
+              <ListItemText>Edit</ListItemText>
+            </MenuItem>
+            {onShare && (
+              <MenuItem onClick={() => { onShare(); setMenuAnchorEl(null); }}>
+                <ListItemIcon>
+                  <Share fontSize="small" />
+                </ListItemIcon>
+                <ListItemText>Share</ListItemText>
+              </MenuItem>
+            )}
+            {onDownload && (
+              <MenuItem onClick={() => { onDownload(); setMenuAnchorEl(null); }}>
+                <ListItemIcon>
+                  <Download fontSize="small" />
+                </ListItemIcon>
+                <ListItemText>Download</ListItemText>
+              </MenuItem>
+            )}
+          </Menu>
         </Box>
       </DialogTitle>
 
@@ -719,20 +765,6 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
           )}
         </Box>
         
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          {onDownload && (
-            <Button 
-              onClick={onDownload} 
-              variant="outlined"
-              startIcon={<Download />}
-            >
-              Download
-            </Button>
-          )}
-          <Button onClick={onClose} variant="contained">
-            Close
-          </Button>
-        </Box>
       </DialogActions>
     </Dialog>
   );
