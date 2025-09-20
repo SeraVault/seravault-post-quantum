@@ -12,9 +12,7 @@ const LoadingContext = createContext<LoadingContextType>({
   setIsDataLoading: () => {},
 });
 
-export const useGlobalLoading = () => useContext(LoadingContext);
-
-export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isDataLoading, setIsDataLoading] = useState(false);
   const { user } = useAuth();
   const { privateKey } = usePassphrase();
@@ -39,3 +37,6 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     </LoadingContext.Provider>
   );
 };
+
+export const useGlobalLoading = () => useContext(LoadingContext);
+export { LoadingProvider };

@@ -1,27 +1,65 @@
-import React, { useState } from 'react';
-import { 
-  Avatar, 
-  Menu, 
-  MenuItem, 
-  ListItemIcon, 
+import React, { useState, useEffect } from 'react';
+import {
+  Avatar,
+  Menu,
+  MenuItem,
+  ListItemIcon,
   ListItemText,
   IconButton,
-  Divider
+  Divider,
+  Box,
+  Typography,
+  Select,
+  FormControl
 } from '@mui/material';
-import { 
+import {
   AccountCircle as ProfileIcon,
-  Logout as LogoutIcon 
+  Logout as LogoutIcon,
+  Brightness4,
+  Brightness7,
+  Language as LanguageIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { signOut } from 'firebase/auth';
 import { auth } from '../firebase';
+import { useThemeContext } from '../theme/ThemeContext';
+import { useTranslation } from 'react-i18next';
+import { getUserProfile, updateUserProfile } from '../firestore';
+
+interface Language {
+  code: string;
+  name: string;
+  nativeName: string;
+  flag: string;
+}
+
+const languages: Language[] = [
+  { code: 'en', name: 'English', nativeName: 'English', flag: '🇺🇸' },
+  { code: 'fr', name: 'French', nativeName: 'Français', flag: '🇫🇷' },
+  { code: 'es', name: 'Spanish', nativeName: 'Español', flag: '🇪🇸' },
+];
 
 const UserAvatar: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { mode, toggleTheme } = useThemeContext();
+  const { i18n } = useTranslation();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const open = Boolean(anchorEl);
+
+  // Load user's language preference on login
+  useEffect(() => {
+    const loadUserLanguage = async () => {
+      if (user) {
+        const profile = await getUserProfile(user.uid);
+        if (profile?.language && profile.language !== i18n.language) {
+          i18n.changeLanguage(profile.language);
+        }
+      }
+    };
+    loadUserLanguage();
+  }, [user, i18n]);
 
   const handleClick = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);
@@ -41,11 +79,31 @@ const UserAvatar: React.FC = () => {
     await signOut(auth);
   };
 
+  const handleThemeToggle = () => {
+    toggleTheme();
+    handleClose();
+  };
+
+  const handleLanguageChange = async (languageCode: string) => {
+    i18n.changeLanguage(languageCode);
+    // Don't close the menu when changing language - let user see the change
+
+    // Save to user profile if logged in
+    if (user) {
+      try {
+        await updateUserProfile(user.uid, { language: languageCode });
+      } catch (error) {
+        console.error('Failed to update language preference:', error);
+      }
+    }
+  };
+
   if (!user) return null;
 
   // Get first letter of display name or email
   const displayName = user.displayName || user.email || 'U';
   const avatarLetter = displayName.charAt(0).toUpperCase();
+  const currentLanguage = languages.find(lang => lang.code === i18n.language) || languages[0];
 
   return (
     <>
@@ -96,6 +154,57 @@ const UserAvatar: React.FC = () => {
             <ProfileIcon fontSize="small" />
           </ListItemIcon>
           <ListItemText>Profile</ListItemText>
+        </MenuItem>
+        <Divider />
+        <MenuItem onClick={handleThemeToggle}>
+          <ListItemIcon>
+            {mode === 'light' ? <Brightness4 fontSize="small" /> : <Brightness7 fontSize="small" />}
+          </ListItemIcon>
+          <ListItemText>
+            {mode === 'light' ? 'Dark Theme' : 'Light Theme'}
+          </ListItemText>
+        </MenuItem>
+        <MenuItem sx={{ py: 1 }}>
+          <ListItemIcon>
+            <LanguageIcon fontSize="small" />
+          </ListItemIcon>
+          <Box sx={{ flex: 1 }}>
+            <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>
+              Language
+            </Typography>
+            <FormControl size="small" fullWidth>
+              <Select
+                value={i18n.language}
+                onChange={(e) => handleLanguageChange(e.target.value)}
+                sx={{
+                  '& .MuiSelect-select': {
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    py: 0.5
+                  }
+                }}
+                MenuProps={{
+                  PaperProps: {
+                    sx: {
+                      mt: 0.5
+                    }
+                  }
+                }}
+              >
+                {languages.map((language) => (
+                  <MenuItem key={language.code} value={language.code}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <span style={{ fontSize: '16px' }}>{language.flag}</span>
+                      <Typography variant="body2">
+                        {language.nativeName}
+                      </Typography>
+                    </Box>
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Box>
         </MenuItem>
         <Divider />
         <MenuItem onClick={handleLogout}>

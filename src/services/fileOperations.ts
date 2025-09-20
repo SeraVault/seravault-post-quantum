@@ -311,7 +311,7 @@ export class FileOperationsService {
         // Get original file name
         let originalName = '[Encrypted File]';
         if (typeof file.name === 'object') {
-          const decryptedOriginal = await decryptMetadata(file.name, fileKey);
+          const decryptedOriginal = await decryptData(file.name, fileKey);
           originalName = decryptedOriginal.name;
         } else {
           originalName = file.name;

@@ -13,6 +13,10 @@ import {
   Toolbar,
   Slider,
   Tooltip,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  ListItemText,
 } from '@mui/material';
 import {
   Close,
@@ -27,6 +31,7 @@ import {
   Pause,
   VolumeUp,
   VolumeOff,
+  MoreVert,
 } from '@mui/icons-material';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { useTranslation } from 'react-i18next';
@@ -86,6 +91,7 @@ const FileViewer: React.FC<FileViewerProps> = ({
     volume: 1,
     isMuted: false,
   });
+  const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
 
   const dialogRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -539,19 +545,45 @@ const FileViewer: React.FC<FileViewerProps> = ({
         alignItems: 'center',
         flexShrink: 0, // Prevent header from shrinking
       }}>
-        <Box component="span" sx={{ fontSize: '1.25rem', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <Box sx={{
+          fontSize: '1.25rem',
+          fontWeight: 500,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          pr: 1,
+          minWidth: 0,
+          lineHeight: 1.3,
+          wordBreak: 'break-word'
+        }}>
           {fileName}
         </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          {onDownload && (
-            <IconButton onClick={onDownload} title={t('common.download')}>
-              <Download />
-            </IconButton>
-          )}
+        <Box sx={{ display: 'flex', gap: 1, flexShrink: 0 }}>
+          <IconButton
+            onClick={(e) => setMenuAnchorEl(e.currentTarget)}
+            title="Actions"
+          >
+            <MoreVert />
+          </IconButton>
           <IconButton onClick={onClose} title={t('common.close')}>
             <Close />
           </IconButton>
         </Box>
+        <Menu
+          anchorEl={menuAnchorEl}
+          open={Boolean(menuAnchorEl)}
+          onClose={() => setMenuAnchorEl(null)}
+          transformOrigin={{ horizontal: 'right', vertical: 'top' }}
+          anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+        >
+          {onDownload && (
+            <MenuItem onClick={() => { onDownload(); setMenuAnchorEl(null); }}>
+              <ListItemIcon>
+                <Download fontSize="small" />
+              </ListItemIcon>
+              <ListItemText>{t('common.download')}</ListItemText>
+            </MenuItem>
+          )}
+        </Menu>
       </DialogTitle>
 
       {renderToolbar()}
@@ -642,25 +674,6 @@ const FileViewer: React.FC<FileViewerProps> = ({
           </Box>
         )}
         
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          {onDownload && (
-            <Button 
-              variant="outlined" 
-              startIcon={<Download />} 
-              onClick={onDownload}
-              sx={{ minWidth: 120 }}
-            >
-              {t('common.download')}
-            </Button>
-          )}
-          <Button 
-            variant="contained" 
-            onClick={onClose}
-            sx={{ minWidth: 100 }}
-          >
-            {t('common.close')}
-          </Button>
-        </Box>
       </DialogActions>
     </Dialog>
   );

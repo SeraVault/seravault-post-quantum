@@ -116,7 +116,14 @@ const FileTable: React.FC<FileTableProps> = ({
           const profile = await getUserProfile(currentUserId);
           setCurrentUserProfile(profile);
           if (profile?.columnVisibility) {
-            setColumnVisibility(profile.columnVisibility);
+            setColumnVisibility({
+              type: profile.columnVisibility.type ?? true,
+              size: profile.columnVisibility.size ?? true,
+              shared: profile.columnVisibility.shared ?? true,
+              created: profile.columnVisibility.created ?? true,
+              modified: profile.columnVisibility.modified ?? true,
+              owner: profile.columnVisibility.owner ?? true,
+            });
           }
         } catch (error) {
           console.warn('Failed to load current user profile:', error);
@@ -821,23 +828,28 @@ const FileTable: React.FC<FileTableProps> = ({
                   e.dataTransfer.setDragImage(dragImage, 0, 0);
                   setTimeout(() => document.body.removeChild(dragImage), 0);
                 }}
-                sx={{ 
-                  cursor: 'pointer',
-                  backgroundColor: selectedFiles.has(file.id!) ? 'rgba(25, 118, 210, 0.08)' : undefined,
-                  ...getClipboardStyles(file, 'file')
-                }}
                 onClick={(e) => {
+                  console.log('File row clicked:', file.name);
                   // Check if click is on checkbox area
                   const target = e.target as HTMLElement;
                   if (target.closest('input[type="checkbox"]')) {
+                    console.log('Checkbox area clicked, ignoring');
                     return; // Let checkbox handle it
                   }
+                  console.log('Calling onFileClick for:', file.name);
                   onFileClick?.(file);
                 }}
                 onContextMenu={onContextMenu ? (e) => onContextMenu(e, file, 'file') : undefined}
                 onTouchStart={onLongPressStart ? () => onLongPressStart(file, 'file') : undefined}
                 onTouchEnd={onLongPressEnd}
                 onTouchCancel={onLongPressEnd}
+                sx={{
+                  cursor: 'pointer',
+                  backgroundColor: selectedFiles.has(file.id!) ? 'rgba(25, 118, 210, 0.08)' : undefined,
+                  ...getClipboardStyles(file, 'file'),
+                  // Ensure touch events work on mobile
+                  touchAction: 'manipulation'
+                }}
               >
                 <TableCell sx={{ padding: '8px' }}>
                   <Checkbox

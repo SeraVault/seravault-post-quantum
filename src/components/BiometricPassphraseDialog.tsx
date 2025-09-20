@@ -112,9 +112,9 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
         throw new Error('Biometric authentication failed');
       }
 
-      // Retrieve encrypted private key
-      const privateKey = await retrieveBiometricEncryptedKey(authResult.signature, user.uid);
-      
+      // Retrieve encrypted private key using credential ID
+      const privateKey = await retrieveBiometricEncryptedKey(credentialId, user.uid);
+
       // Submit the decrypted private key
       await onSubmit(privateKey, true, 'biometric'); // Always remember for biometric
     } catch (err) {

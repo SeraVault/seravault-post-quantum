@@ -4,8 +4,6 @@ import MenuIcon from '@mui/icons-material/Menu';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import SecurityStatusIndicator from './SecurityStatusIndicator';
-import LanguageSwitcher from './LanguageSwitcher';
-import ThemeSwitcher from './ThemeSwitcher';
 import UserAvatar from './UserAvatar';
 import NotificationBell from './NotificationBell';
 
@@ -35,14 +33,10 @@ const TopBar: React.FC<TopBarProps> = ({ handleDrawerToggle }) => {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <SecurityStatusIndicator />
             <NotificationBell />
-            <ThemeSwitcher />
-            <LanguageSwitcher />
             <UserAvatar />
           </Box>
         ) : (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <ThemeSwitcher />
-            <LanguageSwitcher />
             <Button color="inherit" component={Link} to="/login">
               Login
             </Button>

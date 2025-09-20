@@ -10,6 +10,7 @@ export default defineConfig({
       registerType: 'autoUpdate',
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        maximumFileSizeToCacheInBytes: 5000000, // 5MB
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/firebasestorage\.googleapis\.com/,
@@ -40,20 +41,25 @@ export default defineConfig({
         short_name: 'SeraVault',
         description: 'Secure file storage and form management',
         theme_color: '#242424',
-        background_color: '#ffffff',
+        background_color: '#121212',
         display: 'standalone',
         scope: '/',
         start_url: '/',
         icons: [
           {
-            src: 'vite.svg',
-            sizes: '192x192',
-            type: 'image/svg+xml'
+            src: 'favicon.ico',
+            sizes: '48x48',
+            type: 'image/x-icon'
           },
           {
-            src: 'vite.svg',
+            src: 'icon-192x192.png',
+            sizes: '192x192',
+            type: 'image/png'
+          },
+          {
+            src: 'icon-512x512.png',
             sizes: '512x512',
-            type: 'image/svg+xml'
+            type: 'image/png'
           }
         ]
       }

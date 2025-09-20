@@ -11,15 +11,13 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType>({
   toggleTheme: () => {},
-  mode: 'light',
+  mode: 'dark',
   setMode: () => {},
 });
 
-export const useThemeContext = () => useContext(ThemeContext);
-
-export const AppThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+const AppThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
-  const [mode, setMode] = useState<'light' | 'dark'>('light');
+  const [mode, setMode] = useState<'light' | 'dark'>('dark');
 
   useEffect(() => {
     const fetchTheme = async () => {
@@ -63,3 +61,6 @@ export const AppThemeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     </ThemeContext.Provider>
   );
 };
+
+export const useThemeContext = () => useContext(ThemeContext);
+export { AppThemeProvider };
