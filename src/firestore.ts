@@ -20,9 +20,12 @@ export interface UserProfile {
     type: boolean;
     size: boolean;
     shared: boolean;
+    created: boolean;
     modified: boolean;
     owner: boolean;
   };
+  // Security preferences
+  showPrintWarning?: boolean; // Default: true, false = never show warning
 }
 
 export interface Folder {

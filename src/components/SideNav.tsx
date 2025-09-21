@@ -86,12 +86,33 @@ const SideNav: React.FC<SideNavProps> = ({
   // Root folder drop zone state
   const [isRootDropZone, setIsRootDropZone] = React.useState(false);
 
+  // Helper function to handle navigation and close mobile drawer
+  const handleNavigateAndClose = (path: string) => {
+    navigate(path);
+    if (isMobile) {
+      handleDrawerToggle();
+    }
+  };
+
+  // Helper function for view navigation (home with query params)
+  const handleViewNavigateAndClose = (path: string) => {
+    navigate(path);
+    if (isMobile) {
+      handleDrawerToggle();
+    }
+  };
+
   // Handle folder clicks - reset all view states and set folder
   const handleFolderClick = (folderId: string | null) => {
     // Navigate to HomePage with folder parameter using client-side navigation
     const folderParam = folderId ? `?folder=${folderId}` : '';
     navigate(`/${folderParam}`, { replace: false });
-    
+
+    // Close mobile drawer if open
+    if (isMobile) {
+      handleDrawerToggle();
+    }
+
     // Also update local state for when we're already on HomePage
     setCurrentFolder(folderId);
     setIsRecentsView(false);
@@ -215,7 +236,7 @@ const SideNav: React.FC<SideNavProps> = ({
       <List dense sx={{ px: 1 }}>
         <ListItemButton 
           onClick={() => {
-            navigate('/');
+            handleViewNavigateAndClose('/');
             setCurrentFolder(null);
             setIsRecentsView(false);
             setIsFavoritesView(false);
@@ -246,7 +267,7 @@ const SideNav: React.FC<SideNavProps> = ({
         
         <ListItemButton
           onClick={() => {
-            navigate('/?view=favorites');
+            handleViewNavigateAndClose('/?view=favorites');
             setCurrentFolder(null);
             setIsRecentsView(false);
             setIsFavoritesView(true);
@@ -273,7 +294,7 @@ const SideNav: React.FC<SideNavProps> = ({
         
         <ListItemButton
           onClick={() => {
-            navigate('/?view=recents');
+            handleViewNavigateAndClose('/?view=recents');
             setCurrentFolder(null);
             setIsRecentsView(true);
             setIsFavoritesView(false);
@@ -323,7 +344,7 @@ const SideNav: React.FC<SideNavProps> = ({
       <List dense sx={{ px: 1, flexGrow: 1 }}>
         <ListItemButton 
           onClick={() => {
-            navigate('/');
+            handleViewNavigateAndClose('/');
             setCurrentFolder(null);
           }}
           onDragOver={handleRootDragOver}
@@ -360,7 +381,7 @@ const SideNav: React.FC<SideNavProps> = ({
         
         <ListItemButton
           onClick={() => {
-            navigate('/?view=shared');
+            handleViewNavigateAndClose('/?view=shared');
             setCurrentFolder(null);
             setIsRecentsView(false);
             setIsFavoritesView(false);
@@ -386,7 +407,7 @@ const SideNav: React.FC<SideNavProps> = ({
         </ListItemButton>
         
         <ListItemButton
-          onClick={() => navigate('/contacts')}
+          onClick={() => handleNavigateAndClose('/contacts')}
           sx={{
             borderRadius: 1,
             mx: 1,
@@ -429,7 +450,7 @@ const SideNav: React.FC<SideNavProps> = ({
         </ListItemButton>
 
         <ListItemButton
-          onClick={() => navigate('/security')}
+          onClick={() => handleNavigateAndClose('/security')}
           sx={{
             borderRadius: 1,
             mx: 1,

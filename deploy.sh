@@ -176,12 +176,30 @@ validate_firebase_config() {
     print_success "Firebase configuration validated"
 }
 
+# Function to configure CORS
+configure_cors() {
+    print_status "Configuring CORS for Firebase Storage..."
+
+    if [ -f "cors.json" ]; then
+        if gsutil cors set cors.json "gs://$PROJECT_ID.firebasestorage.app"; then
+            print_success "CORS configuration applied successfully"
+        else
+            print_warning "Failed to apply CORS configuration (continuing anyway)"
+        fi
+    else
+        print_warning "cors.json not found, skipping CORS configuration"
+    fi
+}
+
 # Function to deploy to Firebase
 deploy_firebase() {
     print_status "Deploying to Firebase..."
 
     # Set the Firebase project
     firebase use "$PROJECT_ID"
+
+    # Configure CORS for storage
+    configure_cors
 
     # Deploy all services
     if firebase deploy; then

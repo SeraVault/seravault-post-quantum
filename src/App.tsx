@@ -16,6 +16,9 @@ import { CircularProgress, Typography, useTheme, Dialog, DialogContent } from '@
 import { ClipboardProvider } from './context/ClipboardContext';
 import { LoadingProvider, useGlobalLoading } from './context/LoadingContext';
 import { RecentsProvider } from './context/RecentsContext';
+import { MetadataProvider } from './context/MetadataContext';
+// Import migration utility to make it available in console
+import './utils/migrateFormTags';
 
 // Global Loading Component
 const GlobalLoadingSpinner: React.FC = () => {
@@ -89,8 +92,9 @@ const App: React.FC = () => {
     <ClipboardProvider>
       <LoadingProvider>
         <RecentsProvider>
-          <GlobalLoadingSpinner />
-          <Routes>
+          <MetadataProvider>
+            <GlobalLoadingSpinner />
+            <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route path="/signup" element={<SignupPage />} />
             <Route element={<ProtectedRoute />}>
@@ -103,6 +107,7 @@ const App: React.FC = () => {
               <Route path="/security" element={<SecurityPage />} />
             </Route>
           </Routes>
+          </MetadataProvider>
         </RecentsProvider>
       </LoadingProvider>
     </ClipboardProvider>
