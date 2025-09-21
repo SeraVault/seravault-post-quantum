@@ -32,6 +32,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import type { SecureFormData, FormFieldDefinition } from '../utils/formFiles';
 import { validateForm, saveFormAsFile, updateFormFile, updateFormData, getLocalizedField } from '../utils/formFiles';
+import { db } from '../firebase';
 import DualEditor from './DualEditor';
 import FileAttachmentField from './FileAttachmentField';
 import { addFileAttachment, removeFileAttachment, getFieldAttachments } from '../utils/formFiles';
@@ -60,7 +61,6 @@ const FormInstanceFiller: React.FC<FormInstanceFillerProps> = ({
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [visibleFields, setVisibleFields] = useState<Set<string>>(new Set());
-  const [tagInput, setTagInput] = useState('');
   const [locale] = useState(i18n.language || 'en');
 
   // Initialize form data
@@ -108,18 +108,19 @@ const FormInstanceFiller: React.FC<FormInstanceFillerProps> = ({
   }
 
   const handleSave = async () => {
+
     const validation = validateForm(formData);
     if (!validation.isValid) {
       setErrors(validation.errors);
       return;
     }
-    
+
     setErrors([]);
     setSaving(true);
 
     try {
       if (existingFile) {
-        // Update existing form file
+        // Remove tags from form content before saving (tags only stored in file collection)
         const updatedFormData = {
           ...formData,
           metadata: {
@@ -127,14 +128,37 @@ const FormInstanceFiller: React.FC<FormInstanceFillerProps> = ({
             modified: new Date().toISOString(),
           },
           lastAccessed: new Date().toISOString(),
+          tags: [], // Remove tags from form content
         };
 
         await updateFormFile(existingFile.id, updatedFormData, userId, privateKey);
+
+        // Tags are now managed separately in the file collection via TagManagementDialog
       } else {
+        // Extract template tags before saving (to save to file collection)
+        const templateTags = formData.tags || [];
+
+        // Remove tags from form content before saving
+        const formDataWithoutTags = {
+          ...formData,
+          tags: [], // Remove tags from form content
+        };
+
         // Create new form file
-        await saveFormAsFile(formData, userId, privateKey, parentFolder);
+        const newFileId = await saveFormAsFile(formDataWithoutTags, userId, privateKey, parentFolder);
+
+        // Save template tags to file collection for searchability
+        if (templateTags.length > 0 && newFileId) {
+          const { updateUserTagsInFirestore } = await import('../services/userTagsManagement');
+          const { getDoc, doc } = await import('firebase/firestore');
+          const fileSnap = await getDoc(doc(db, 'files', newFileId));
+          if (fileSnap.exists()) {
+            const fileData = { id: fileSnap.id, ...fileSnap.data() } as any;
+            await updateUserTagsInFirestore(newFileId, userId, templateTags, privateKey, fileData);
+          }
+        }
       }
-      
+
       onSave();
     } catch (error) {
       console.error('Error saving form:', error);
@@ -171,7 +195,7 @@ const FormInstanceFiller: React.FC<FormInstanceFillerProps> = ({
   const updateFieldValue = (fieldId: string, value: string) => {
     setFormData(prev => {
       if (!prev) return null;
-      
+
       let updatedFormData = updateFormData(prev, fieldId, value);
       
       // If the field is the template's title field, update the form name as well
@@ -199,22 +223,7 @@ const FormInstanceFiller: React.FC<FormInstanceFillerProps> = ({
     setVisibleFields(newVisible);
   };
 
-  const addTag = () => {
-    if (tagInput.trim() && !formData.tags?.includes(tagInput.trim())) {
-      setFormData(prev => prev ? {
-        ...prev,
-        tags: [...(prev.tags || []), tagInput.trim()]
-      } : null);
-      setTagInput('');
-    }
-  };
-
-  const removeTag = (tagToRemove: string) => {
-    setFormData(prev => prev ? {
-      ...prev,
-      tags: prev.tags?.filter(tag => tag !== tagToRemove) || []
-    } : null);
-  };
+  // Tags are now managed separately in the file collection, not in form content
 
   const renderField = (field: FormFieldDefinition) => {
     const localizedField = getLocalizedField(formData!, field.id, locale);
@@ -398,35 +407,7 @@ const FormInstanceFiller: React.FC<FormInstanceFillerProps> = ({
             {renderFields()}
           </Box>
 
-          {/* Tags */}
-          <Divider sx={{ my: 2 }} />
-          <Box sx={{ mt: 2 }}>
-            <Typography variant="subtitle2" gutterBottom>Tags (Optional)</Typography>
-            <Box sx={{ display: 'flex', gap: 1, mb: 1, flexWrap: 'wrap' }}>
-              {formData.tags?.map((tag) => (
-                <Chip
-                  key={tag}
-                  label={tag}
-                  onDelete={() => removeTag(tag)}
-                  size="small"
-                />
-              ))}
-            </Box>
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              <TextField
-                label="Add Tag"
-                value={tagInput}
-                onChange={(e) => setTagInput(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && addTag()}
-                size="small"
-                sx={{ flexGrow: 1 }}
-                placeholder="e.g., personal, work, shared"
-              />
-              <Button onClick={addTag} variant="outlined" size="small">
-                Add
-              </Button>
-            </Box>
-          </Box>
+          {/* Tags are now managed via the file collection using TagManagementDialog */}
 
           {/* Form Metadata */}
           {formData.metadata.description && (

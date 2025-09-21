@@ -29,13 +29,15 @@ import {
   Extension,
   Share,
   MoreVert,
+  Print,
 } from '@mui/icons-material';
 import MDEditor from '@uiw/react-md-editor';
 import type { SecureFormData } from '../utils/formFiles';
 import type { FileData } from '../files';
 import { getFile } from '../storage';
 import { getFieldAttachments } from '../utils/formFiles';
-import { getUserProfile, type UserProfile } from '../firestore';
+import { getUserProfile, updateUserProfile, type UserProfile } from '../firestore';
+import PrintSecurityWarningDialog from './PrintSecurityWarningDialog';
 
 interface FormFileViewerProps {
   file: FileData;
@@ -57,9 +59,20 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [loadAttempts, setLoadAttempts] = useState(0);
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
+  const [printWarningOpen, setPrintWarningOpen] = useState(false);
+  const [currentUserProfile, setCurrentUserProfile] = useState<UserProfile | null>(null);
 
   useEffect(() => {
-    const loadOwnerDisplayName = async () => {
+    const loadProfiles = async () => {
+      // Load current user profile for print warning preference
+      try {
+        const currentProfile = await getUserProfile(userId);
+        setCurrentUserProfile(currentProfile);
+      } catch (error) {
+        console.error('Failed to load current user profile:', error);
+      }
+
+      // Load owner display name
       if (file?.owner) {
         try {
           const ownerProfile = await getUserProfile(file.owner);
@@ -70,9 +83,9 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
         }
       }
     };
-    
-    loadOwnerDisplayName();
-  }, [file?.owner]);
+
+    loadProfiles();
+  }, [file?.owner, userId]);
 
   useEffect(() => {
     const loadFormData = async (retryCount = 0) => {
@@ -324,6 +337,69 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
     }
   };
 
+  const handlePrint = () => {
+    // Check if user wants to see warning (default: true)
+    const shouldShowWarning = currentUserProfile?.showPrintWarning !== false;
+
+    if (shouldShowWarning) {
+      setPrintWarningOpen(true);
+    } else {
+      performPrint();
+    }
+  };
+
+  const performPrint = () => {
+    // Create a print-friendly version of the form
+    const printWindow = window.open('', '_blank');
+    if (printWindow && formData) {
+      const printContent = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>${formData.metadata.name}</title>
+            <style>
+              body { font-family: Arial, sans-serif; margin: 20px; }
+              .form-title { font-size: 24px; font-weight: bold; margin-bottom: 20px; }
+              .field { margin-bottom: 15px; }
+              .field-label { font-weight: bold; color: #333; }
+              .field-value { margin-top: 5px; padding: 8px; background: #f5f5f5; border-radius: 4px; }
+              .sensitive { background: #ffe6e6; border: 1px solid #ffcccc; }
+              @media print { body { margin: 10px; } }
+            </style>
+          </head>
+          <body>
+            <div class="form-title">${formData.metadata.name}</div>
+            ${formData.schema.fields.map(field => {
+              const value = formData.data[field.id] || '';
+              const displayValue = field.sensitive ? '••••••••' : value;
+              return `
+                <div class="field">
+                  <div class="field-label">${field.label}${field.required ? ' *' : ''}</div>
+                  <div class="field-value ${field.sensitive ? 'sensitive' : ''}">${displayValue}</div>
+                </div>
+              `;
+            }).join('')}
+          </body>
+        </html>
+      `;
+
+      printWindow.document.write(printContent);
+      printWindow.document.close();
+      printWindow.print();
+    }
+  };
+
+  const handleNeverShowPrintWarning = async () => {
+    if (userId && currentUserProfile) {
+      try {
+        await updateUserProfile(userId, { showPrintWarning: false });
+        setCurrentUserProfile({ ...currentUserProfile, showPrintWarning: false });
+      } catch (error) {
+        console.error('Failed to update print warning preference:', error);
+      }
+    }
+  };
+
   const formatFileSize = (bytes: number): string => {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
@@ -374,12 +450,8 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
               backgroundColor: 'transparent',
             }
           }}>
-            {fieldValue ? (
+            {fieldValue && (
               <MDEditor.Markdown source={fieldValue} />
-            ) : (
-              <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', p: 1 }}>
-                No value
-              </Typography>
             )}
           </Box>
         </Box>
@@ -599,6 +671,15 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
                 <ListItemText>Download</ListItemText>
               </MenuItem>
             )}
+            <MenuItem
+              onClick={() => { handlePrint(); setMenuAnchorEl(null); }}
+              disabled={!formData}
+            >
+              <ListItemIcon>
+                <Print fontSize="small" />
+              </ListItemIcon>
+              <ListItemText>Print</ListItemText>
+            </MenuItem>
           </Menu>
         </DialogTitle>
         <DialogContent>
@@ -679,6 +760,12 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
                 <ListItemText>Download</ListItemText>
               </MenuItem>
             )}
+            <MenuItem onClick={() => { handlePrint(); setMenuAnchorEl(null); }}>
+              <ListItemIcon>
+                <Print fontSize="small" />
+              </ListItemIcon>
+              <ListItemText>Print</ListItemText>
+            </MenuItem>
           </Menu>
         </Box>
       </DialogTitle>
@@ -764,8 +851,24 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
             </Box>
           )}
         </Box>
-        
+
       </DialogActions>
+
+      <PrintSecurityWarningDialog
+        open={printWarningOpen}
+        onClose={() => setPrintWarningOpen(false)}
+        onConfirm={() => {
+          setPrintWarningOpen(false);
+          performPrint();
+        }}
+        onNeverShowAgain={() => {
+          setPrintWarningOpen(false);
+          handleNeverShowPrintWarning();
+          performPrint();
+        }}
+        fileName={formData?.metadata.name || 'form'}
+        isForm={true}
+      />
     </Dialog>
   );
 };

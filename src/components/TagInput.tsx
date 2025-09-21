@@ -205,12 +205,15 @@ const TagInput: React.FC<TagInputProps> = ({
               }}
             />
           )}
-          renderOption={(props, option) => (
-            <Box component="li" {...props}>
-              <LocalOffer fontSize="small" sx={{ mr: 1, color: 'primary.main' }} />
-              {option}
-            </Box>
-          )}
+          renderOption={(props, option) => {
+            const { key, ...otherProps } = props;
+            return (
+              <Box component="li" key={key} {...otherProps}>
+                <LocalOffer fontSize="small" sx={{ mr: 1, color: 'primary.main' }} />
+                {option}
+              </Box>
+            );
+          }}
           PaperComponent={(props) => (
             <Paper {...props} elevation={3}>
               {props.children}

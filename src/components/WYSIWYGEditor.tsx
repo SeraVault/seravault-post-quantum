@@ -111,16 +111,40 @@ const WYSIWYGEditor: React.FC<WYSIWYGEditorProps> = ({
       }
     }
 
-    // Handle content changes
+    // Handle content changes with debouncing
+    let changeTimeout: NodeJS.Timeout;
     const handleTextChange = () => {
       if (isUpdatingRef.current) return;
-      
-      const html = quill.root.innerHTML;
-      const cleanHtml = html === '<p><br></p>' ? '' : html;
-      onChange(cleanHtml);
+
+      // Clear previous timeout
+      if (changeTimeout) {
+        clearTimeout(changeTimeout);
+      }
+
+      // Debounce the onChange call
+      changeTimeout = setTimeout(() => {
+        const html = quill.root.innerHTML;
+        const cleanHtml = html === '<p><br></p>' ? '' : html;
+        onChange(cleanHtml);
+      }, 1000); // 1000ms debounce - longer delay to capture full text
     };
 
+    // Use multiple events to ensure we capture all changes
     quill.on('text-change', handleTextChange);
+    quill.on('editor-change', handleTextChange);
+    quill.on('selection-change', () => {
+      // Also trigger on selection change (when user clicks away)
+      if (!isUpdatingRef.current) {
+        handleTextChange();
+      }
+    });
+
+    // Cleanup function for timeout
+    const cleanup = () => {
+      if (changeTimeout) {
+        clearTimeout(changeTimeout);
+      }
+    };
 
     // Custom link handler
     (quill.getModule('toolbar') as any).addHandler('link', () => {
@@ -163,8 +187,10 @@ const WYSIWYGEditor: React.FC<WYSIWYGEditorProps> = ({
     }
 
     return () => {
+      cleanup();
       if (quillRef.current) {
         quillRef.current.off('text-change', handleTextChange);
+        quillRef.current.off('editor-change', handleTextChange);
       }
     };
   }, [disabled, placeholder, onChange, toggleFullscreen]);

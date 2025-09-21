@@ -17,6 +17,8 @@ import {
   MenuItem,
   ListItemIcon,
   ListItemText,
+  useTheme,
+  useMediaQuery,
 } from '@mui/material';
 import {
   Close,
@@ -32,15 +34,18 @@ import {
   VolumeUp,
   VolumeOff,
   MoreVert,
+  Print,
 } from '@mui/icons-material';
 import { Document, Page, pdfjs } from 'react-pdf';
+import 'react-pdf/dist/Page/TextLayer.css';
+import 'react-pdf/dist/Page/AnnotationLayer.css';
 import { useTranslation } from 'react-i18next';
 import type { FileData } from '../files';
-import { getUserProfile, type UserProfile } from '../firestore';
+import { getUserProfile, updateUserProfile, type UserProfile } from '../firestore';
+import PrintSecurityWarningDialog from './PrintSecurityWarningDialog';
 
-// Set up PDF.js worker - use local worker file for self-contained deployment
+// Set up PDF.js worker
 if (typeof window !== 'undefined') {
-  // Use the local worker file copied from pdfjs-dist package
   pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
 }
 
@@ -77,6 +82,8 @@ const FileViewer: React.FC<FileViewerProps> = ({
   onShare
 }) => {
   const { t } = useTranslation();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
@@ -92,6 +99,8 @@ const FileViewer: React.FC<FileViewerProps> = ({
     isMuted: false,
   });
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
+  const [printWarningOpen, setPrintWarningOpen] = useState(false);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 
   const dialogRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -102,6 +111,21 @@ const FileViewer: React.FC<FileViewerProps> = ({
   const fileExtension = fileName.split('.').pop()?.toLowerCase() || '';
   const mimeType = getMimeType(fileExtension);
   const fileType = getFileType(fileExtension);
+
+  // Load user profile for print warning preference
+  useEffect(() => {
+    const loadUserProfile = async () => {
+      if (userId) {
+        try {
+          const profile = await getUserProfile(userId);
+          setUserProfile(profile);
+        } catch (error) {
+          console.error('Failed to load user profile:', error);
+        }
+      }
+    };
+    loadUserProfile();
+  }, [userId]);
 
   // Load owner display name
   useEffect(() => {
@@ -116,7 +140,7 @@ const FileViewer: React.FC<FileViewerProps> = ({
         }
       }
     };
-    
+
     loadOwnerDisplayName();
   }, [file?.owner]);
 
@@ -257,6 +281,39 @@ const FileViewer: React.FC<FileViewerProps> = ({
     }
   };
 
+  const handlePrint = () => {
+    // Check if user wants to see warning (default: true)
+    const shouldShowWarning = userProfile?.showPrintWarning !== false;
+
+    if (shouldShowWarning) {
+      setPrintWarningOpen(true);
+    } else {
+      performPrint();
+    }
+  };
+
+  const performPrint = () => {
+    if (objectUrl) {
+      const printWindow = window.open(objectUrl, '_blank');
+      if (printWindow) {
+        printWindow.onload = () => {
+          printWindow.print();
+        };
+      }
+    }
+  };
+
+  const handleNeverShowPrintWarning = async () => {
+    if (userId && userProfile) {
+      try {
+        await updateUserProfile(userId, { showPrintWarning: false });
+        setUserProfile({ ...userProfile, showPrintWarning: false });
+      } catch (error) {
+        console.error('Failed to update print warning preference:', error);
+      }
+    }
+  };
+
   const renderViewer = () => {
     if (loading || !objectUrl || !file) {
       return (
@@ -303,28 +360,47 @@ const FileViewer: React.FC<FileViewerProps> = ({
 
       case 'pdf':
         return (
-          <Box sx={{ 
-            flex: 1, 
+          <Box sx={{
+            flex: 1,
             minHeight: 0,
             overflow: 'auto',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'flex-start',
+            width: '100%',
+            height: '100%',
             p: 1,
+            '& .react-pdf__Document': {
+              width: 'fit-content',
+              minWidth: '100%',
+              margin: '0 auto',
+            },
+            '& .react-pdf__Page': {
+              margin: 0,
+              boxShadow: 1,
+              display: 'block',
+            },
+            '& .react-pdf__Page__canvas': {
+              display: 'block',
+              margin: '0 auto',
+            }
           }}>
             <Document
               file={objectUrl}
-              onLoadSuccess={({ numPages }) => 
+              onLoadSuccess={({ numPages }) =>
                 setViewerState(prev => ({ ...prev, totalPages: numPages }))
               }
               loading={<CircularProgress />}
+              error={
+                <Alert severity="error" sx={{ m: 2 }}>
+                  Failed to load PDF. Please try downloading the file instead.
+                </Alert>
+              }
             >
-              <Page 
+              <Page
                 pageNumber={viewerState.currentPage}
                 scale={viewerState.zoom}
-                rotate={viewerState.rotation}
-                width={undefined}
+                width={isMobile && viewerState.zoom === 1 ? window.innerWidth - 64 : undefined}
                 height={undefined}
+                renderTextLayer={!isMobile}
+                renderAnnotationLayer={!isMobile}
               />
             </Document>
           </Box>
@@ -428,7 +504,7 @@ const FileViewer: React.FC<FileViewerProps> = ({
   const renderToolbar = () => {
     const showImageControls = fileType === 'image' || fileType === 'pdf';
     const showPageControls = fileType === 'pdf' && viewerState.totalPages > 1;
-    
+
     if (!showImageControls && !showPageControls) return null;
 
     return (
@@ -583,6 +659,12 @@ const FileViewer: React.FC<FileViewerProps> = ({
               <ListItemText>{t('common.download')}</ListItemText>
             </MenuItem>
           )}
+          <MenuItem onClick={() => { handlePrint(); setMenuAnchorEl(null); }}>
+            <ListItemIcon>
+              <Print fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>Print</ListItemText>
+          </MenuItem>
         </Menu>
       </DialogTitle>
 
@@ -673,8 +755,24 @@ const FileViewer: React.FC<FileViewerProps> = ({
             )}
           </Box>
         )}
-        
+
       </DialogActions>
+
+      <PrintSecurityWarningDialog
+        open={printWarningOpen}
+        onClose={() => setPrintWarningOpen(false)}
+        onConfirm={() => {
+          setPrintWarningOpen(false);
+          performPrint();
+        }}
+        onNeverShowAgain={() => {
+          setPrintWarningOpen(false);
+          handleNeverShowPrintWarning();
+          performPrint();
+        }}
+        fileName={fileName}
+        isForm={false}
+      />
     </Dialog>
   );
 };

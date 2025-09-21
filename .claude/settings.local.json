@@ -65,7 +65,9 @@
       "Bash(npx vite:*)",
       "Bash(chmod:*)",
       "Bash(./deploy.sh:*)",
-      "Bash(./scripts/pre-deploy-check.sh:*)"
+      "Bash(./scripts/pre-deploy-check.sh:*)",
+      "Bash(git checkout:*)",
+      "Bash(git restore:*)"
     ],
     "deny": []
   }

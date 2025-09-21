@@ -24,6 +24,9 @@ import {
 } from '@mui/icons-material';
 import { getAllUserTags, getUserTagStats } from '../services/userTagsManagement';
 import { type FileData } from '../files';
+import { useMetadata } from '../context/MetadataContext';
+import { collection, query, where, getDocs, or } from 'firebase/firestore';
+import { db } from '../firebase';
 
 interface TagFilterProps {
   files: FileData[];
@@ -46,29 +49,64 @@ const TagFilter: React.FC<TagFilterProps> = ({
   onMatchModeChange,
   className
 }) => {
+  const { preloadCompleted } = useMetadata();
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [tagStats, setTagStats] = useState<{ [tag: string]: number }>({});
   const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
 
-  // Load available tags and statistics
+  // Load available tags and statistics from ALL user files
   useEffect(() => {
     const loadTagData = async () => {
-      if (!files.length || !userId || !userPrivateKey) return;
-      
+      if (!userId || !userPrivateKey) return;
+
       try {
         setLoading(true);
-        
-        // Load all available tags and their usage counts
-        const [tags, stats] = await Promise.all([
-          getAllUserTags(files, userId, userPrivateKey),
-          getUserTagStats(files, userId, userPrivateKey)
+
+        // Fetch ALL files the user has access to (not just current folder)
+        console.log('🔍 TagFilter: Fetching all user files for tag collection...');
+
+        const ownedFilesQuery = query(
+          collection(db, 'files'),
+          where('owner', '==', userId)
+        );
+
+        const sharedFilesQuery = query(
+          collection(db, 'files'),
+          where('sharedWith', 'array-contains', userId)
+        );
+
+        const [ownedSnapshot, sharedSnapshot] = await Promise.all([
+          getDocs(ownedFilesQuery),
+          getDocs(sharedFilesQuery)
         ]);
-        
+
+        // Combine and deduplicate files
+        const allUserFiles = new Map<string, FileData>();
+
+        ownedSnapshot.docs.forEach(doc => {
+          allUserFiles.set(doc.id, { ...doc.data(), id: doc.id } as FileData);
+        });
+
+        sharedSnapshot.docs.forEach(doc => {
+          if (!allUserFiles.has(doc.id)) {
+            allUserFiles.set(doc.id, { ...doc.data(), id: doc.id } as FileData);
+          }
+        });
+
+        const allFiles = Array.from(allUserFiles.values());
+        console.log(`🔍 TagFilter: Found ${allFiles.length} total files to check for tags`);
+
+        // Load all available tags and their usage counts from ALL files
+        const [tags, stats] = await Promise.all([
+          getAllUserTags(allFiles, userId, userPrivateKey),
+          getUserTagStats(allFiles, userId, userPrivateKey)
+        ]);
+
         setAvailableTags(tags);
         setTagStats(stats);
-        
+
       } catch (error) {
         console.error('Error loading tag data:', error);
       } finally {
@@ -77,7 +115,61 @@ const TagFilter: React.FC<TagFilterProps> = ({
     };
 
     loadTagData();
-  }, [files, userId, userPrivateKey]);
+  }, [userId, userPrivateKey]); // Removed files dependency since we fetch all files
+
+  // Refresh tags when metadata preload completes (React pattern)
+  useEffect(() => {
+    if (preloadCompleted && userId && userPrivateKey) {
+      console.log('🏷️ Metadata preload completed, refreshing tag list from ALL files via React context...');
+
+      const refreshTags = async () => {
+        try {
+          // Re-fetch ALL user files and get their tags
+          const ownedFilesQuery = query(
+            collection(db, 'files'),
+            where('owner', '==', userId)
+          );
+
+          const sharedFilesQuery = query(
+            collection(db, 'files'),
+            where('sharedWith', 'array-contains', userId)
+          );
+
+          const [ownedSnapshot, sharedSnapshot] = await Promise.all([
+            getDocs(ownedFilesQuery),
+            getDocs(sharedFilesQuery)
+          ]);
+
+          // Combine and deduplicate files
+          const allUserFiles = new Map<string, FileData>();
+
+          ownedSnapshot.docs.forEach(doc => {
+            allUserFiles.set(doc.id, { ...doc.data(), id: doc.id } as FileData);
+          });
+
+          sharedSnapshot.docs.forEach(doc => {
+            if (!allUserFiles.has(doc.id)) {
+              allUserFiles.set(doc.id, { ...doc.data(), id: doc.id } as FileData);
+            }
+          });
+
+          const allFiles = Array.from(allUserFiles.values());
+
+          const [tags, stats] = await Promise.all([
+            getAllUserTags(allFiles, userId, userPrivateKey),
+            getUserTagStats(allFiles, userId, userPrivateKey)
+          ]);
+
+          setAvailableTags(tags);
+          setTagStats(stats);
+        } catch (error) {
+          console.error('Error refreshing tag data after preload:', error);
+        }
+      };
+
+      refreshTags();
+    }
+  }, [preloadCompleted, userId, userPrivateKey]);
 
   const handleTagToggle = (tag: string) => {
     if (selectedTags.includes(tag)) {

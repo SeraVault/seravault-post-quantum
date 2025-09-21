@@ -145,6 +145,7 @@ const PassphraseProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setLoading(false);
       setPassphraseDialogOpen(false);
       setUserDismissed(false);
+      // Metadata preloading is now handled by MetadataContext
     } catch (error) {
       console.error('Failed to unlock private key:', error);
       setLoading(false);

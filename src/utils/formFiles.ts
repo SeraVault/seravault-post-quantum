@@ -212,6 +212,7 @@ export async function updateFormFile(
   userId: string,
   privateKey: string
 ): Promise<void> {
+
   try {
     // Get the existing file to preserve sharing and encryption keys
     const { getDoc, doc } = await import('firebase/firestore');
@@ -340,7 +341,6 @@ export async function saveFormAsFile(
 
     // Create JSON content
     const jsonString = JSON.stringify(updatedFormData, null, 2);
-    console.log('JSON content created, length:', jsonString.length);
     
     // Convert JSON to bytes for encryption
     const content = new TextEncoder().encode(jsonString);
@@ -517,7 +517,8 @@ export function updateFormData(
   fieldId: string,
   value: string | string[]
 ): SecureFormData {
-  return {
+
+  const result = {
     ...formData,
     data: {
       ...formData.data,
@@ -528,6 +529,8 @@ export function updateFormData(
       modified: new Date().toISOString(),
     },
   };
+
+  return result;
 }
 
 /**

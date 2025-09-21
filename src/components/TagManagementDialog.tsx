@@ -8,6 +8,9 @@ import {
   Typography,
   Box,
   CircularProgress,
+  Chip,
+  useTheme,
+  useMediaQuery,
 } from '@mui/material';
 import { LocalOffer, Close } from '@mui/icons-material';
 import TagInput from './TagInput';
@@ -31,6 +34,8 @@ const TagManagementDialog: React.FC<TagManagementDialogProps> = ({
   userPrivateKey,
   allFiles = []
 }) => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [loading, setLoading] = useState(false);
   const [currentTags, setCurrentTags] = useState<string[]>([]);
 
@@ -78,8 +83,12 @@ const TagManagementDialog: React.FC<TagManagementDialogProps> = ({
       onClose={handleClose}
       maxWidth="sm"
       fullWidth
+      fullScreen={isMobile}
       PaperProps={{
-        sx: { borderRadius: 2 }
+        sx: {
+          borderRadius: isMobile ? 0 : 2,
+          margin: isMobile ? 0 : 1
+        }
       }}
     >
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -90,6 +99,15 @@ const TagManagementDialog: React.FC<TagManagementDialogProps> = ({
             {fileName}
           </Typography>
         </Box>
+        {isMobile && (
+          <Button
+            onClick={handleClose}
+            size="small"
+            sx={{ minWidth: 'auto', p: 1 }}
+          >
+            <Close />
+          </Button>
+        )}
       </DialogTitle>
 
       <DialogContent>
@@ -99,24 +117,50 @@ const TagManagementDialog: React.FC<TagManagementDialogProps> = ({
           </Box>
         ) : (
           <Box sx={{ py: 2 }}>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Add or remove tags to organize your files. Tags are private and encrypted.
+            {/* Current Tags Section */}
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="subtitle2" sx={{ mb: 2 }}>
+                Current Tags {currentTags.length > 0 && `(${currentTags.length})`}
+              </Typography>
+              {currentTags.length > 0 ? (
+                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                  {currentTags.map((tag) => (
+                    <Chip
+                      key={tag}
+                      label={tag}
+                      onDelete={() => {
+                        const newTags = currentTags.filter(t => t !== tag);
+                        handleTagsChange(newTags);
+                      }}
+                      size={isMobile ? "small" : "medium"}
+                      color="primary"
+                      variant="filled"
+                    />
+                  ))}
+                </Box>
+              ) : (
+                <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                  No tags assigned to this file
+                </Typography>
+              )}
+            </Box>
+
+            {/* Add Tags Section */}
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>
+              Add New Tags
             </Typography>
-            
             <TagInput
               file={file}
               userId={userId}
               userPrivateKey={userPrivateKey}
               onTagsChange={handleTagsChange}
               allFiles={allFiles}
-              size="medium"
+              size={isMobile ? "small" : "medium"}
             />
-            
-            {currentTags.length > 0 && (
-              <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block' }}>
-                Current tags: {currentTags.join(', ')}
-              </Typography>
-            )}
+
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+              Tags help organize and search your files. They are private and encrypted.
+            </Typography>
           </Box>
         )}
       </DialogContent>

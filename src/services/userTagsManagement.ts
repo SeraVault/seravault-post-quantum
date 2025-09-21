@@ -4,7 +4,8 @@
  */
 
 import { updateFile, type FileData } from '../files';
-import { encryptMetadata, decryptMetadata, hexToBytes, decryptData } from '../crypto/quantumSafeCrypto';
+import { encryptMetadata, decryptMetadata, encryptStringToMetadata, decryptSymmetric, hexToBytes, decryptData, bytesToHex } from '../crypto/quantumSafeCrypto';
+import { metadataCache } from './metadataCache';
 
 /**
  * Get user's decrypted tags for a file
@@ -32,10 +33,17 @@ export const getUserTags = async (
     
     // Decrypt user's tags
     const encryptedTags = file.userTags[userId];
-    const decryptedData = await decryptMetadata(encryptedTags, fileKey);
-    
+
+    // Convert hex to bytes for decryption
+    const ciphertextBytes = hexToBytes(encryptedTags.ciphertext);
+    const nonceBytes = hexToBytes(encryptedTags.nonce);
+
+    // Decrypt using the file key
+    const decryptedBytes = await decryptSymmetric(ciphertextBytes, fileKey, nonceBytes);
+    const decryptedString = new TextDecoder().decode(decryptedBytes);
+
     // Parse tags from decrypted JSON
-    const tags = JSON.parse(decryptedData.tags || '[]');
+    const tags = JSON.parse(decryptedString || '[]');
     return Array.isArray(tags) ? tags : [];
     
   } catch (error) {
@@ -180,17 +188,22 @@ export const updateUserTagsInFirestore = async (
         .filter(tag => tag.length > 0)
     )];
 
-    const encryptedTags = await encryptMetadata(
-      { tags: JSON.stringify(normalizedTags) }, 
+    // Encrypt the tags array as a JSON string
+    const encryptedTags = await encryptStringToMetadata(
+      JSON.stringify(normalizedTags),
       fileKey
     );
 
     // Update the userTags field for this specific user
     const updateData: Partial<FileData> = {
-      [`userTags.${userId}`]: encryptedTags.tags
+      [`userTags.${userId}`]: encryptedTags
     } as any;
 
     await updateFile(fileId, updateData);
+
+    // Invalidate cache since tags were updated
+    metadataCache.invalidate(fileId);
+
     console.log('✅ Encrypted user tags updated successfully in Firestore');
     
   } catch (error) {
@@ -230,21 +243,38 @@ export const removeUserTagAssociation = (file: FileData, userId: string): FileDa
  * Get all unique tags for a user across all their files (requires decryption)
  */
 export const getAllUserTags = async (
-  files: FileData[], 
-  userId: string, 
+  files: FileData[],
+  userId: string,
   userPrivateKey: string
 ): Promise<string[]> => {
+  console.log(`🏷️ Getting all user tags for ${files.length} files using cache...`);
+  const startTime = Date.now();
+
   const allTags = new Set<string>();
-  
+
   for (const file of files) {
     try {
-      const userTags = await getUserTags(file, userId, userPrivateKey);
+      // Try to get tags from cache first
+      const cached = metadataCache.get(file.id!);
+      let userTags: string[];
+
+      if (cached && 'tags' in cached) {
+        // Use cached tags - instant performance!
+        userTags = cached.tags;
+      } else {
+        // Fallback to decryption if not in cache
+        userTags = await getUserTags(file, userId, userPrivateKey);
+      }
+
       userTags.forEach(tag => allTags.add(tag));
     } catch (error) {
       console.warn('Failed to decrypt tags for file:', file.id, error);
     }
   }
-  
+
+  const endTime = Date.now();
+  console.log(`🏷️ Got all user tags in ${endTime - startTime}ms: ${allTags.size} unique tags`);
+
   return Array.from(allTags).sort();
 };
 
@@ -252,24 +282,38 @@ export const getAllUserTags = async (
  * Filter files by tags for a specific user (requires decryption)
  */
 export const filterFilesByUserTags = async (
-  files: FileData[], 
-  userId: string, 
+  files: FileData[],
+  userId: string,
   userPrivateKey: string,
-  selectedTags: string[], 
+  selectedTags: string[],
   matchAll: boolean = false
 ): Promise<FileData[]> => {
   if (selectedTags.length === 0) {
     return files;
   }
 
+  console.log(`🏷️ Filtering ${files.length} files by tags using cache...`);
+  const startTime = Date.now();
+
   const normalizedSelectedTags = selectedTags.map(tag => tag.toLowerCase());
   const matchingFiles: FileData[] = [];
 
   for (const file of files) {
     try {
-      const userTags = await getUserTags(file, userId, userPrivateKey);
+      // Try to get tags from cache first
+      const cached = metadataCache.get(file.id!);
+      let userTags: string[];
+
+      if (cached && 'tags' in cached) {
+        // Use cached tags - instant performance!
+        userTags = cached.tags;
+      } else {
+        // Fallback to decryption if not in cache
+        userTags = await getUserTags(file, userId, userPrivateKey);
+      }
+
       const normalizedUserTags = userTags.map(tag => tag.toLowerCase());
-      
+
       let matches = false;
       if (matchAll) {
         // AND logic: file must have ALL selected tags
@@ -287,6 +331,9 @@ export const filterFilesByUserTags = async (
     }
   }
 
+  const endTime = Date.now();
+  console.log(`🏷️ Tag filtering completed in ${endTime - startTime}ms: ${matchingFiles.length}/${files.length} files match`);
+
   return matchingFiles;
 };
 
@@ -294,15 +341,29 @@ export const filterFilesByUserTags = async (
  * Get tag statistics for a user (requires decryption)
  */
 export const getUserTagStats = async (
-  files: FileData[], 
-  userId: string, 
+  files: FileData[],
+  userId: string,
   userPrivateKey: string
 ): Promise<{ [tag: string]: number }> => {
+  console.log(`📊 Getting tag statistics for ${files.length} files using cache...`);
+  const startTime = Date.now();
+
   const tagCounts: { [tag: string]: number } = {};
-  
+
   for (const file of files) {
     try {
-      const userTags = await getUserTags(file, userId, userPrivateKey);
+      // Try to get tags from cache first
+      const cached = metadataCache.get(file.id!);
+      let userTags: string[];
+
+      if (cached && 'tags' in cached) {
+        // Use cached tags - instant performance!
+        userTags = cached.tags;
+      } else {
+        // Fallback to decryption if not in cache
+        userTags = await getUserTags(file, userId, userPrivateKey);
+      }
+
       userTags.forEach(tag => {
         tagCounts[tag] = (tagCounts[tag] || 0) + 1;
       });
@@ -310,7 +371,11 @@ export const getUserTagStats = async (
       console.warn('Failed to decrypt tags for stats:', file.id, error);
     }
   }
-  
+
+  const endTime = Date.now();
+  const uniqueTags = Object.keys(tagCounts).length;
+  console.log(`📊 Tag statistics completed in ${endTime - startTime}ms: ${uniqueTags} unique tags`);
+
   return tagCounts;
 };
 

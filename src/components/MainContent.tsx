@@ -18,10 +18,11 @@ import {
   FormControlLabel,
   Checkbox,
 } from '@mui/material';
-import { 
+import {
   AccessTime,
   Clear,
   ContentCopy,
+  ContentCut,
   ContentPaste,
   Delete,
   Star,
@@ -31,6 +32,7 @@ import { useAuth } from '../auth/AuthContext';
 import { usePassphrase } from '../auth/PassphraseContext';
 import { useClipboard } from '../context/ClipboardContext';
 import { useGlobalLoading } from '../context/LoadingContext';
+import { metadataCache, getOrDecryptMetadata } from '../services/metadataCache';
 import { useRecents } from '../context/RecentsContext';
 import { useFolders } from '../hooks/useFolders';
 import { 
@@ -188,7 +190,10 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
       // Clear all decrypted file data
       setFiles([]);
       setFilteredFiles([]);
-      
+
+      // Clear metadata cache since user session is ending
+      metadataCache.clear();
+
       // Close any open viewers/dialogs
       setFileViewerOpen(false);
       setSelectedFile(null);
@@ -476,31 +481,69 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
     });
   }, [folders, allFolders, searchQuery]);
 
-  // Update filtered files when search query, tags, or files change
+  // Debounced search and filtering with cached metadata
   useEffect(() => {
     let isMounted = true;
-    
+    let timeoutId: NodeJS.Timeout;
+
     const updateFilteredFiles = async () => {
       try {
         let result = files;
-        
-        // Apply search filter first
+
+        // Apply search filter first (using cached metadata)
         if (searchQuery.trim()) {
+          console.log('🔍 Starting search with cache...');
+          const startTime = Date.now();
+
           result = await searchItemsRecursively(searchQuery);
+
+          const endTime = Date.now();
+          console.log(`🔍 Search completed in ${endTime - startTime}ms`);
         }
-        
-        // Apply tag filter
+
+        // Apply tag filter using pre-cached metadata for instant vault-wide performance
         if (selectedTags.length > 0 && user?.uid && privateKey) {
-          const { filterFilesByUserTags } = await import('../services/userTagsManagement');
-          result = await filterFilesByUserTags(
-            result, 
-            user.uid, 
-            privateKey, 
-            selectedTags, 
-            matchAllTags
-          );
+          console.log('🏷️ Starting instant vault-wide tag filter using cached metadata...');
+          const startTime = Date.now();
+
+          // Get ALL cached file metadata - truly instant performance!
+          const allCachedMetadata = metadataCache.getAllCachedFileMetadata();
+          console.log(`📊 Found ${allCachedMetadata.size} cached files for instant tag filtering`);
+
+          // Build file list from cached metadata - no Firestore queries needed!
+          const matchingFiles: FileData[] = [];
+          const normalizedSelectedTags = selectedTags.map(tag => tag.toLowerCase());
+
+          for (const [fileId, metadata] of allCachedMetadata) {
+            const normalizedFileTags = metadata.tags.map(tag => tag.toLowerCase());
+
+            let matches = false;
+            if (matchAllTags) {
+              // AND logic: file must have ALL selected tags
+              matches = normalizedSelectedTags.every(tag => normalizedFileTags.includes(tag));
+            } else {
+              // OR logic: file must have ANY of the selected tags
+              matches = normalizedSelectedTags.some(tag => normalizedFileTags.includes(tag));
+            }
+
+            if (matches) {
+              // Create FileData object from cached metadata
+              matchingFiles.push({
+                id: fileId,
+                name: metadata.decryptedName,
+                size: metadata.decryptedSize,
+                // Note: Other fields would need to be stored or fetched if needed
+                // For tag filtering, name and size are sufficient for display
+              } as FileData);
+            }
+          }
+
+          result = matchingFiles;
+
+          const endTime = Date.now();
+          console.log(`🏷️ Instant tag filter completed in ${endTime - startTime}ms: ${matchingFiles.length} matches from ${allCachedMetadata.size} cached files`);
         }
-        
+
         if (isMounted) {
           setFilteredFiles(result);
         }
@@ -511,11 +554,14 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
         }
       }
     };
-    
-    updateFilteredFiles();
+
+    // Debounce search updates to avoid excessive filtering
+    const debounceDelay = searchQuery.trim() ? 300 : 0; // 300ms for search, instant for no search
+    timeoutId = setTimeout(updateFilteredFiles, debounceDelay);
 
     return () => {
       isMounted = false;
+      clearTimeout(timeoutId);
     };
   }, [files, searchQuery, selectedTags, matchAllTags, user?.uid, privateKey]);
 
@@ -873,49 +919,122 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
     }
   };
 
-  // Shared function to process and decrypt files
-  const processFiles = async (rawFiles: any[]) => {
+  const bulkCut = () => {
+    const totalItems = selectedFiles.size + selectedFolders.size;
+    if (totalItems === 0) return;
+
+    // Collect all selected items for bulk cut
+    const itemsToCut: Array<{ type: 'file' | 'folder', item: FileData | FolderData }> = [];
+
+    // Add selected files
+    Array.from(selectedFiles).forEach(fileId => {
+      const file = files.find(f => f.id === fileId);
+      if (file) {
+        itemsToCut.push({ type: 'file', item: file });
+      }
+    });
+
+    // Add selected folders
+    Array.from(selectedFolders).forEach(folderId => {
+      const folder = folders.find(f => f.id === folderId);
+      if (folder) {
+        itemsToCut.push({ type: 'folder', item: folder });
+      }
+    });
+
+    if (itemsToCut.length > 0) {
+      cutItems(itemsToCut);
+      clearAllSelections();
+    }
+  };
+
+  // Cached function to process and decrypt files
+  const processFiles = async (rawFiles: any[]): Promise<FileData[]> => {
     if (!user || !privateKey) {
       return [];
     }
-    
+
     const filesMap = new Map<string, FileData>();
-    
+
+    // Invalidate cache entries for files that have been modified
+    for (const fileData of rawFiles) {
+      if (fileData.modifiedAt) {
+        const modifiedTime = fileData.modifiedAt.toDate ? fileData.modifiedAt.toDate().getTime() : Date.now();
+        metadataCache.invalidateIfModified(fileData.id, modifiedTime);
+      }
+    }
+
+    // Batch check cache for all files
+    const fileIds = rawFiles.map(f => f.id);
+    const cachedEntries = metadataCache.getBatch(fileIds);
+
+    console.log(`📊 Cache stats: ${cachedEntries.size}/${rawFiles.length} files cached`);
+
+    // Separate files into cached and uncached
+    const uncachedFiles = [];
+
     for (const fileData of rawFiles) {
       if (!fileData.encryptedKeys || !fileData.encryptedKeys[user.uid]) {
         filesMap.set(fileData.id, { ...fileData, name: '[No Access]', size: '' });
         continue;
       }
 
-      try {
-        const userEncryptedKey = fileData.encryptedKeys[user.uid];
-        if (!userEncryptedKey || !privateKey) {
-          filesMap.set(fileData.id, { ...fileData, name: '[No Access]', size: '' });
-          continue;
-        }
-        
-        // Get user's personalized file name (falls back to original name)
-        const { getUserFileName } = await import('../services/userNamesManagement');
-        const decryptedName = await getUserFileName(fileData, user.uid, privateKey);
-        
-        // Decrypt file size using FileEncryptionService
-        const { FileEncryptionService } = await import('../services/fileEncryption');
-        const { size: decryptedSize } = await FileEncryptionService.decryptFileMetadata(
-          fileData.name as { ciphertext: string; nonce: string },
-          fileData.size as { ciphertext: string; nonce: string },
-          userEncryptedKey,
-          privateKey
-        );
-        
-        filesMap.set(fileData.id, { ...fileData, name: decryptedName, size: decryptedSize });
-      } catch (error) {
-        console.error('Error decrypting file metadata:', error);
-        filesMap.set(fileData.id, { ...fileData, name: '[Encrypted File]', size: '' });
+      const cached = cachedEntries.get(fileData.id);
+      if (cached) {
+        // Use cached metadata - instant performance!
+        filesMap.set(fileData.id, {
+          ...fileData,
+          name: cached.decryptedName,
+          size: cached.decryptedSize,
+        });
+      } else {
+        uncachedFiles.push(fileData);
       }
     }
-    
+
+    // Process uncached files in smaller batches to avoid blocking UI
+    const batchSize = 5;
+    for (let i = 0; i < uncachedFiles.length; i += batchSize) {
+      const batch = uncachedFiles.slice(i, i + batchSize);
+
+      if (batch.length > 0) {
+        console.log(`🔓 Decrypting metadata for ${batch.length} files (batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(uncachedFiles.length/batchSize)})`);
+      }
+
+      await Promise.all(
+        batch.map(async (fileData) => {
+          try {
+            const userEncryptedKey = fileData.encryptedKeys[user.uid];
+            if (!userEncryptedKey || !privateKey) {
+              filesMap.set(fileData.id, { ...fileData, name: '[No Access]', size: '' });
+              return;
+            }
+
+            // Use cached metadata service - this will decrypt and cache
+            const metadata = await getOrDecryptMetadata(fileData, user.uid, privateKey);
+
+            filesMap.set(fileData.id, {
+              ...fileData,
+              name: metadata.decryptedName,
+              size: metadata.decryptedSize,
+            });
+          } catch (error) {
+            console.error('Error decrypting file metadata:', error);
+            filesMap.set(fileData.id, { ...fileData, name: '[Encrypted File]', size: '' });
+          }
+        })
+      );
+    }
+
     return Array.from(filesMap.values());
   };
+
+  // Sync cache timeout with passphrase timeout preference
+  useEffect(() => {
+    // Check if user has "remember longer" preference by checking localStorage
+    const hasLongerPreference = localStorage.getItem(`rememberChoice_${user?.uid}`) === 'true';
+    metadataCache.setTimeoutPreference(hasLongerPreference);
+  }, [user?.uid]);
 
   // Load files for current folder
   // Subscribe to files with real-time updates
@@ -939,7 +1058,25 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
 
     const handleFilesUpdate = async (rawFiles: any[]) => {
       try {
-        const processedFiles = await processFiles(rawFiles);
+        console.log(`🔄 Loading ${rawFiles.length} files...`);
+
+        // Check if all files are cached for instant loading
+        const fileIds = rawFiles.map(f => f.id);
+        const cachedEntries = metadataCache.getBatch(fileIds);
+
+        let processedFiles: FileData[];
+
+        if (cachedEntries.size === rawFiles.length) {
+          // All files are cached - instant loading!
+          console.log(`⚡ All ${rawFiles.length} files cached - instant load!`);
+          processedFiles = metadataCache.buildFileDataFromCache(fileIds, rawFiles);
+        } else {
+          // Some files need processing
+          console.log(`🔓 ${rawFiles.length - cachedEntries.size}/${rawFiles.length} files need processing`);
+          processedFiles = await processFiles(rawFiles);
+        }
+
+        console.log(`✅ Finished loading ${processedFiles.length} files`);
         const sortedFiles = processedFiles.sort((a, b) => {
           // Convert to Date objects for comparison
           const dateA = a.lastModified instanceof Date ? a.lastModified : new Date(a.lastModified);
@@ -1053,8 +1190,21 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
         const { getUserFavoriteStatus } = await import('../services/userFavoritesManagement');
         const favoriteFiles = allFiles.filter((file: any) => getUserFavoriteStatus(file, user.uid));
         
-        // Process and decrypt favorite files
-        const processedFiles = await processFiles(favoriteFiles);
+        // Optimize favorite files loading with cache
+        const fileIds = favoriteFiles.map(f => f.id);
+        const cachedEntries = metadataCache.getBatch(fileIds);
+
+        let processedFiles: FileData[];
+
+        if (cachedEntries.size === favoriteFiles.length) {
+          // All favorite files are cached - instant loading!
+          console.log(`⚡ All ${favoriteFiles.length} favorite files cached - instant load!`);
+          processedFiles = metadataCache.buildFileDataFromCache(fileIds, favoriteFiles);
+        } else {
+          // Some files need processing
+          console.log(`🔓 ${favoriteFiles.length - cachedEntries.size}/${favoriteFiles.length} favorite files need processing`);
+          processedFiles = await processFiles(favoriteFiles);
+        }
         const sortedFiles = processedFiles.sort((a, b) => {
           // Convert to Date objects for comparison
           const dateA = a.lastModified instanceof Date ? a.lastModified : new Date(a.lastModified);
@@ -1865,71 +2015,96 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
 
         {/* Bulk Operations Toolbar */}
         {(selectedFolders.size > 0 || selectedFiles.size > 0) && (
-          <Box sx={{ 
-            display: 'flex', 
-            alignItems: 'center', 
+          <Box sx={{
+            display: 'flex',
+            alignItems: 'center',
             justifyContent: 'space-between',
-            backgroundColor: 'rgba(25, 118, 210, 0.08)',
-            border: '1px solid rgba(25, 118, 210, 0.2)',
+            backgroundColor: 'primary.main',
+            color: 'primary.contrastText',
             borderRadius: 1,
             p: 2,
-            mb: 2
+            mb: 2,
+            boxShadow: 1,
           }}>
-            <Typography variant="body2" color="primary">
-              {selectedFolders.size} folder{selectedFolders.size !== 1 ? 's' : ''} and {selectedFiles.size} file{selectedFiles.size !== 1 ? 's' : ''} selected
+            <Typography variant="body2" sx={{ fontWeight: 500, color: 'inherit' }}>
+              {selectedFolders.size + selectedFiles.size} item{(selectedFolders.size + selectedFiles.size) !== 1 ? 's' : ''} selected
             </Typography>
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              <Button
-                variant="outlined"
-                size="small"
-                onClick={selectAll}
-              >
-                Select All
-              </Button>
-              {selectedFiles.size > 0 && (
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              {selectedFiles.size > 0 &&
+               Array.from(selectedFiles).some(fileId => {
+                 const file = files.find(f => f.id === fileId);
+                 return file && file.sharedWith && file.sharedWith.length > 1;
+               }) && (
                 <Button
-                  variant="outlined"
+                  variant="contained"
                   color="warning"
                   size="small"
                   onClick={bulkUnshare}
                   startIcon={<Clear />}
+                  sx={{ color: 'warning.contrastText' }}
                 >
                   Unshare
                 </Button>
               )}
               {clipboardItem && (
                 <Button
-                  variant="outlined"
-                  color="primary"
+                  variant="contained"
                   size="small"
                   onClick={handlePaste}
                   startIcon={<ContentPaste />}
+                  sx={{
+                    backgroundColor: 'success.main',
+                    color: 'success.contrastText',
+                    '&:hover': { backgroundColor: 'success.dark' }
+                  }}
                 >
-                  Paste {hasMultipleItems ? `${clipboardItems.length} items` : `${clipboardItem.type}`} ({clipboardItem.operation})
+                  Paste
                 </Button>
               )}
               <Button
-                variant="outlined"
-                color="secondary"
+                variant="contained"
                 size="small"
                 onClick={bulkShare}
                 disabled={selectedFolders.size === 0 && selectedFiles.size === 0}
                 startIcon={<Share />}
+                sx={{
+                  backgroundColor: 'info.main',
+                  color: 'info.contrastText',
+                  '&:hover': { backgroundColor: 'info.dark' }
+                }}
               >
                 Share
               </Button>
               <Button
-                variant="outlined"
-                color="info"
+                variant="contained"
                 size="small"
                 onClick={bulkCopy}
                 disabled={selectedFolders.size === 0 && selectedFiles.size === 0}
                 startIcon={<ContentCopy />}
+                sx={{
+                  backgroundColor: 'secondary.main',
+                  color: 'secondary.contrastText',
+                  '&:hover': { backgroundColor: 'secondary.dark' }
+                }}
               >
                 Copy
               </Button>
               <Button
-                variant="outlined"
+                variant="contained"
+                size="small"
+                onClick={bulkCut}
+                disabled={selectedFolders.size === 0 && selectedFiles.size === 0}
+                startIcon={<ContentCut />}
+                sx={{
+                  backgroundColor: 'orange',
+                  color: 'white',
+                  '&:hover': { backgroundColor: 'darkorange' }
+                }}
+              >
+                Cut
+              </Button>
+              <Button
+                variant="contained"
                 color="error"
                 size="small"
                 onClick={showDeleteConfirmation}
@@ -1942,6 +2117,14 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
                 variant="outlined"
                 size="small"
                 onClick={clearAllSelections}
+                sx={{
+                  borderColor: 'rgba(255, 255, 255, 0.5)',
+                  color: 'inherit',
+                  '&:hover': {
+                    borderColor: 'rgba(255, 255, 255, 0.8)',
+                    backgroundColor: 'rgba(255, 255, 255, 0.1)'
+                  }
+                }}
               >
                 Clear
               </Button>
@@ -1951,7 +2134,7 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
 
         {/* File Table - shared between folder, recents, favorites, and shared view */}
         <FileTable
-          folders={isRecentsView || isFavoritesView || isSharedView ? [] : filteredFolders}
+          folders={isRecentsView || isFavoritesView || isSharedView || (selectedTags && selectedTags.length > 0) ? [] : filteredFolders}
           files={filteredFiles}
           onFolderClick={setCurrentFolder}
           onFileClick={handleFormFileClick}
@@ -2132,6 +2315,11 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
               setMobileActionMenu({ open: false, item: null, type: 'file' });
             }
           }}
+          onManageTags={mobileActionMenu.type === 'file' && mobileActionMenu.item ? () => {
+            setFileToManageTags(mobileActionMenu.item as FileData);
+            setTagManagementOpen(true);
+            setMobileActionMenu({ open: false, item: null, type: 'file' });
+          } : undefined}
           onDelete={() => {
             if (mobileActionMenu.item) {
               showSingleDeleteConfirmation(mobileActionMenu.item, mobileActionMenu.type);
@@ -2147,7 +2335,7 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
               try {
                 if (renameDialog.type === 'file') {
                   const fileData = renameDialog.item as FileData;
-                  
+
                   // Use the new per-user names service to set personalized name
                   const { setUserFileName } = await import('../services/userNamesManagement');
                   await setUserFileName(
@@ -2157,8 +2345,13 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
                     privateKey,
                     fileData
                   );
+
+                  // Invalidate cache since filename changed
+                  metadataCache.invalidate(renameDialog.item.id!);
                 } else {
                   await renameFolderWithEncryption(renameDialog.item.id!, newName, user?.uid || '');
+                  // Invalidate cache since folder name changed
+                  metadataCache.invalidate(renameDialog.item.id!);
                 }
                 setRenameDialog({ open: false, item: null, type: 'file', currentName: '' });
               } catch (error) {
@@ -2357,29 +2550,38 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
             />
           </DialogContent>
           <DialogActions>
-            <Button 
+            <Button
               onClick={() => {
                 setCopyOptionsOpen(false);
                 setItemToCopy(null);
                 setPreserveSharing(false);
+                clearClipboard(); // Clear clipboard when user cancels
               }}
             >
               Cancel
             </Button>
-            <Button 
+            <Button
               onClick={async () => {
-                if (itemToCopy) {
-                  if (itemToCopy.type === 'file') {
-                    await copyFile(itemToCopy.item as FileData, preserveSharing);
-                  } else {
-                    await copyFolder(itemToCopy.item as FolderData);
+                try {
+                  if (itemToCopy) {
+                    if (itemToCopy.type === 'file') {
+                      await copyFile(itemToCopy.item as FileData, preserveSharing);
+                    } else {
+                      await copyFolder(itemToCopy.item as FolderData);
+                    }
                   }
+                  // Clear clipboard only after successful completion
+                  clearClipboard();
+                } catch (error) {
+                  console.error('Copy operation failed:', error);
+                  // Don't clear clipboard if copy failed
+                } finally {
+                  setCopyOptionsOpen(false);
+                  setItemToCopy(null);
+                  setPreserveSharing(false);
                 }
-                setCopyOptionsOpen(false);
-                setItemToCopy(null);
-                setPreserveSharing(false);
-              }} 
-              color="primary" 
+              }}
+              color="primary"
               variant="contained"
             >
               Copy
