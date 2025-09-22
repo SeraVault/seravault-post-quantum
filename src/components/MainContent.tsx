@@ -645,43 +645,34 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
         promises.push(...folderPromises);
       }
 
-      // Delete files - need to also delete from storage
+      // Handle files - delete owned files, unshare shared files
       if (selectedFiles.size > 0) {
-        const { deleteDoc, doc } = await import('firebase/firestore');
-        const { deleteObject, ref } = await import('firebase/storage');
-        const { db } = await import('../firebase');
-        const { storage } = await import('../firebase');
-        
-        // Get file documents first to get storage paths
-        const fileDocs = await Promise.all(
-          Array.from(selectedFiles).map(async (fileId) => {
-            const { getDoc } = await import('firebase/firestore');
-            const docSnap = await getDoc(doc(db, 'files', fileId));
-            return { id: fileId, data: docSnap.data() };
-          })
-        );
+        const selectedFilesList = Array.from(selectedFiles).map(fileId =>
+          files.find(f => f.id === fileId)
+        ).filter(Boolean) as FileData[];
 
-        // Delete from storage and firestore
-        const filePromises = fileDocs.map(async (fileDoc) => {
-          const promises = [];
-          
-          // Delete from firestore
-          promises.push(deleteDoc(doc(db, 'files', fileDoc.id)).then(() => {
-          }));
-          
-          // Delete from storage if storagePath exists
-          if (fileDoc.data?.storagePath) {
-            promises.push(deleteObject(ref(storage, fileDoc.data.storagePath)).then(() => {
-            }).catch((error) => {
-              console.warn(`Failed to delete storage file ${fileDoc.data.storagePath}:`, error);
-              // Don't fail the entire operation if storage deletion fails
-            }));
-          }
-          
-          return Promise.all(promises);
-        });
-        
-        promises.push(...filePromises);
+        // Separate owned files from shared files
+        const ownedFiles = selectedFilesList.filter(file => file.owner === user.uid);
+        const sharedFiles = selectedFilesList.filter(file => file.owner !== user.uid);
+
+        console.log(`🗑️ Bulk operation: ${ownedFiles.length} owned files to delete, ${sharedFiles.length} shared files to unshare`);
+
+        // Delete owned files completely
+        if (ownedFiles.length > 0) {
+          const deletePromises = ownedFiles.map(file => deleteFile(file.id!));
+          promises.push(...deletePromises);
+        }
+
+        // Unshare shared files (remove user from sharedWith)
+        if (sharedFiles.length > 0) {
+          const { updateDoc, doc } = await import('firebase/firestore');
+          const unsharePromises = sharedFiles.map(file =>
+            updateDoc(doc(db, 'files', file.id!), {
+              sharedWith: file.sharedWith.filter(uid => uid !== user.uid)
+            })
+          );
+          promises.push(...unsharePromises);
+        }
       }
 
       await Promise.all(promises);
@@ -707,21 +698,36 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
   };
 
   const confirmSingleDelete = async () => {
-    if (!itemToDelete) return;
-    
+    if (!itemToDelete || !user) return;
+
     setSingleDeleteConfirmOpen(false);
-    
+
     try {
       if (itemToDelete.type === 'file') {
-        await deleteFile(itemToDelete.item.id!);
+        const file = itemToDelete.item as FileData;
+
+        if (file.owner === user.uid) {
+          // User owns the file - delete completely
+          console.log('🗑️ Deleting owned file:', file.id);
+          await deleteFile(file.id!);
+        } else {
+          // User doesn't own the file - just remove from sharing
+          console.log('📤 Removing self from shared file:', file.id);
+          const { updateDoc, doc } = await import('firebase/firestore');
+
+          await updateDoc(doc(db, 'files', file.id!), {
+            sharedWith: file.sharedWith.filter(uid => uid !== user.uid)
+          });
+        }
       } else {
+        // Folders are always owned by the user, so delete completely
         await deleteFolder(itemToDelete.item.id!);
       }
-      
+
       // Clear any open menus
       setContextMenu(null);
       setMobileActionMenu({ open: false, item: null, type: 'file' });
-      
+
     } catch (error) {
       console.error('Delete operation failed:', error);
     } finally {
@@ -2502,14 +2508,30 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
 
         {/* Single Item Delete Confirmation Dialog */}
         <Dialog open={singleDeleteConfirmOpen} onClose={() => setSingleDeleteConfirmOpen(false)}>
-          <DialogTitle>Confirm Delete</DialogTitle>
+          <DialogTitle>
+            {itemToDelete?.type === 'file' && (itemToDelete.item as FileData).owner !== user?.uid
+              ? 'Remove File Access'
+              : 'Confirm Delete'}
+          </DialogTitle>
           <DialogContent>
             <DialogContentText>
-              Are you sure you want to delete this {itemToDelete?.type}?
-              <br />
-              <strong>{itemToDelete && typeof itemToDelete.item.name === 'string' ? itemToDelete.item.name : '[Encrypted]'}</strong>
-              <br /><br />
-              This action cannot be undone.
+              {itemToDelete?.type === 'file' && (itemToDelete.item as FileData).owner !== user?.uid ? (
+                <>
+                  Remove your access to this shared file?
+                  <br />
+                  <strong>{itemToDelete && typeof itemToDelete.item.name === 'string' ? itemToDelete.item.name : '[Encrypted]'}</strong>
+                  <br /><br />
+                  The file will remain available to other users who have access.
+                </>
+              ) : (
+                <>
+                  Are you sure you want to delete this {itemToDelete?.type}?
+                  <br />
+                  <strong>{itemToDelete && typeof itemToDelete.item.name === 'string' ? itemToDelete.item.name : '[Encrypted]'}</strong>
+                  <br /><br />
+                  This action cannot be undone.
+                </>
+              )}
             </DialogContentText>
           </DialogContent>
           <DialogActions>
@@ -2517,7 +2539,9 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
               Cancel
             </Button>
             <Button onClick={confirmSingleDelete} color="error" variant="contained">
-              Delete
+              {itemToDelete?.type === 'file' && (itemToDelete.item as FileData).owner !== user?.uid
+                ? 'Remove Access'
+                : 'Delete'}
             </Button>
           </DialogActions>
         </Dialog>
