@@ -33,6 +33,7 @@ import { usePassphrase } from '../auth/PassphraseContext';
 import { useClipboard } from '../context/ClipboardContext';
 import { useGlobalLoading } from '../context/LoadingContext';
 import { metadataCache, getOrDecryptMetadata } from '../services/metadataCache';
+import { backendService } from '../backend/BackendService';
 import { useRecents } from '../context/RecentsContext';
 import { useFolders } from '../hooks/useFolders';
 import { 
@@ -261,36 +262,22 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
     const matchingItems: FileData[] = [];
 
     try {
-      const { query: firestoreQuery } = await import('firebase/firestore');
-      
-      // Query for all owned files (across all folders)
-      const ownedFilesQuery = firestoreQuery(
-        collection(db, 'files'),
-        where('owner', '==', user.uid)
-      );
-
-      // Query for all shared files  
-      const sharedFilesQuery = firestoreQuery(
-        collection(db, 'files'),
-        where('sharedWith', 'array-contains', user.uid)
-      );
-
-      // Execute both queries
-      const [ownedSnapshot, sharedSnapshot] = await Promise.all([
-        (await import('firebase/firestore')).getDocs(ownedFilesQuery),
-        (await import('firebase/firestore')).getDocs(sharedFilesQuery)
+      // Get all files using backend service for consistent cache integration
+      const [ownedFiles, sharedFiles] = await Promise.all([
+        backendService.files.getUserFiles(user.uid),
+        backendService.files.getSharedFiles(user.uid)
       ]);
 
       // Combine all files, avoiding duplicates
       const allFiles = new Map<string, any>();
-      
-      ownedSnapshot.docs.forEach(doc => {
-        allFiles.set(doc.id, { ...doc.data(), id: doc.id });
+
+      ownedFiles.forEach(file => {
+        allFiles.set(file.id!, file);
       });
-      
-      sharedSnapshot.docs.forEach(doc => {
-        if (!allFiles.has(doc.id)) {
-          allFiles.set(doc.id, { ...doc.data(), id: doc.id });
+
+      sharedFiles.forEach(file => {
+        if (!allFiles.has(file.id!)) {
+          allFiles.set(file.id!, file);
         }
       });
 
@@ -514,6 +501,8 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
           const matchingFiles: FileData[] = [];
           const normalizedSelectedTags = selectedTags.map(tag => tag.toLowerCase());
 
+          console.log(`🏷️ Tag filter debug: Looking for tags [${selectedTags.join(', ')}] in ${allCachedMetadata.size} cached files`);
+
           for (const [fileId, metadata] of allCachedMetadata) {
             const normalizedFileTags = metadata.tags.map(tag => tag.toLowerCase());
 
@@ -527,16 +516,25 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
             }
 
             if (matches) {
-              // Create FileData object from cached metadata
+              console.log(`✅ Found matching file: ${metadata.decryptedName} with tags [${metadata.tags.join(', ')}]`);
+
+              // Create minimal FileData object from cached metadata
+              // The issue might be missing required fields - let me add minimal required fields
               matchingFiles.push({
                 id: fileId,
                 name: metadata.decryptedName,
                 size: metadata.decryptedSize,
-                // Note: Other fields would need to be stored or fetched if needed
-                // For tag filtering, name and size are sufficient for display
+                owner: '', // Will be filled by processFiles if needed
+                sharedWith: [],
+                storagePath: '',
+                encryptedKeys: {},
+                createdAt: null,
+                parent: null,
               } as FileData);
             }
           }
+
+          console.log(`🏷️ Tag filter found ${matchingFiles.length} matching files`);
 
           result = matchingFiles;
 
@@ -663,11 +661,10 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
           promises.push(...deletePromises);
         }
 
-        // Unshare shared files (remove user from sharedWith)
+        // Unshare shared files (remove user from sharedWith) - using backend service
         if (sharedFiles.length > 0) {
-          const { updateDoc, doc } = await import('firebase/firestore');
           const unsharePromises = sharedFiles.map(file =>
-            updateDoc(doc(db, 'files', file.id!), {
+            backendService.files.update(file.id!, {
               sharedWith: file.sharedWith.filter(uid => uid !== user.uid)
             })
           );
@@ -711,11 +708,10 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
           console.log('🗑️ Deleting owned file:', file.id);
           await deleteFile(file.id!);
         } else {
-          // User doesn't own the file - just remove from sharing
+          // User doesn't own the file - just remove from sharing using backend service
           console.log('📤 Removing self from shared file:', file.id);
-          const { updateDoc, doc } = await import('firebase/firestore');
 
-          await updateDoc(doc(db, 'files', file.id!), {
+          await backendService.files.update(file.id!, {
             sharedWith: file.sharedWith.filter(uid => uid !== user.uid)
           });
         }
@@ -1077,9 +1073,10 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
           console.log(`⚡ All ${rawFiles.length} files cached - instant load!`);
           processedFiles = metadataCache.buildFileDataFromCache(fileIds, rawFiles);
         } else {
-          // Some files need processing
+          // Some files need processing - this will also update the cache
           console.log(`🔓 ${rawFiles.length - cachedEntries.size}/${rawFiles.length} files need processing`);
           processedFiles = await processFiles(rawFiles);
+          console.log(`📊 Cache now contains ${metadataCache.getStats().size} files after processing`);
         }
 
         console.log(`✅ Finished loading ${processedFiles.length} files`);
@@ -1108,16 +1105,11 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
     
     const setupSubscription = async () => {
       try {
-        const { subscribeToFilesInFolder } = await import('../firestore');
-        unsubscribe = subscribeToFilesInFolder(
-          currentFolder,
+        // Use backend service for reactive file subscriptions
+        unsubscribe = backendService.files.subscribe(
           user.uid,
-          handleFilesUpdate,
-          (error) => {
-            console.error('Error in files subscription:', error);
-            setLoading(false);
-            setIsDataLoading(false);
-          }
+          currentFolder,
+          handleFilesUpdate
         );
       } catch (error) {
         console.error('Error setting up files subscription:', error);
@@ -1183,18 +1175,38 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
       setIsDataLoading(true);
 
       try {
-        // Query all files where the user has access
-        const allFilesQuery = query(
-          collection(db, 'files'),
-          where('sharedWith', 'array-contains', user.uid)
-        );
-        
-        const querySnapshot = await getDocs(allFilesQuery);
-        const allFiles = querySnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
-        
-        // Filter files that are favorites for this user and process them
+        // Get all files the user has access to using backend service
+        const [ownedFiles, sharedFiles] = await Promise.all([
+          backendService.files.getUserFiles(user.uid),
+          backendService.files.getSharedFiles(user.uid)
+        ]);
+
+        // Combine and deduplicate files
+        const allUserFiles = new Map<string, any>();
+
+        ownedFiles.forEach(file => {
+          allUserFiles.set(file.id!, file);
+        });
+
+        sharedFiles.forEach(file => {
+          if (!allUserFiles.has(file.id!)) {
+            allUserFiles.set(file.id!, file);
+          }
+        });
+
+        const allFiles = Array.from(allUserFiles.values());
+
+        // Filter files that are favorites for this user
         const { getUserFavoriteStatus } = await import('../services/userFavoritesManagement');
-        const favoriteFiles = allFiles.filter((file: any) => getUserFavoriteStatus(file, user.uid));
+        console.log(`⭐ Checking ${allFiles.length} files for favorite status...`);
+        const favoriteFiles = allFiles.filter((file: any) => {
+          const isFavorite = getUserFavoriteStatus(file, user.uid);
+          if (isFavorite) {
+            console.log(`⭐ Found favorite file: ${file.id}`);
+          }
+          return isFavorite;
+        });
+        console.log(`⭐ Found ${favoriteFiles.length} favorite files out of ${allFiles.length} total`);
         
         // Optimize favorite files loading with cache
         const fileIds = favoriteFiles.map(f => f.id);
@@ -1240,15 +1252,36 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
       return;
     }
 
-    setLoading(true);
-    setIsDataLoading(true);
+    const loadSharedFiles = async () => {
+      setLoading(true);
+      setIsDataLoading(true);
 
-    // Query for files shared with user (but not owned by them)
-    const sharedFilesQuery = query(
-      collection(db, 'files'),
-      where('sharedWith', 'array-contains', user.uid)
-    );
+      try {
+        // Get files shared with user using backend service
+        const sharedFiles = await backendService.files.getSharedFiles(user.uid);
 
+        // Filter out files owned by the user (only show files shared BY others)
+        const actuallySharedFiles = sharedFiles.filter((file: any) => file.owner !== user.uid);
+
+        // Process shared files with cache
+        const processedFiles = await processFiles(actuallySharedFiles);
+
+        setFiles(processedFiles);
+        setFilteredFiles(processedFiles);
+        setLoading(false);
+        setIsDataLoading(false);
+      } catch (error) {
+        console.error('Error loading shared files:', error);
+        setFiles([]);
+        setFilteredFiles([]);
+        setLoading(false);
+        setIsDataLoading(false);
+      }
+    };
+
+    loadSharedFiles();
+
+    // Legacy code - can be removed after testing
     const sharedFilesMap = new Map<string, FileData>();
 
     const processSharedResults = async (snapshot: any) => {
@@ -1832,7 +1865,14 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
       currentFolder={currentFolder}
       privateKey={privateKey || ''}
       onUploadComplete={() => {
-        // Files will refresh automatically via the snapshot listener
+        // Files should refresh automatically via the snapshot listener
+        // But add a small delay and manual refresh as fallback
+        console.log('📁 Upload completed, triggering UI refresh...');
+        setTimeout(() => {
+          // Force refresh by toggling a state variable
+          setIsDataLoading(true);
+          setTimeout(() => setIsDataLoading(false), 100);
+        }, 500);
       }}
     >
 

@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Box, Button, TextField, Typography, Alert, Container, Paper, Divider } from '@mui/material';
-import { createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
-import { auth } from '../firebase';
+import { backendService } from '../backend/BackendService';
 import { useNavigate, Link } from 'react-router-dom';
 import { createUserProfile } from '../firestore';
 
@@ -19,8 +18,7 @@ const SignupPage: React.FC = () => {
       return;
     }
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
+      const user = await backendService.auth.signUp(email, password);
       await createUserProfile(user.uid, {
         displayName: user.displayName || email,
         email: user.email || '',

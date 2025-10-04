@@ -25,8 +25,7 @@ import {
 import { getAllUserTags, getUserTagStats } from '../services/userTagsManagement';
 import { type FileData } from '../files';
 import { useMetadata } from '../context/MetadataContext';
-import { collection, query, where, getDocs, or } from 'firebase/firestore';
-import { db } from '../firebase';
+import { backendService } from '../backend/BackendService';
 
 interface TagFilterProps {
   files: FileData[];
@@ -49,7 +48,7 @@ const TagFilter: React.FC<TagFilterProps> = ({
   onMatchModeChange,
   className
 }) => {
-  const { preloadCompleted } = useMetadata();
+  const { preloadCompleted, refreshCounter } = useMetadata();
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [tagStats, setTagStats] = useState<{ [tag: string]: number }>({});
   const [expanded, setExpanded] = useState(false);
@@ -64,34 +63,24 @@ const TagFilter: React.FC<TagFilterProps> = ({
       try {
         setLoading(true);
 
-        // Fetch ALL files the user has access to (not just current folder)
+        // Fetch ALL files the user has access to using backend service
         console.log('🔍 TagFilter: Fetching all user files for tag collection...');
 
-        const ownedFilesQuery = query(
-          collection(db, 'files'),
-          where('owner', '==', userId)
-        );
-
-        const sharedFilesQuery = query(
-          collection(db, 'files'),
-          where('sharedWith', 'array-contains', userId)
-        );
-
-        const [ownedSnapshot, sharedSnapshot] = await Promise.all([
-          getDocs(ownedFilesQuery),
-          getDocs(sharedFilesQuery)
+        const [ownedFiles, sharedFiles] = await Promise.all([
+          backendService.files.getUserFiles(userId),
+          backendService.files.getSharedFiles(userId)
         ]);
 
         // Combine and deduplicate files
         const allUserFiles = new Map<string, FileData>();
 
-        ownedSnapshot.docs.forEach(doc => {
-          allUserFiles.set(doc.id, { ...doc.data(), id: doc.id } as FileData);
+        ownedFiles.forEach(file => {
+          allUserFiles.set(file.id!, file as FileData);
         });
 
-        sharedSnapshot.docs.forEach(doc => {
-          if (!allUserFiles.has(doc.id)) {
-            allUserFiles.set(doc.id, { ...doc.data(), id: doc.id } as FileData);
+        sharedFiles.forEach(file => {
+          if (!allUserFiles.has(file.id!)) {
+            allUserFiles.set(file.id!, file as FileData);
           }
         });
 
@@ -115,7 +104,7 @@ const TagFilter: React.FC<TagFilterProps> = ({
     };
 
     loadTagData();
-  }, [userId, userPrivateKey]); // Removed files dependency since we fetch all files
+  }, [userId, userPrivateKey, refreshCounter]); // React to refresh counter changes
 
   // Refresh tags when metadata preload completes (React pattern)
   useEffect(() => {
@@ -124,32 +113,22 @@ const TagFilter: React.FC<TagFilterProps> = ({
 
       const refreshTags = async () => {
         try {
-          // Re-fetch ALL user files and get their tags
-          const ownedFilesQuery = query(
-            collection(db, 'files'),
-            where('owner', '==', userId)
-          );
-
-          const sharedFilesQuery = query(
-            collection(db, 'files'),
-            where('sharedWith', 'array-contains', userId)
-          );
-
-          const [ownedSnapshot, sharedSnapshot] = await Promise.all([
-            getDocs(ownedFilesQuery),
-            getDocs(sharedFilesQuery)
+          // Re-fetch ALL user files using backend service
+          const [ownedFiles, sharedFiles] = await Promise.all([
+            backendService.files.getUserFiles(userId),
+            backendService.files.getSharedFiles(userId)
           ]);
 
           // Combine and deduplicate files
           const allUserFiles = new Map<string, FileData>();
 
-          ownedSnapshot.docs.forEach(doc => {
-            allUserFiles.set(doc.id, { ...doc.data(), id: doc.id } as FileData);
+          ownedFiles.forEach(file => {
+            allUserFiles.set(file.id!, file as FileData);
           });
 
-          sharedSnapshot.docs.forEach(doc => {
-            if (!allUserFiles.has(doc.id)) {
-              allUserFiles.set(doc.id, { ...doc.data(), id: doc.id } as FileData);
+          sharedFiles.forEach(file => {
+            if (!allUserFiles.has(file.id!)) {
+              allUserFiles.set(file.id!, file as FileData);
             }
           });
 
@@ -271,28 +250,7 @@ const TagFilter: React.FC<TagFilterProps> = ({
         </MenuItem>
       </Menu>
 
-      {/* Active Filters Display */}
-      {hasFilters && (
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mb: 1 }}>
-          {selectedTags.map((tag) => (
-            <Chip
-              key={tag}
-              label={`${tag} (${tagStats[tag] || 0})`}
-              size="small"
-              color="primary"
-              variant="filled"
-              icon={<LocalOffer fontSize="small" />}
-              onDelete={() => handleTagToggle(tag)}
-              sx={{ 
-                fontSize: '0.75rem',
-                '& .MuiChip-deleteIcon': {
-                  fontSize: '14px',
-                }
-              }}
-            />
-          ))}
-        </Box>
-      )}
+      {/* Removed duplicate Active Filters Display - selection is shown in main list with color */}
 
       {/* Expandable Tag Selection */}
       <Collapse in={expanded}>

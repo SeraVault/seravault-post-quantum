@@ -16,6 +16,7 @@ import { LocalOffer, Close } from '@mui/icons-material';
 import TagInput from './TagInput';
 import { getUserTags } from '../services/userTagsManagement';
 import { type FileData } from '../files';
+import { useMetadata } from '../context/MetadataContext';
 
 interface TagManagementDialogProps {
   open: boolean;
@@ -36,6 +37,7 @@ const TagManagementDialog: React.FC<TagManagementDialogProps> = ({
 }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const { triggerTagRefresh } = useMetadata();
   const [loading, setLoading] = useState(false);
   const [currentTags, setCurrentTags] = useState<string[]>([]);
 
@@ -153,7 +155,11 @@ const TagManagementDialog: React.FC<TagManagementDialogProps> = ({
               file={file}
               userId={userId}
               userPrivateKey={userPrivateKey}
-              onTagsChange={handleTagsChange}
+              onTagsChange={(newTags) => {
+                handleTagsChange(newTags);
+                // Trigger tag refresh in sidebar after tags are saved
+                triggerTagRefresh();
+              }}
               allFiles={allFiles}
               size={isMobile ? "small" : "medium"}
             />

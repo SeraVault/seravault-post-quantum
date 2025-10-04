@@ -1,3 +1,5 @@
+import { backendService, type FileRecord } from './backend/BackendService';
+// Legacy imports for gradual migration
 import { collection, addDoc, serverTimestamp, doc, updateDoc, FieldValue, deleteDoc, getDoc } from 'firebase/firestore';
 import { deleteObject, ref } from 'firebase/storage';
 import { db, storage } from './firebase';
@@ -35,8 +37,7 @@ export const createFile = async (fileData: Omit<FileData, 'createdAt'>) => {
 
 export const updateFile = async (fileId: string, data: Partial<FileData>) => {
   try {
-    const docRef = doc(db, 'files', fileId);
-    await updateDoc(docRef, data);
+    await backendService.files.update(fileId, data);
   } catch (error) {
     console.error('Error updating file in Firestore:', error);
     throw error;
@@ -110,17 +111,16 @@ export const deleteFile = async (fileId: string) => {
     const docRef = doc(db, 'files', fileId);
     
     // First get the file document to retrieve the storage path and owner
-    const fileDoc = await getDoc(docRef);
+    const fileData = await backendService.files.get(fileId);
     let fileOwner: string | undefined;
-    
-    if (fileDoc.exists()) {
-      const fileData = fileDoc.data() as FileData;
+
+    if (fileData) {
       fileOwner = fileData.owner;
       
-      // Delete from Firebase Storage if storage path exists
+      // Delete from storage if storage path exists
       if (fileData.storagePath) {
         try {
-          await deleteObject(ref(storage, fileData.storagePath));
+          await backendService.storage.delete(fileData.storagePath);
         } catch (storageError: any) {
           // Don't fail the entire operation if storage deletion fails
           // File might have already been deleted or path might be invalid
@@ -128,9 +128,9 @@ export const deleteFile = async (fileId: string) => {
         }
       }
     }
-    
-    // Delete the Firestore document
-    await deleteDoc(docRef);
+
+    // Delete the database document
+    await backendService.files.delete(fileId);
     
     // Invalidate storage usage cache for the file owner
     if (fileOwner) {

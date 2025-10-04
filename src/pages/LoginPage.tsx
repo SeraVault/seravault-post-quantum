@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Box, Button, TextField, Typography, Alert, Container, Paper, Divider } from '@mui/material';
-import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
-import { auth } from '../firebase';
+import { backendService } from '../backend/BackendService';
 import { useNavigate, Link } from 'react-router-dom';
 
 const LoginPage: React.FC = () => {
@@ -13,7 +12,7 @@ const LoginPage: React.FC = () => {
   const handleLogin = async () => {
     setError(null);
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      await backendService.auth.signIn(email, password);
       navigate('/');
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'An error occurred';

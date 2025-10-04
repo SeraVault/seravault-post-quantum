@@ -7,10 +7,12 @@ import {
   Paper,
   Typography,
   IconButton,
+  Button,
 } from '@mui/material';
 import { Add, LocalOffer, Close } from '@mui/icons-material';
 import { getUserTags, updateUserTagsInFirestore, getAllUserTags } from '../services/userTagsManagement';
 import { type FileData } from '../files';
+import { useMetadata } from '../context/MetadataContext';
 
 interface TagInputProps {
   file: FileData;
@@ -31,6 +33,7 @@ const TagInput: React.FC<TagInputProps> = ({
   disabled = false,
   size = 'small'
 }) => {
+  const { refreshCounter } = useMetadata();
   const [currentTags, setCurrentTags] = useState<string[]>([]);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [inputValue, setInputValue] = useState('');
@@ -46,9 +49,19 @@ const TagInput: React.FC<TagInputProps> = ({
         const tags = await getUserTags(file, userId, userPrivateKey);
         setCurrentTags(tags);
         
-        // Load all available tags from user's files
-        const allTags = await getAllUserTags(allFiles, userId, userPrivateKey);
+        // Load all available tags from cached metadata - instant performance!
+        const { metadataCache } = await import('../services/metadataCache');
+        const allCachedMetadata = metadataCache.getAllCachedFileMetadata();
+
+        // Collect all unique tags from cached metadata
+        const allTagsSet = new Set<string>();
+        for (const [_, metadata] of allCachedMetadata) {
+          metadata.tags.forEach(tag => allTagsSet.add(tag));
+        }
+
+        const allTags = Array.from(allTagsSet).sort();
         setAvailableTags(allTags);
+        console.log(`🏷️ TagInput: Loaded ${allTags.length} available tags from cache for suggestions`);
         
       } catch (error) {
         console.error('Error loading tags:', error);
@@ -60,7 +73,7 @@ const TagInput: React.FC<TagInputProps> = ({
     if (file && userId && userPrivateKey) {
       loadTags();
     }
-  }, [file, userId, userPrivateKey, allFiles]);
+  }, [file, userId, userPrivateKey, refreshCounter]); // React to cache updates
 
   const handleAddTag = async (newTag: string) => {
     if (!newTag.trim() || currentTags.includes(newTag.trim().toLowerCase())) {
@@ -162,9 +175,11 @@ const TagInput: React.FC<TagInputProps> = ({
         )}
       </Box>
 
-      {/* Tag Input */}
+      {/* Tag Input with Add Button */}
       {!disabled && (
-        <Autocomplete
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Autocomplete
+            sx={{ flexGrow: 1 }}
           size={size}
           options={filteredOptions}
           inputValue={inputValue}
@@ -220,6 +235,22 @@ const TagInput: React.FC<TagInputProps> = ({
             </Paper>
           )}
         />
+
+        <Button
+          variant="contained"
+          size={size}
+          onClick={() => {
+            if (inputValue.trim()) {
+              handleAddTag(inputValue.trim());
+              setInputValue('');
+            }
+          }}
+          disabled={loading || !inputValue.trim()}
+          sx={{ minWidth: 'auto', px: 2 }}
+        >
+          Add
+        </Button>
+        </Box>
       )}
     </Box>
   );

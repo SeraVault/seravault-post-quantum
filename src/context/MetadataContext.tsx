@@ -13,6 +13,8 @@ interface MetadataContextType {
     duration: number;
   } | null;
   refreshTags: () => void;
+  triggerTagRefresh: () => void; // New method to trigger tag refresh
+  refreshCounter: number; // Expose refresh counter for components to watch
 }
 
 const MetadataContext = createContext<MetadataContextType>({
@@ -20,6 +22,8 @@ const MetadataContext = createContext<MetadataContextType>({
   preloadCompleted: false,
   preloadStats: null,
   refreshTags: () => {},
+  triggerTagRefresh: () => {},
+  refreshCounter: 0,
 });
 
 const MetadataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -32,6 +36,12 @@ const MetadataProvider: React.FC<{ children: React.ReactNode }> = ({ children })
 
   // Trigger refresh for components that need to update after preload
   const refreshTags = () => {
+    setRefreshCounter(prev => prev + 1);
+  };
+
+  // Trigger tag refresh when individual files are modified
+  const triggerTagRefresh = () => {
+    console.log('🏷️ Triggering tag refresh due to file/tag updates...');
     setRefreshCounter(prev => prev + 1);
   };
 
@@ -88,6 +98,8 @@ const MetadataProvider: React.FC<{ children: React.ReactNode }> = ({ children })
     preloadCompleted,
     preloadStats,
     refreshTags,
+    triggerTagRefresh,
+    refreshCounter,
   };
 
   return (

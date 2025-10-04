@@ -1,6 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import { type User, onAuthStateChanged, signOut } from 'firebase/auth';
-import { auth } from '../firebase';
+import { backendService, type User } from '../backend/BackendService';
 
 interface AuthContextType {
   user: User | null;
@@ -25,7 +24,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         detail: { reason: 'user_logout' }
       }));
       
-      await signOut(auth);
+      await backendService.auth.signOut();
       
       // Clear any stored sensitive data
       localStorage.removeItem('encryptedPrivateKey');
@@ -38,7 +37,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const unsubscribe = backendService.auth.onAuthStateChanged((user) => {
       setUser(user);
       setLoading(false);
     });

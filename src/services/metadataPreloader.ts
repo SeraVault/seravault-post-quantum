@@ -3,8 +3,7 @@
  * This makes search and navigation instant by pre-decrypting all filenames, sizes, and tags
  */
 
-import { collection, query, where, getDocs, or } from 'firebase/firestore';
-import { db } from '../firebase';
+import { backendService } from '../backend/BackendService';
 import { metadataCache, getOrDecryptMetadata } from './metadataCache';
 import type { FileData } from '../files';
 
@@ -38,34 +37,23 @@ export class MetadataPreloader {
     try {
       const startTime = Date.now();
 
-      // Query for all files the user has access to
-      const ownedFilesQuery = query(
-        collection(db, 'files'),
-        where('owner', '==', userId)
-      );
-
-      const sharedFilesQuery = query(
-        collection(db, 'files'),
-        where('sharedWith', 'array-contains', userId)
-      );
-
-      // Execute both queries in parallel
-      console.log('📡 Fetching all user files from Firestore...');
-      const [ownedSnapshot, sharedSnapshot] = await Promise.all([
-        getDocs(ownedFilesQuery),
-        getDocs(sharedFilesQuery)
+      // Query for all files the user has access to using backend service
+      console.log('📡 Fetching all user files from backend...');
+      const [ownedFiles, sharedFiles] = await Promise.all([
+        backendService.files.getUserFiles(userId),
+        backendService.files.getSharedFiles(userId)
       ]);
 
       // Combine and deduplicate files
       const allFiles = new Map<string, any>();
 
-      ownedSnapshot.docs.forEach(doc => {
-        allFiles.set(doc.id, { ...doc.data(), id: doc.id });
+      ownedFiles.forEach(file => {
+        allFiles.set(file.id!, file);
       });
 
-      sharedSnapshot.docs.forEach(doc => {
-        if (!allFiles.has(doc.id)) {
-          allFiles.set(doc.id, { ...doc.data(), id: doc.id });
+      sharedFiles.forEach(file => {
+        if (!allFiles.has(file.id!)) {
+          allFiles.set(file.id!, file);
         }
       });
 

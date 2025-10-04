@@ -80,16 +80,8 @@ const FormInstanceFiller: React.FC<FormInstanceFillerProps> = ({
             }
           };
         }
-        // If form name exists but titleField is empty, sync to titleField
-        else if (initialFormData.metadata.name && !titleFieldValue) {
-          initialFormData = {
-            ...initialFormData,
-            data: {
-              ...initialFormData.data,
-              [initialFormData.template.titleField]: initialFormData.metadata.name
-            }
-          };
-        }
+        // Don't auto-fill titleField from form name - let user fill it manually
+        // This prevents auto-filling "Credit Card" into the title field
       }
       
       setFormData(initialFormData);
@@ -177,16 +169,7 @@ const FormInstanceFiller: React.FC<FormInstanceFillerProps> = ({
         metadata: { ...prev.metadata, name }
       };
       
-      // If template has a titleField, sync the field data as well
-      if (prev.template?.titleField) {
-        updatedFormData = {
-          ...updatedFormData,
-          data: {
-            ...updatedFormData.data,
-            [prev.template.titleField]: name
-          }
-        };
-      }
+      // Don't auto-sync form name to title field - let user control both independently
       
       return updatedFormData;
     });
@@ -411,7 +394,12 @@ const FormInstanceFiller: React.FC<FormInstanceFillerProps> = ({
 
           {/* Form Metadata */}
           {formData.metadata.description && (
-            <Box sx={{ mt: 2, p: 2, backgroundColor: 'grey.50', borderRadius: 1 }}>
+            <Box sx={{
+              mt: 2,
+              p: 2,
+              backgroundColor: 'action.hover',
+              borderRadius: 1
+            }}>
               <Typography variant="body2" color="text.secondary">
                 {formData.metadata.description}
               </Typography>

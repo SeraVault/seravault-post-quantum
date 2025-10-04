@@ -1,3 +1,5 @@
+import { backendService, type UserProfile as BackendUserProfile } from './backend/BackendService';
+// Legacy imports for gradual migration
 import { doc, getDoc, setDoc, collection, addDoc, serverTimestamp, query, where, getDocs, onSnapshot, FieldValue, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from './firebase';
 
@@ -52,13 +54,7 @@ export interface Group {
 
 
 export const getUserProfile = async (uid: string): Promise<UserProfile | null> => {
-  const docRef = doc(db, 'users', uid);
-  const docSnap = await getDoc(docRef);
-  if (docSnap.exists()) {
-    return docSnap.data() as UserProfile;
-  } else {
-    return null;
-  }
+  return await backendService.users.get(uid) as UserProfile | null;
 };
 
 export const getUserPublicProfile = async (uid: string): Promise<{ displayName: string; email: string; publicKey?: string } | null> => {
@@ -116,8 +112,7 @@ export const createUserProfile = async (uid: string, data: UserProfile) => {
 };
 
 export const updateUserProfile = async (uid: string, updates: Partial<UserProfile>) => {
-  const docRef = doc(db, 'users', uid);
-  await updateDoc(docRef, updates);
+  await backendService.users.update(uid, updates);
 };
 
 export const createFolder = async (owner: string, name: string, parent: string | null, privateKeyHex: string) => {

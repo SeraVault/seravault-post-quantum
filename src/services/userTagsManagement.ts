@@ -201,8 +201,18 @@ export const updateUserTagsInFirestore = async (
 
     await updateFile(fileId, updateData);
 
-    // Invalidate cache since tags were updated
-    metadataCache.invalidate(fileId);
+    // Update cache with new tag data instead of just invalidating
+    const cached = metadataCache.get(fileId);
+    if (cached && 'tags' in cached) {
+      metadataCache.set(fileId, {
+        ...cached,
+        tags: normalizedTags,
+      });
+      console.log(`📊 Cache updated with ${normalizedTags.length} tags for file ${fileId}`);
+    } else {
+      // If not cached, invalidate so it gets cached on next access
+      metadataCache.invalidate(fileId);
+    }
 
     console.log('✅ Encrypted user tags updated successfully in Firestore');
     
