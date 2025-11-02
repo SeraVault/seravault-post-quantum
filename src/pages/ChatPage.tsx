@@ -387,6 +387,8 @@ const ChatPage: React.FC = () => {
             <ChatMessageList
               messages={messages}
               currentUserId={user.uid}
+              conversationId={selectedConversation?.id}
+              participantNames={participantNames}
             />
             
             {/* Message Input */}

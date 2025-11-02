@@ -15,13 +15,21 @@ import {
 } from '@mui/icons-material';
 import type { ChatMessage } from '../types/chat';
 import { format } from 'date-fns';
+import MessageReactions from './MessageReactions';
 
 interface ChatMessageListProps {
   messages: ChatMessage[];
   currentUserId: string;
+  conversationId?: string;
+  participantNames?: Record<string, string>; // Optional: map of userId -> displayName
 }
 
-const ChatMessageList: React.FC<ChatMessageListProps> = ({ messages, currentUserId }) => {
+const ChatMessageList: React.FC<ChatMessageListProps> = ({ 
+  messages, 
+  currentUserId,
+  conversationId,
+  participantNames = {}
+}) => {
   const [menuAnchor, setMenuAnchor] = React.useState<null | HTMLElement>(null);
   const [selectedMessage, setSelectedMessage] = React.useState<ChatMessage | null>(null);
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
@@ -41,15 +49,38 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({ messages, currentUser
     
     const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
     const now = new Date();
-    const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
+    const diffInMs = now.getTime() - date.getTime();
+    const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
+    const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60));
+    const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
     
-    if (diffInHours < 24) {
-      return format(date, 'HH:mm');
-    } else if (diffInHours < 48) {
-      return 'Yesterday';
-    } else {
-      return format(date, 'MMM d, HH:mm');
+    // Just now (less than 1 minute)
+    if (diffInMinutes < 1) {
+      return 'Just now';
     }
+    
+    // Minutes ago (1-59 minutes)
+    if (diffInMinutes < 60) {
+      return `${diffInMinutes} ${diffInMinutes === 1 ? 'minute' : 'minutes'} ago`;
+    }
+    
+    // Hours ago (1-23 hours)
+    if (diffInHours < 24) {
+      return `${diffInHours} ${diffInHours === 1 ? 'hour' : 'hours'} ago`;
+    }
+    
+    // Yesterday with time
+    if (diffInDays === 1) {
+      return `Yesterday at ${format(date, 'h:mm a')}`;
+    }
+    
+    // This week (2-6 days ago)
+    if (diffInDays < 7) {
+      return `${format(date, 'EEEE')} at ${format(date, 'h:mm a')}`;
+    }
+    
+    // Older messages (show date and time)
+    return format(date, 'MMM d, yyyy at h:mm a');
   };
   
   const isRead = (message: ChatMessage): boolean => {
@@ -131,6 +162,16 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({ messages, currentUser
                   )
                 )}
               </Box>
+
+              {/* Emoji Reactions */}
+              {conversationId && (
+                <MessageReactions
+                  conversationId={conversationId}
+                  message={message}
+                  currentUserId={currentUserId}
+                  userNames={participantNames}
+                />
+              )}
               
               <IconButton
                 className="message-menu"

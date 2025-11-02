@@ -484,4 +484,96 @@ export class ChatService {
       });
     }
   }
+
+  /**
+   * Add emoji reaction to a message
+   */
+  static async addReaction(
+    conversationId: string,
+    messageId: string,
+    currentUserId: string,
+    emoji: string
+  ): Promise<void> {
+    const messageRef = doc(db, 'conversations', conversationId, 'messages', messageId);
+    const messageDoc = await getDoc(messageRef);
+    
+    if (!messageDoc.exists()) {
+      throw new Error('Message not found');
+    }
+
+    const messageData = messageDoc.data() as ChatMessage;
+    const reactions = messageData.reactions || {};
+    
+    // Initialize emoji array if it doesn't exist
+    if (!reactions[emoji]) {
+      reactions[emoji] = [];
+    }
+    
+    // Add user to emoji reactions if not already there
+    if (!reactions[emoji].includes(currentUserId)) {
+      reactions[emoji].push(currentUserId);
+    }
+
+    await updateDoc(messageRef, { reactions });
+  }
+
+  /**
+   * Remove emoji reaction from a message
+   */
+  static async removeReaction(
+    conversationId: string,
+    messageId: string,
+    currentUserId: string,
+    emoji: string
+  ): Promise<void> {
+    const messageRef = doc(db, 'conversations', conversationId, 'messages', messageId);
+    const messageDoc = await getDoc(messageRef);
+    
+    if (!messageDoc.exists()) {
+      throw new Error('Message not found');
+    }
+
+    const messageData = messageDoc.data() as ChatMessage;
+    const reactions = messageData.reactions || {};
+    
+    if (reactions[emoji]) {
+      // Remove user from emoji reactions
+      reactions[emoji] = reactions[emoji].filter(id => id !== currentUserId);
+      
+      // Remove emoji key if no users left
+      if (reactions[emoji].length === 0) {
+        delete reactions[emoji];
+      }
+    }
+
+    await updateDoc(messageRef, { reactions });
+  }
+
+  /**
+   * Toggle emoji reaction (add if not present, remove if present)
+   */
+  static async toggleReaction(
+    conversationId: string,
+    messageId: string,
+    currentUserId: string,
+    emoji: string
+  ): Promise<void> {
+    const messageRef = doc(db, 'conversations', conversationId, 'messages', messageId);
+    const messageDoc = await getDoc(messageRef);
+    
+    if (!messageDoc.exists()) {
+      throw new Error('Message not found');
+    }
+
+    const messageData = messageDoc.data() as ChatMessage;
+    const reactions = messageData.reactions || {};
+    
+    if (reactions[emoji]?.includes(currentUserId)) {
+      // User already reacted, remove it
+      await this.removeReaction(conversationId, messageId, currentUserId, emoji);
+    } else {
+      // Add reaction
+      await this.addReaction(conversationId, messageId, currentUserId, emoji);
+    }
+  }
 }
