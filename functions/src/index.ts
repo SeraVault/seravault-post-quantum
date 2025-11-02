@@ -108,7 +108,6 @@ export const onFileShared = onDocumentUpdated("files/{fileId}", async (event) =>
   
   const beforeSharedWith: string[] = beforeData.sharedWith || [];
   const afterSharedWith: string[] = afterData.sharedWith || [];
-  const fileName = afterData.name?.ciphertext ? '[Encrypted File]' : afterData.name || 'Unknown File';
   const ownerId = afterData.owner;
   
   // Get owner's display name
@@ -131,9 +130,8 @@ export const onFileShared = onDocumentUpdated("files/{fileId}", async (event) =>
       senderDisplayName: ownerDisplayName,
       type: 'file_shared',
       title: 'New file shared with you',
-      message: `${ownerDisplayName} shared "${fileName}" with you`,
+      message: `${ownerDisplayName} shared a file with you`,
       fileId,
-      fileName,
       isRead: false,
       metadata: {
         action: 'shared',
@@ -153,9 +151,8 @@ export const onFileShared = onDocumentUpdated("files/{fileId}", async (event) =>
       senderDisplayName: ownerDisplayName,
       type: 'file_unshared',
       title: 'File access removed',
-      message: `${ownerDisplayName} removed your access to "${fileName}"`,
+      message: `${ownerDisplayName} removed your access to a file`,
       fileId,
-      fileName,
       isRead: false,
       metadata: {
         action: 'unshared',
@@ -194,7 +191,6 @@ export const onFileModified = onDocumentUpdated("files/{fileId}", async (event) 
   
   if (!hasContentChange) return;
   
-  const fileName = afterData.name?.ciphertext ? '[Encrypted File]' : afterData.name || 'Unknown File';
   const ownerId = afterData.owner;
   const sharedWith: string[] = afterData.sharedWith || [];
   
@@ -211,9 +207,8 @@ export const onFileModified = onDocumentUpdated("files/{fileId}", async (event) 
       senderDisplayName: modifierDisplayName,
       type: 'file_modified',
       title: 'Shared file updated',
-      message: `${modifierDisplayName} modified "${fileName}"`,
+      message: `${modifierDisplayName} modified a shared file`,
       fileId,
-      fileName,
       isRead: false,
       metadata: {
         action: 'modified',
@@ -319,7 +314,6 @@ export const onUnknownFileShare = onDocumentUpdated("files/{fileId}", async (eve
   
   const beforeSharedWith: string[] = beforeData.sharedWith || [];
   const afterSharedWith: string[] = afterData.sharedWith || [];
-  const fileName = afterData.name?.ciphertext ? '[Encrypted File]' : afterData.name || 'Unknown File';
   const ownerId = afterData.owner;
   
   // Get owner's display name
@@ -362,9 +356,8 @@ export const onUnknownFileShare = onDocumentUpdated("files/{fileId}", async (eve
         senderDisplayName: ownerDisplayName,
         type: 'file_share_request',
         title: 'File sharing request from unknown user',
-        message: `${ownerDisplayName} (not in your contacts) wants to share "${fileName}" with you`,
+        message: `${ownerDisplayName} (not in your contacts) wants to share a file with you`,
         fileId,
-        fileName,
         isRead: false,
         metadata: {
           action: 'file_share_request_unknown',

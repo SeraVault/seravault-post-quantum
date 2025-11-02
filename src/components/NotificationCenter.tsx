@@ -3,19 +3,17 @@ import {
   Box,
   Typography,
   List,
-  ListItem,
+  ListItemButton,
   ListItemIcon,
   ListItemText,
-  ListItemSecondaryAction,
-  IconButton,
   Chip,
   Button,
-  Paper,
   Tabs,
   Tab,
   CircularProgress,
   Alert,
   Divider,
+  Stack,
 } from '@mui/material';
 import {
   Share,
@@ -23,14 +21,26 @@ import {
   Cancel,
   Notifications,
   MarkEmailRead,
-  Delete,
-  FilterList,
+  InsertDriveFile,
+  Schedule,
+  Storage,
 } from '@mui/icons-material';
 import { useAuth } from '../auth/AuthContext';
 import { NotificationService, type Notification } from '../services/notificationService';
+import { backendService } from '../backend/BackendService';
+import type { FileData } from '../files';
+import { getOrDecryptMetadata, metadataCache } from '../services/metadataCache';
+import { usePassphrase } from '../auth/PassphraseContext';
 
 interface NotificationCenterProps {
   onFileClick?: (fileId: string) => void;
+}
+
+interface FileMetadataDisplay {
+  name: string;
+  size: string;
+  lastModified?: string;
+  type?: string;
 }
 
 interface TabPanelProps {
@@ -61,11 +71,13 @@ function TabPanel(props: TabPanelProps) {
 
 const NotificationCenter: React.FC<NotificationCenterProps> = ({ onFileClick }) => {
   const { user } = useAuth();
+  const { privateKey } = usePassphrase();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tabValue, setTabValue] = useState(0);
   const [selectedNotifications, setSelectedNotifications] = useState<Set<string>>(new Set());
+  const [fileMetadata, setFileMetadata] = useState<Map<string, FileMetadataDisplay>>(new Map());
 
   // Load notifications on component mount
   useEffect(() => {
@@ -99,7 +111,58 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onFileClick }) 
     return unsubscribe;
   }, [user]);
 
-  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+  // Fetch file metadata for notifications with fileId
+  useEffect(() => {
+    if (!user || !privateKey || notifications.length === 0) return;
+
+    const fetchFileMetadata = async () => {
+      const newMetadata = new Map<string, FileMetadataDisplay>();
+
+      for (const notification of notifications) {
+        if (notification.fileId && !fileMetadata.has(notification.fileId)) {
+          try {
+            // Try to get from metadata cache first
+            const cached = metadataCache.get(notification.fileId);
+            if (cached && 'tags' in cached) {
+              newMetadata.set(notification.fileId, {
+                name: cached.decryptedName,
+                size: cached.decryptedSize,
+              });
+              continue;
+            }
+
+            // If not in cache, fetch from backend and decrypt
+            const file = await backendService.files.get(notification.fileId) as FileData;
+            if (file) {
+              // Use the getOrDecryptMetadata helper to decrypt the file metadata
+              const decryptedMetadata = await getOrDecryptMetadata(file, user.uid, privateKey);
+              
+              newMetadata.set(notification.fileId, {
+                name: decryptedMetadata.decryptedName,
+                size: decryptedMetadata.decryptedSize,
+                lastModified: file.lastModified ? new Date(file.lastModified).toLocaleDateString() : undefined,
+              });
+            }
+          } catch (error) {
+            console.error(`Error fetching metadata for file ${notification.fileId}:`, error);
+            // Add fallback metadata on error
+            newMetadata.set(notification.fileId, {
+              name: '[Unable to decrypt]',
+              size: '',
+            });
+          }
+        }
+      }
+
+      if (newMetadata.size > 0) {
+        setFileMetadata(prev => new Map([...prev, ...newMetadata]));
+      }
+    };
+
+    fetchFileMetadata();
+  }, [notifications, user, privateKey, fileMetadata]);
+
+  const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
     setSelectedNotifications(new Set());
   };
@@ -152,16 +215,16 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onFileClick }) 
     }
   };
 
-  const formatDateTime = (createdAt: any): string => {
+  const formatDateTime = (createdAt: unknown): string => {
     if (!createdAt) return '';
     
     let date: Date;
-    if (typeof createdAt === 'object' && 'toDate' in createdAt) {
-      date = createdAt.toDate();
+    if (typeof createdAt === 'object' && createdAt !== null && 'toDate' in createdAt) {
+      date = (createdAt as { toDate: () => Date }).toDate();
     } else if (createdAt instanceof Date) {
       date = createdAt;
     } else {
-      date = new Date(createdAt);
+      date = new Date(createdAt as string);
     }
     
     return date.toLocaleString();
@@ -249,6 +312,7 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onFileClick }) 
           onNotificationClick={handleNotificationClick}
           getNotificationIcon={getNotificationIcon}
           formatDateTime={formatDateTime}
+          fileMetadata={fileMetadata}
         />
       </TabPanel>
       
@@ -258,6 +322,7 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onFileClick }) 
           onNotificationClick={handleNotificationClick}
           getNotificationIcon={getNotificationIcon}
           formatDateTime={formatDateTime}
+          fileMetadata={fileMetadata}
         />
       </TabPanel>
       
@@ -267,6 +332,7 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onFileClick }) 
           onNotificationClick={handleNotificationClick}
           getNotificationIcon={getNotificationIcon}
           formatDateTime={formatDateTime}
+          fileMetadata={fileMetadata}
         />
       </TabPanel>
       
@@ -276,6 +342,7 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onFileClick }) 
           onNotificationClick={handleNotificationClick}
           getNotificationIcon={getNotificationIcon}
           formatDateTime={formatDateTime}
+          fileMetadata={fileMetadata}
         />
       </TabPanel>
     </Box>
@@ -287,14 +354,16 @@ interface NotificationListProps {
   notifications: Notification[];
   onNotificationClick: (notification: Notification) => void;
   getNotificationIcon: (type: string) => React.ReactNode;
-  formatDateTime: (createdAt: any) => string;
+  formatDateTime: (createdAt: unknown) => string;
+  fileMetadata: Map<string, FileMetadataDisplay>;
 }
 
 const NotificationList: React.FC<NotificationListProps> = ({
   notifications,
   onNotificationClick,
   getNotificationIcon,
-  formatDateTime
+  formatDateTime,
+  fileMetadata
 }) => {
   if (notifications.length === 0) {
     return (
@@ -308,10 +377,12 @@ const NotificationList: React.FC<NotificationListProps> = ({
 
   return (
     <List>
-      {notifications.map((notification, index) => (
+      {notifications.map((notification, index) => {
+        const metadata = notification.fileId ? fileMetadata.get(notification.fileId) : undefined;
+        
+        return (
         <React.Fragment key={notification.id}>
-          <ListItem
-            button
+          <ListItemButton
             onClick={() => onNotificationClick(notification)}
             sx={{
               backgroundColor: notification.isRead ? 'transparent' : 'action.hover',
@@ -344,7 +415,47 @@ const NotificationList: React.FC<NotificationListProps> = ({
                     {notification.message}
                   </Typography>
                   
-                  {notification.fileName && (
+                  {/* Enhanced file metadata display */}
+                  {metadata && (
+                    <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mb: 1 }}>
+                      <Chip
+                        icon={<InsertDriveFile fontSize="small" />}
+                        label={metadata.name}
+                        size="small"
+                        variant="outlined"
+                        color="primary"
+                      />
+                      {metadata.size && (
+                        <Chip
+                          icon={<Storage fontSize="small" />}
+                          label={metadata.size}
+                          size="small"
+                          variant="outlined"
+                        />
+                      )}
+                      {metadata.lastModified && (
+                        <Chip
+                          icon={<Schedule fontSize="small" />}
+                          label={metadata.lastModified}
+                          size="small"
+                          variant="outlined"
+                        />
+                      )}
+                    </Stack>
+                  )}
+                  
+                  {/* Show loading state if fileId exists but no metadata yet */}
+                  {!metadata && notification.fileId && (
+                    <Chip
+                      label="Loading file info..."
+                      size="small"
+                      variant="outlined"
+                      sx={{ mb: 1, mr: 1 }}
+                    />
+                  )}
+                  
+                  {/* Only show fileName fallback if it's NOT the encrypted placeholder */}
+                  {!metadata && !notification.fileId && notification.fileName && notification.fileName !== '[Encrypted File]' && (
                     <Chip
                       label={notification.fileName}
                       size="small"
@@ -365,10 +476,10 @@ const NotificationList: React.FC<NotificationListProps> = ({
                 </Box>
               }
             />
-          </ListItem>
+          </ListItemButton>
           {index < notifications.length - 1 && <Divider />}
         </React.Fragment>
-      ))}
+      )})}
     </List>
   );
 };

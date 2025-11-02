@@ -63,11 +63,14 @@ service cloud.firestore {
       // Read access: owner or explicitly shared user
       allow read: if hasAccess(resource);
       
-      // List access: only allow querying files where user is owner or in sharedWith array
-      // This prevents users from listing other people's files
-      allow list: if request.auth != null && 
-        (request.query.where.owner == request.auth.uid || 
-         request.query.where.sharedWith.array_contains == request.auth.uid);
+      // List access: allow querying files where user is owner or in sharedWith array
+      // Users can add additional filters (parent, tags, etc.) as long as they include the security filter
+      allow list: if request.auth != null && (
+        // Either filtering by owner
+        (request.query.where.owner == request.auth.uid) ||
+        // Or filtering by sharedWith array_contains
+        (request.query.where.sharedWith.array_contains == request.auth.uid)
+      );
       
       // Write access: only owner can modify most fields
       allow update, delete: if request.auth != null &&

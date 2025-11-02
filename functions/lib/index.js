@@ -105,7 +105,7 @@ async function validateFileAccess(fileId, userId) {
  * Triggered when a file document is updated (sharedWith array changes)
  */
 exports.onFileShared = (0, firestore_1.onDocumentUpdated)("files/{fileId}", async (event) => {
-    var _a, _b, _c;
+    var _a, _b;
     const beforeData = (_a = event.data) === null || _a === void 0 ? void 0 : _a.before.data();
     const afterData = (_b = event.data) === null || _b === void 0 ? void 0 : _b.after.data();
     const fileId = event.params.fileId;
@@ -113,7 +113,6 @@ exports.onFileShared = (0, firestore_1.onDocumentUpdated)("files/{fileId}", asyn
         return;
     const beforeSharedWith = beforeData.sharedWith || [];
     const afterSharedWith = afterData.sharedWith || [];
-    const fileName = ((_c = afterData.name) === null || _c === void 0 ? void 0 : _c.ciphertext) ? '[Encrypted File]' : afterData.name || 'Unknown File';
     const ownerId = afterData.owner;
     // Get owner's display name
     const ownerDisplayName = await getUserDisplayName(ownerId);
@@ -132,9 +131,8 @@ exports.onFileShared = (0, firestore_1.onDocumentUpdated)("files/{fileId}", asyn
             senderDisplayName: ownerDisplayName,
             type: 'file_shared',
             title: 'New file shared with you',
-            message: `${ownerDisplayName} shared "${fileName}" with you`,
+            message: `${ownerDisplayName} shared a file with you`,
             fileId,
-            fileName,
             isRead: false,
             metadata: {
                 action: 'shared',
@@ -153,9 +151,8 @@ exports.onFileShared = (0, firestore_1.onDocumentUpdated)("files/{fileId}", asyn
             senderDisplayName: ownerDisplayName,
             type: 'file_unshared',
             title: 'File access removed',
-            message: `${ownerDisplayName} removed your access to "${fileName}"`,
+            message: `${ownerDisplayName} removed your access to a file`,
             fileId,
-            fileName,
             isRead: false,
             metadata: {
                 action: 'unshared',
@@ -170,7 +167,7 @@ exports.onFileShared = (0, firestore_1.onDocumentUpdated)("files/{fileId}", asyn
  * Triggered when a file document is updated (content changes)
  */
 exports.onFileModified = (0, firestore_1.onDocumentUpdated)("files/{fileId}", async (event) => {
-    var _a, _b, _c;
+    var _a, _b;
     const beforeData = (_a = event.data) === null || _a === void 0 ? void 0 : _a.before.data();
     const afterData = (_b = event.data) === null || _b === void 0 ? void 0 : _b.after.data();
     const fileId = event.params.fileId;
@@ -189,7 +186,6 @@ exports.onFileModified = (0, firestore_1.onDocumentUpdated)("files/{fileId}", as
     });
     if (!hasContentChange)
         return;
-    const fileName = ((_c = afterData.name) === null || _c === void 0 ? void 0 : _c.ciphertext) ? '[Encrypted File]' : afterData.name || 'Unknown File';
     const ownerId = afterData.owner;
     const sharedWith = afterData.sharedWith || [];
     // Get modifier's display name (for now assume it's the owner, could be enhanced)
@@ -203,9 +199,8 @@ exports.onFileModified = (0, firestore_1.onDocumentUpdated)("files/{fileId}", as
             senderDisplayName: modifierDisplayName,
             type: 'file_modified',
             title: 'Shared file updated',
-            message: `${modifierDisplayName} modified "${fileName}"`,
+            message: `${modifierDisplayName} modified a shared file`,
             fileId,
-            fileName,
             isRead: false,
             metadata: {
                 action: 'modified',
@@ -293,7 +288,7 @@ exports.onContactAccepted = (0, firestore_1.onDocumentUpdated)("contactRequests/
  * Enhanced to check contact status and create approval notifications
  */
 exports.onUnknownFileShare = (0, firestore_1.onDocumentUpdated)("files/{fileId}", async (event) => {
-    var _a, _b, _c;
+    var _a, _b;
     const beforeData = (_a = event.data) === null || _a === void 0 ? void 0 : _a.before.data();
     const afterData = (_b = event.data) === null || _b === void 0 ? void 0 : _b.after.data();
     const fileId = event.params.fileId;
@@ -301,7 +296,6 @@ exports.onUnknownFileShare = (0, firestore_1.onDocumentUpdated)("files/{fileId}"
         return;
     const beforeSharedWith = beforeData.sharedWith || [];
     const afterSharedWith = afterData.sharedWith || [];
-    const fileName = ((_c = afterData.name) === null || _c === void 0 ? void 0 : _c.ciphertext) ? '[Encrypted File]' : afterData.name || 'Unknown File';
     const ownerId = afterData.owner;
     // Get owner's display name
     const ownerDisplayName = await getUserDisplayName(ownerId);
@@ -337,9 +331,8 @@ exports.onUnknownFileShare = (0, firestore_1.onDocumentUpdated)("files/{fileId}"
                 senderDisplayName: ownerDisplayName,
                 type: 'file_share_request',
                 title: 'File sharing request from unknown user',
-                message: `${ownerDisplayName} (not in your contacts) wants to share "${fileName}" with you`,
+                message: `${ownerDisplayName} (not in your contacts) wants to share a file with you`,
                 fileId,
-                fileName,
                 isRead: false,
                 metadata: {
                     action: 'file_share_request_unknown',
