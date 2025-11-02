@@ -3,12 +3,16 @@ import { FieldValue } from 'firebase/firestore';
 /**
  * Chat message with quantum-safe encryption
  * Each message has its own unique nonce for security
+ * Note: With subcollections, conversationId is in the path, not the document
  */
 export interface ChatMessage {
   id?: string;
-  conversationId: string;
+  conversationId?: string; // Optional - for backward compatibility during migration
   senderId: string;
   senderName?: string; // Cached sender name for display
+  
+  // Participants array no longer needed with subcollections (kept for migration)
+  participants?: string[];
   
   // Encrypted content - each recipient gets their own encrypted version
   encryptedContent: {

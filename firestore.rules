@@ -466,44 +466,46 @@ service cloud.firestore {
          (resource.data.type == 'group' && request.auth.uid in resource.data.get('admins', [])));
     }
     
-    // Messages - users can access messages in conversations they participate in
-    match /messages/{messageId} {
-      function canAccessConversation(conversationId) {
-        return exists(/databases/$(database)/documents/conversations/$(conversationId)) &&
-               request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
+    // Messages - now as subcollections under conversations
+    // Security inherited from parent conversation + message-level checks
+    match /conversations/{conversationId}/messages/{messageId} {
+      // Helper to check if user is a conversation participant
+      function isConversationParticipant() {
+        return request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
       }
       
-      // Read access: participants of the conversation
+      // Read access: conversation participants only
       allow read: if request.auth != null && 
-        canAccessConversation(resource.data.conversationId);
+        isConversationParticipant();
       
-      // List access: allow querying messages for accessible conversations
+      // List access: conversation participants can query messages in their conversations
       allow list: if request.auth != null &&
-        canAccessConversation(request.query.conversationId);
+        isConversationParticipant();
       
-      // Create access: sender must be participant in conversation
+      // Create access: sender must be conversation participant
       allow create: if request.auth != null && 
         request.resource.data.senderId == request.auth.uid &&
-        canAccessConversation(request.resource.data.conversationId) &&
-        request.resource.data.keys().hasAll(['conversationId', 'senderId', 'encryptedContent', 'timestamp', 'type']) &&
-        request.resource.data.type in ['text', 'file', 'system'];
+        request.resource.data.keys().hasAll(['senderId', 'encryptedContent', 'timestamp', 'type']) &&
+        request.resource.data.type in ['text', 'file', 'system'] &&
+        isConversationParticipant();
       
-      // Update access: sender can update their own messages, anyone can update read receipts
+      // Update access: sender can update their own messages, participants can update read receipts
       allow update: if request.auth != null && 
-        canAccessConversation(resource.data.conversationId) &&
+        isConversationParticipant() &&
         (
           // Sender can edit/delete their own message
           (request.auth.uid == resource.data.senderId && 
-           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['content', 'editedAt', 'deleted'])) ||
-          // Anyone can update read receipts for themselves
+           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['encryptedContent', 'editedAt', 'deleted'])) ||
+          // Participants can update read receipts for themselves
           (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy']) &&
-           request.resource.data.readBy is map)
+           request.resource.data.readBy is map &&
+           request.auth.uid in request.resource.data.readBy.keys())
         );
       
       // Delete access: sender can delete their own messages
       allow delete: if request.auth != null && 
         request.auth.uid == resource.data.senderId &&
-        canAccessConversation(resource.data.conversationId);
+        isParticipant(resource.data);
     }
     
     // Deny all other access - explicit security

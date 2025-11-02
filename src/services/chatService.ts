@@ -146,9 +146,8 @@ export class ChatService {
     const senderProfile = await getUserProfile(currentUserId);
     const senderName = senderProfile?.displayName || 'Unknown User';
     
-    // Create message document
+    // Create message document (conversationId is in the path, not the document)
     const messageData: Partial<ChatMessage> = {
-      conversationId,
       senderId: currentUserId,
       senderName,
       encryptedContent,
@@ -160,7 +159,9 @@ export class ChatService {
       messageData.fileMetadata = fileMetadata;
     }
     
-    const messageRef = await addDoc(collection(db, 'messages'), messageData);
+    // Use subcollection path: conversations/{conversationId}/messages
+    const messagesCollectionRef = collection(db, 'conversations', conversationId, 'messages');
+    const messageRef = await addDoc(messagesCollectionRef, messageData);
     
     // Update conversation's last message timestamp
     await updateDoc(conversationRef, {
@@ -181,9 +182,10 @@ export class ChatService {
   ): Promise<ChatMessage[]> {
     const conversationKey = await this.getConversationKey(conversationId, currentUserId, userPrivateKey);
     
+    // Use subcollection path: conversations/{conversationId}/messages
+    const messagesCollectionRef = collection(db, 'conversations', conversationId, 'messages');
     const messagesQuery = query(
-      collection(db, 'messages'),
-      where('conversationId', '==', conversationId),
+      messagesCollectionRef,
       orderBy('timestamp', 'desc'),
       limit(limitCount)
     );
@@ -227,9 +229,10 @@ export class ChatService {
     onUpdate: (messages: ChatMessage[]) => void,
     limitCount: number = 50
   ): () => void {
+    // Use subcollection path: conversations/{conversationId}/messages
+    const messagesCollectionRef = collection(db, 'conversations', conversationId, 'messages');
     const messagesQuery = query(
-      collection(db, 'messages'),
-      where('conversationId', '==', conversationId),
+      messagesCollectionRef,
       orderBy('timestamp', 'desc'),
       limit(limitCount)
     );
@@ -315,10 +318,12 @@ export class ChatService {
    * Mark message as read
    */
   static async markMessageAsRead(
+    conversationId: string,
     messageId: string,
     currentUserId: string
   ): Promise<void> {
-    const messageRef = doc(db, 'messages', messageId);
+    // Use subcollection path: conversations/{conversationId}/messages/{messageId}
+    const messageRef = doc(db, 'conversations', conversationId, 'messages', messageId);
     await updateDoc(messageRef, {
       [`readBy.${currentUserId}`]: new Date()
     });
@@ -331,9 +336,10 @@ export class ChatService {
     conversationId: string,
     currentUserId: string
   ): Promise<void> {
+    // Use subcollection path: conversations/{conversationId}/messages
+    const messagesCollectionRef = collection(db, 'conversations', conversationId, 'messages');
     const messagesQuery = query(
-      collection(db, 'messages'),
-      where('conversationId', '==', conversationId),
+      messagesCollectionRef,
       where(`readBy.${currentUserId}`, '==', null)
     );
     

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   IconButton,
   Badge,
@@ -33,7 +34,8 @@ interface NotificationBellProps {
 
 const NotificationBell: React.FC<NotificationBellProps> = ({ className }) => {
   const { user } = useAuth();
-  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
+  const navigate = useNavigate();
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -47,9 +49,20 @@ const NotificationBell: React.FC<NotificationBellProps> = ({ className }) => {
     const unsubscribe = NotificationService.subscribeToUserNotifications(
       user.uid,
       (newNotifications) => {
+        console.log('📬 Received notifications update:', {
+          total: newNotifications.length,
+          details: newNotifications.map(n => ({
+            id: n.id,
+            type: n.type,
+            isRead: n.isRead,
+            fileId: n.fileId,
+            message: n.message
+          }))
+        });
         setNotifications(newNotifications);
-        const unreadCount = newNotifications.filter(n => !n.isRead).length;
-        setUnreadCount(unreadCount);
+        const unread = newNotifications.filter(n => !n.isRead);
+        console.log(`📊 Unread notifications: ${unread.length} of ${newNotifications.length}`);
+        setUnreadCount(unread.length);
       },
       20 // Limit to 20 recent notifications
     );
@@ -65,13 +78,22 @@ const NotificationBell: React.FC<NotificationBellProps> = ({ className }) => {
     setAnchorEl(null);
   };
 
-  const handleNotificationClick = async (notification: Notification) => {
-    console.log('🖱️ Notification clicked:', notification);
+    const handleNotificationClick = async (notification: Notification) => {
     try {
+      console.log('� Notification clicked:', notification);
+      
+      // Mark as read FIRST and wait for it to complete
       if (!notification.isRead && notification.id) {
-        console.log(`📖 Marking notification ${notification.id} as read...`);
+        console.log(`�️ Deleting notification ${notification.id}...`);
         await NotificationService.markAsRead(notification.id);
-        console.log(`✅ Successfully marked notification ${notification.id} as read`);
+        console.log(`✅ Successfully deleted notification ${notification.id}`);
+        
+        // Remove from local state immediately for responsive UI
+        setNotifications(prev => prev.filter(n => n.id !== notification.id));
+        setUnreadCount(prev => Math.max(0, prev - 1));
+        
+        // Give a small delay for Firestore real-time update to propagate
+        await new Promise(resolve => setTimeout(resolve, 100));
       } else if (!notification.id) {
         console.warn('⚠️ Notification has no ID, cannot mark as read');
       } else {
@@ -85,13 +107,19 @@ const NotificationBell: React.FC<NotificationBellProps> = ({ className }) => {
         fileName: notification.fileName
       });
       
-      // TODO: Add navigation logic based on notification.fileId if needed
-      
-      // For now, just close the menu
+      // Close the menu BEFORE navigating
       handleClose();
+      
+      // Navigate to file if fileId exists
+      if (notification.fileId) {
+        console.log(`🔗 Navigating to file: ${notification.fileId}`);
+        // Navigate to home page with file parameter
+        navigate(`/?file=${notification.fileId}`);
+      }
     } catch (error) {
       console.error('❌ Error handling notification click:', error);
-      // Don't close menu on error so user can retry
+      // Close menu even on error
+      handleClose();
     }
   };
 

@@ -26,7 +26,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.onUserInvitationCreated = exports.markAllNotificationsAsRead = exports.markNotificationAsRead = exports.onUnknownFileShare = exports.onContactAccepted = exports.onContactRequest = exports.onFileModified = exports.onFileShared = void 0;
+exports.deleteOldMessagesCollection = exports.verifyMessageMigration = exports.migrateMessagesToSubcollections = exports.onUserInvitationCreated = exports.markAllNotificationsAsRead = exports.markNotificationAsRead = exports.onUnknownFileShare = exports.onContactAccepted = exports.onContactRequest = exports.onFileModified = exports.onFileShared = void 0;
 const firestore_1 = require("firebase-functions/v2/firestore");
 const https_1 = require("firebase-functions/v2/https");
 const admin = __importStar(require("firebase-admin"));
@@ -109,6 +109,7 @@ exports.onFileShared = (0, firestore_1.onDocumentUpdated)("files/{fileId}", asyn
     const beforeData = (_a = event.data) === null || _a === void 0 ? void 0 : _a.before.data();
     const afterData = (_b = event.data) === null || _b === void 0 ? void 0 : _b.after.data();
     const fileId = event.params.fileId;
+    console.log(`📋 onFileShared triggered for file: ${fileId}`);
     if (!beforeData || !afterData)
         return;
     const beforeSharedWith = beforeData.sharedWith || [];
@@ -140,27 +141,9 @@ exports.onFileShared = (0, firestore_1.onDocumentUpdated)("files/{fileId}", asyn
             }
         });
     }
-    // Create notifications for unshared users
-    for (const userId of unsharedUsers) {
-        // Don't notify the owner
-        if (userId === ownerId)
-            continue;
-        await createNotification({
-            recipientId: userId,
-            senderId: ownerId,
-            senderDisplayName: ownerDisplayName,
-            type: 'file_unshared',
-            title: 'File access removed',
-            message: `${ownerDisplayName} removed your access to a file`,
-            fileId,
-            isRead: false,
-            metadata: {
-                action: 'unshared',
-                timestamp: new Date().toISOString()
-            }
-        });
-    }
-    console.log(`📤 File sharing notifications processed: +${newlySharedUsers.length} shared, +${unsharedUsers.length} unshared`);
+    // Don't notify users when they're unshared - they'll simply lose access
+    // This is cleaner UX and avoids notifying users about negative actions
+    console.log(`📤 File sharing notifications processed: +${newlySharedUsers.length} shared, ${unsharedUsers.length} unshared (no notification)`);
 });
 /**
  * Firestore Trigger: File modification notifications
@@ -171,10 +154,23 @@ exports.onFileModified = (0, firestore_1.onDocumentUpdated)("files/{fileId}", as
     const beforeData = (_a = event.data) === null || _a === void 0 ? void 0 : _a.before.data();
     const afterData = (_b = event.data) === null || _b === void 0 ? void 0 : _b.after.data();
     const fileId = event.params.fileId;
+    console.log(`📋 onFileModified triggered for file: ${fileId}`);
     if (!beforeData || !afterData)
         return;
+    // Check if this is a sharing/unsharing event (sharedWith array changed)
+    const beforeSharedWith = beforeData.sharedWith || [];
+    const afterSharedWith = afterData.sharedWith || [];
+    const sharingChanged = beforeSharedWith.length !== afterSharedWith.length ||
+        beforeSharedWith.some(id => !afterSharedWith.includes(id)) ||
+        afterSharedWith.some(id => !beforeSharedWith.includes(id));
+    // If sharing changed at all, don't send modification notification (onFileShared handles it)
+    // Even if content also changed, we only want one notification per action
+    if (sharingChanged) {
+        console.log(`🔄 Ignoring modification notification - sharing event (onFileShared handles it)`);
+        return;
+    }
     // Only notify on actual content modifications (ignore metadata-only updates)
-    const contentFields = ['storagePath', 'lastModified', 'size'];
+    const contentFields = ['storagePath', 'size', 'encryptedName'];
     const hasContentChange = contentFields.some(field => {
         const before = beforeData[field];
         const after = afterData[field];
@@ -184,8 +180,10 @@ exports.onFileModified = (0, firestore_1.onDocumentUpdated)("files/{fileId}", as
         }
         return before !== after;
     });
-    if (!hasContentChange)
+    if (!hasContentChange) {
+        console.log(`ℹ️ No content changes detected, skipping notification`);
         return;
+    }
     const ownerId = afterData.owner;
     const sharedWith = afterData.sharedWith || [];
     // Get modifier's display name (for now assume it's the owner, could be enhanced)
@@ -390,15 +388,12 @@ exports.markNotificationAsRead = (0, https_1.onRequest)(async (req, res) => {
             }
             const notificationData = notificationDoc.data();
             if ((notificationData === null || notificationData === void 0 ? void 0 : notificationData.recipientId) !== uid) {
-                res.status(403).json({ error: 'You can only mark your own notifications as read' });
+                res.status(403).json({ error: 'You can only delete your own notifications' });
                 return;
             }
-            // Mark as read
-            await notificationDoc.ref.update({
-                isRead: true,
-                readAt: firestore_2.FieldValue.serverTimestamp()
-            });
-            console.log(`✅ Notification ${notificationId} marked as read by user ${uid}`);
+            // Delete the notification instead of marking as read
+            await notificationDoc.ref.delete();
+            console.log(`🗑️ Notification ${notificationId} deleted by user ${uid}`);
             res.status(200).json({ success: true });
         }
         catch (error) {
@@ -445,22 +440,19 @@ exports.markAllNotificationsAsRead = (0, https_1.onRequest)(async (req, res) => 
                 .where('isRead', '==', false)
                 .get();
             if (unreadNotifications.empty) {
-                res.status(200).json({ success: true, updated: 0 });
+                res.status(200).json({ success: true, deleted: 0 });
                 return;
             }
-            // Batch update all to read
+            // Batch delete all unread notifications
             const batch = db.batch();
             let count = 0;
             unreadNotifications.docs.forEach((doc) => {
-                batch.update(doc.ref, {
-                    isRead: true,
-                    readAt: firestore_2.FieldValue.serverTimestamp()
-                });
+                batch.delete(doc.ref);
                 count++;
             });
             await batch.commit();
-            console.log(`✅ Marked ${count} notifications as read for user ${uid}`);
-            res.status(200).json({ success: true, updated: count });
+            console.log(`🗑️ Deleted ${count} notifications for user ${uid}`);
+            res.status(200).json({ success: true, deleted: count });
         }
         catch (error) {
             console.error('Error marking all notifications as read:', error);
@@ -483,4 +475,9 @@ exports.onUserInvitationCreated = (0, firestore_1.onDocumentCreated)("userInvita
         console.error('Error logging invitation creation:', error);
     }
 });
+// Export message migration functions
+var migrate_messages_to_subcollections_1 = require("./migrate-messages-to-subcollections");
+Object.defineProperty(exports, "migrateMessagesToSubcollections", { enumerable: true, get: function () { return migrate_messages_to_subcollections_1.migrateMessagesToSubcollections; } });
+Object.defineProperty(exports, "verifyMessageMigration", { enumerable: true, get: function () { return migrate_messages_to_subcollections_1.verifyMessageMigration; } });
+Object.defineProperty(exports, "deleteOldMessagesCollection", { enumerable: true, get: function () { return migrate_messages_to_subcollections_1.deleteOldMessagesCollection; } });
 //# sourceMappingURL=index.js.map

@@ -104,6 +104,8 @@ export const onFileShared = onDocumentUpdated("files/{fileId}", async (event) =>
   const afterData = event.data?.after.data();
   const fileId = event.params.fileId;
   
+  console.log(`📋 onFileShared triggered for file: ${fileId}`);
+  
   if (!beforeData || !afterData) return;
   
   const beforeSharedWith: string[] = beforeData.sharedWith || [];
@@ -140,28 +142,10 @@ export const onFileShared = onDocumentUpdated("files/{fileId}", async (event) =>
     });
   }
   
-  // Create notifications for unshared users
-  for (const userId of unsharedUsers) {
-    // Don't notify the owner
-    if (userId === ownerId) continue;
-    
-    await createNotification({
-      recipientId: userId,
-      senderId: ownerId,
-      senderDisplayName: ownerDisplayName,
-      type: 'file_unshared',
-      title: 'File access removed',
-      message: `${ownerDisplayName} removed your access to a file`,
-      fileId,
-      isRead: false,
-      metadata: {
-        action: 'unshared',
-        timestamp: new Date().toISOString()
-      }
-    });
-  }
+  // Don't notify users when they're unshared - they'll simply lose access
+  // This is cleaner UX and avoids notifying users about negative actions
   
-  console.log(`📤 File sharing notifications processed: +${newlySharedUsers.length} shared, +${unsharedUsers.length} unshared`);
+  console.log(`📤 File sharing notifications processed: +${newlySharedUsers.length} shared, ${unsharedUsers.length} unshared (no notification)`);
 });
 
 /**
@@ -173,10 +157,26 @@ export const onFileModified = onDocumentUpdated("files/{fileId}", async (event) 
   const afterData = event.data?.after.data();
   const fileId = event.params.fileId;
   
+  console.log(`📋 onFileModified triggered for file: ${fileId}`);
+  
   if (!beforeData || !afterData) return;
   
+  // Check if this is a sharing/unsharing event (sharedWith array changed)
+  const beforeSharedWith: string[] = beforeData.sharedWith || [];
+  const afterSharedWith: string[] = afterData.sharedWith || [];
+  const sharingChanged = beforeSharedWith.length !== afterSharedWith.length ||
+    beforeSharedWith.some(id => !afterSharedWith.includes(id)) ||
+    afterSharedWith.some(id => !beforeSharedWith.includes(id));
+  
+  // If sharing changed at all, don't send modification notification (onFileShared handles it)
+  // Even if content also changed, we only want one notification per action
+  if (sharingChanged) {
+    console.log(`🔄 Ignoring modification notification - sharing event (onFileShared handles it)`);
+    return;
+  }
+  
   // Only notify on actual content modifications (ignore metadata-only updates)
-  const contentFields = ['storagePath', 'lastModified', 'size'];
+  const contentFields = ['storagePath', 'size', 'encryptedName'];
   const hasContentChange = contentFields.some(field => {
     const before = beforeData[field];
     const after = afterData[field];
@@ -189,7 +189,10 @@ export const onFileModified = onDocumentUpdated("files/{fileId}", async (event) 
     return before !== after;
   });
   
-  if (!hasContentChange) return;
+  if (!hasContentChange) {
+    console.log(`ℹ️ No content changes detected, skipping notification`);
+    return;
+  }
   
   const ownerId = afterData.owner;
   const sharedWith: string[] = afterData.sharedWith || [];
@@ -425,17 +428,14 @@ export const markNotificationAsRead = onRequest(async (req, res) => {
       
       const notificationData = notificationDoc.data();
       if (notificationData?.recipientId !== uid) {
-        res.status(403).json({error: 'You can only mark your own notifications as read'});
+        res.status(403).json({error: 'You can only delete your own notifications'});
         return;
       }
       
-      // Mark as read
-      await notificationDoc.ref.update({
-        isRead: true,
-        readAt: FieldValue.serverTimestamp()
-      });
+      // Delete the notification instead of marking as read
+      await notificationDoc.ref.delete();
       
-      console.log(`✅ Notification ${notificationId} marked as read by user ${uid}`);
+      console.log(`🗑️ Notification ${notificationId} deleted by user ${uid}`);
       res.status(200).json({success: true});
       
     } catch (error) {
@@ -488,26 +488,23 @@ export const markAllNotificationsAsRead = onRequest(async (req, res) => {
         .get();
       
       if (unreadNotifications.empty) {
-        res.status(200).json({success: true, updated: 0});
+        res.status(200).json({success: true, deleted: 0});
         return;
       }
       
-      // Batch update all to read
+      // Batch delete all unread notifications
       const batch = db.batch();
       let count = 0;
       
       unreadNotifications.docs.forEach((doc) => {
-        batch.update(doc.ref, {
-          isRead: true,
-          readAt: FieldValue.serverTimestamp()
-        });
+        batch.delete(doc.ref);
         count++;
       });
       
       await batch.commit();
       
-      console.log(`✅ Marked ${count} notifications as read for user ${uid}`);
-      res.status(200).json({success: true, updated: count});
+      console.log(`🗑️ Deleted ${count} notifications for user ${uid}`);
+      res.status(200).json({success: true, deleted: count});
       
     } catch (error) {
       console.error('Error marking all notifications as read:', error);
@@ -534,3 +531,10 @@ export const onUserInvitationCreated = onDocumentCreated(
     }
   }
 );
+
+// Export message migration functions
+export {
+  migrateMessagesToSubcollections,
+  verifyMessageMigration,
+  deleteOldMessagesCollection
+} from './migrate-messages-to-subcollections';

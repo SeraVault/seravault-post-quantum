@@ -84,6 +84,9 @@ interface MainContentProps {
   matchAllTags?: boolean;
   onMatchModeChange?: (matchAll: boolean) => void;
   onFilesChange?: (files: any[]) => void;
+  // File opening from notification
+  fileIdToOpen?: string | null;
+  onFileOpened?: () => void;
 }
 
 interface MainContentRef {
@@ -109,7 +112,9 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
     onTagSelectionChange,
     matchAllTags = false,
     onMatchModeChange,
-    onFilesChange
+    onFilesChange,
+    fileIdToOpen,
+    onFileOpened
   } = props;
   const { user } = useAuth();
   const { privateKey } = usePassphrase();
@@ -1086,6 +1091,49 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
       }
     };
   }, [currentFolder, user, privateKey, isRecentsView, isFavoritesView, isSharedView]);
+
+  // Handle opening a file from notification
+  useEffect(() => {
+    if (!fileIdToOpen || !user || !privateKey) {
+      return;
+    }
+
+    console.log(`📂 Attempting to open file from notification: ${fileIdToOpen}`);
+    
+    // Don't wait for files to load - try to load directly
+    const loadAndOpenFile = async () => {
+      try {
+        // First check if file is already in the current files list
+        const fileInList = files.find(f => f.id === fileIdToOpen);
+        
+        if (fileInList) {
+          console.log(`✅ Found file in current list, opening:`, fileInList);
+          await handleFormFileClick(fileInList);
+        } else {
+          // File not in current folder - load it directly
+          console.log(`⚠️ File not in current folder, loading directly...`);
+          const file = await FileAccessService.loadFileById(fileIdToOpen, user.uid, privateKey);
+          console.log(`✅ Loaded file directly:`, file);
+          
+          // Now open it using handleFormFileClick
+          await handleFormFileClick(file);
+        }
+        
+        // Notify that the file was opened
+        if (onFileOpened) {
+          onFileOpened();
+        }
+      } catch (error) {
+        console.error(`❌ Error loading file ${fileIdToOpen}:`, error);
+        if (onFileOpened) {
+          onFileOpened(); // Clear the fileIdToOpen even on error
+        }
+      }
+    };
+
+    loadAndOpenFile();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileIdToOpen]); // Only trigger when fileIdToOpen changes
 
   // Load recent files when in recents view
   useEffect(() => {

@@ -7,8 +7,9 @@ import MainContent from '../components/MainContent';
 
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [currentFolder, setCurrentFolder] = useState<string | null>(null);
+  const [fileIdToOpen, setFileIdToOpen] = useState<string | null>(null);
   
   // Get user context for tag filtering
   const { user } = useAuth();
@@ -25,10 +26,11 @@ const HomePage: React.FC = () => {
     navigate(`/?folder=${folderId || ''}`, { replace: true });
   };
 
-  // Initialize folder and view from URL parameters
+  // Initialize folder, view, and file from URL parameters
   useEffect(() => {
     const folderParam = searchParams.get('folder');
     const viewParam = searchParams.get('view');
+    const fileParam = searchParams.get('file');
     
     // Handle folder parameter
     if (folderParam && folderParam !== '') {
@@ -37,9 +39,24 @@ const HomePage: React.FC = () => {
       setCurrentFolder(null);
     }
     
+    // Handle file parameter (from notification)
+    if (fileParam) {
+      console.log(`📂 File ID from URL:`, fileParam);
+      setFileIdToOpen(fileParam);
+    }
+    
     // Handle view parameter - this will be used by AppLayout/SideNav to set the appropriate view state
     // The view state is managed in the RecentsContext and will be handled by the SideNav component
   }, [searchParams]);
+
+  // Clear file parameter after it's been processed
+  const handleFileOpened = () => {
+    setFileIdToOpen(null);
+    // Remove the file parameter from URL
+    const newSearchParams = new URLSearchParams(searchParams);
+    newSearchParams.delete('file');
+    setSearchParams(newSearchParams, { replace: true });
+  };
 
 
   return (
@@ -64,6 +81,9 @@ const HomePage: React.FC = () => {
         matchAllTags={matchAllTags}
         onMatchModeChange={setMatchAllTags}
         onFilesChange={setFiles}
+        // File opening from notifications
+        fileIdToOpen={fileIdToOpen}
+        onFileOpened={handleFileOpened}
       />
     </AppLayout>
   );

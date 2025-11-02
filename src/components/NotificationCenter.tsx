@@ -113,17 +113,32 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onFileClick }) 
 
   // Fetch file metadata for notifications with fileId
   useEffect(() => {
-    if (!user || !privateKey || notifications.length === 0) return;
+    if (!user || !privateKey || notifications.length === 0) {
+      console.log(`⏭️ Skipping metadata fetch - user: ${!!user}, privateKey: ${!!privateKey}, notifications: ${notifications.length}`);
+      return;
+    }
+
+    console.log(`🔔 Processing ${notifications.length} notifications for metadata:`, notifications);
 
     const fetchFileMetadata = async () => {
       const newMetadata = new Map<string, FileMetadataDisplay>();
 
       for (const notification of notifications) {
-        if (notification.fileId && !fileMetadata.has(notification.fileId)) {
+        console.log(`📋 Notification:`, {
+          id: notification.id,
+          type: notification.type,
+          fileId: notification.fileId,
+          hasFileId: !!notification.fileId
+        });
+        
+        if (notification.fileId) {
           try {
+            console.log(`🔍 Fetching metadata for file: ${notification.fileId}`);
+            
             // Try to get from metadata cache first
             const cached = metadataCache.get(notification.fileId);
             if (cached && 'tags' in cached) {
+              console.log(`✅ Found in cache: ${cached.decryptedName}`);
               newMetadata.set(notification.fileId, {
                 name: cached.decryptedName,
                 size: cached.decryptedSize,
@@ -132,19 +147,24 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onFileClick }) 
             }
 
             // If not in cache, fetch from backend and decrypt
+            console.log(`📥 Fetching from backend: ${notification.fileId}`);
             const file = await backendService.files.get(notification.fileId) as FileData;
             if (file) {
+              console.log(`🔐 Decrypting metadata for: ${notification.fileId}`, file);
               // Use the getOrDecryptMetadata helper to decrypt the file metadata
               const decryptedMetadata = await getOrDecryptMetadata(file, user.uid, privateKey);
               
+              console.log(`✅ Decrypted: ${decryptedMetadata.decryptedName}, Size: ${decryptedMetadata.decryptedSize}`);
               newMetadata.set(notification.fileId, {
                 name: decryptedMetadata.decryptedName,
                 size: decryptedMetadata.decryptedSize,
                 lastModified: file.lastModified ? new Date(file.lastModified).toLocaleDateString() : undefined,
               });
+            } else {
+              console.warn(`⚠️ File not found for notification: ${notification.fileId}`);
             }
           } catch (error) {
-            console.error(`Error fetching metadata for file ${notification.fileId}:`, error);
+            console.error(`❌ Error fetching metadata for file ${notification.fileId}:`, error);
             // Add fallback metadata on error
             newMetadata.set(notification.fileId, {
               name: '[Unable to decrypt]',
@@ -155,12 +175,15 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onFileClick }) 
       }
 
       if (newMetadata.size > 0) {
-        setFileMetadata(prev => new Map([...prev, ...newMetadata]));
+        console.log(`📊 Setting metadata for ${newMetadata.size} files:`, newMetadata);
+        setFileMetadata(newMetadata);
+      } else {
+        console.log(`⚠️ No metadata to set`);
       }
     };
 
     fetchFileMetadata();
-  }, [notifications, user, privateKey, fileMetadata]);
+  }, [notifications, user, privateKey]); // Removed fileMetadata from dependencies to avoid infinite loop
 
   const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);

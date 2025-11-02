@@ -16,13 +16,14 @@ export interface Notification {
   recipientId: string; // User ID who receives the notification
   senderId: string; // User ID who triggered the notification
   senderDisplayName?: string; // Cached sender display name for performance
-  type: 'file_shared' | 'file_modified' | 'file_unshared';
+  type: 'file_shared' | 'file_modified' | 'file_unshared' | 'contact_request' | 'contact_accepted' | 'file_share_request';
   title: string; // Short notification title
   message: string; // Detailed notification message
   fileId?: string; // Related file ID (if applicable)
   fileName?: string; // Cached file name for performance
   folderId?: string; // Related folder ID (if applicable)
   folderName?: string; // Cached folder name for performance
+  contactRequestId?: string; // Related contact request ID (if applicable)
   isRead: boolean;
   createdAt: FieldValue;
   readAt?: FieldValue;
