@@ -26,7 +26,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteOldMessagesCollection = exports.verifyMessageMigration = exports.migrateMessagesToSubcollections = exports.onUserInvitationCreated = exports.markAllNotificationsAsRead = exports.markNotificationAsRead = exports.onUnknownFileShare = exports.onContactAccepted = exports.onContactRequest = exports.onFileModified = exports.onFileShared = void 0;
+exports.onUserInvitationCreated = exports.markAllNotificationsAsRead = exports.markNotificationAsRead = exports.onUnknownFileShare = exports.onContactAccepted = exports.onContactRequest = exports.onFileModified = exports.onFileShared = void 0;
 const firestore_1 = require("firebase-functions/v2/firestore");
 const https_1 = require("firebase-functions/v2/https");
 const admin = __importStar(require("firebase-admin"));
@@ -475,9 +475,4 @@ exports.onUserInvitationCreated = (0, firestore_1.onDocumentCreated)("userInvita
         console.error('Error logging invitation creation:', error);
     }
 });
-// Export message migration functions
-var migrate_messages_to_subcollections_1 = require("./migrate-messages-to-subcollections");
-Object.defineProperty(exports, "migrateMessagesToSubcollections", { enumerable: true, get: function () { return migrate_messages_to_subcollections_1.migrateMessagesToSubcollections; } });
-Object.defineProperty(exports, "verifyMessageMigration", { enumerable: true, get: function () { return migrate_messages_to_subcollections_1.verifyMessageMigration; } });
-Object.defineProperty(exports, "deleteOldMessagesCollection", { enumerable: true, get: function () { return migrate_messages_to_subcollections_1.deleteOldMessagesCollection; } });
 //# sourceMappingURL=index.js.map

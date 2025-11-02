@@ -531,10 +531,3 @@ export const onUserInvitationCreated = onDocumentCreated(
     }
   }
 );
-
-// Export message migration functions
-export {
-  migrateMessagesToSubcollections,
-  verifyMessageMigration,
-  deleteOldMessagesCollection
-} from './migrate-messages-to-subcollections';
