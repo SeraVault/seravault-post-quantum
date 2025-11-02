@@ -15,7 +15,7 @@ import {
   Tab,
   CircularProgress,
 } from '@mui/material';
-import { Security, Timer, Fingerprint, VpnKey, Logout, Upload } from '@mui/icons-material';
+import { Security, Timer, Fingerprint, VpnKey, Logout, Upload, Key } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import {
@@ -24,11 +24,16 @@ import {
   retrieveBiometricEncryptedKey,
   hasBiometricSetup,
 } from '../utils/biometricAuth';
+import {
+  getRegisteredHardwareKeys,
+  retrievePrivateKeyFromHardware,
+  hasStoredPrivateKey,
+} from '../utils/hardwareKeyAuth';
 
 interface BiometricPassphraseDialogProps {
   open: boolean;
   onClose: () => void;
-  onSubmit: (privateKey: string, rememberChoice: boolean, method: 'passphrase' | 'biometric' | 'keyfile') => Promise<void>;
+  onSubmit: (privateKey: string, rememberChoice: boolean, method: 'passphrase' | 'biometric' | 'keyfile' | 'hardware') => Promise<void>;
 }
 
 const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
@@ -47,6 +52,8 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
   const [hasBiometric, setHasBiometric] = useState(false);
   const [selectedKeyFile, setSelectedKeyFile] = useState<File | null>(null);
   const [keyFilePassphrase, setKeyFilePassphrase] = useState('');
+  const [hasHardwareKeys, setHasHardwareKeys] = useState(false);
+  const [hardwareKeysWithStorage, setHardwareKeysWithStorage] = useState<string[]>([]);
 
   useEffect(() => {
     const checkBiometric = async () => {
@@ -56,9 +63,34 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
         setBiometricAvailable(available);
         setHasBiometric(setup);
         
-        // Default to biometric tab if available and set up
-        if (available && setup) {
-          setActiveTab(1);
+        // Check for hardware keys
+        try {
+          const keys = await getRegisteredHardwareKeys(user.uid);
+          setHasHardwareKeys(keys.length > 0);
+          
+          // Check which keys have stored private keys
+          const keysWithStorage: string[] = [];
+          for (const key of keys) {
+            const hasStorage = await hasStoredPrivateKey(key.id);
+            if (hasStorage) {
+              keysWithStorage.push(key.id);
+            }
+          }
+          setHardwareKeysWithStorage(keysWithStorage);
+          
+          // Default to hardware key tab if available
+          if (keysWithStorage.length > 0) {
+            // Set active tab to hardware key (adjust index based on biometric availability)
+            const hardwareTabIndex = (available && setup) ? 2 : 1;
+            setActiveTab(hardwareTabIndex);
+          } else if (available && setup) {
+            // Otherwise, default to biometric tab if available
+            setActiveTab(1);
+          }
+        } catch (error) {
+          console.error('Error checking hardware keys:', error);
+          setHasHardwareKeys(false);
+          setHardwareKeysWithStorage([]);
         }
       }
     };
@@ -126,6 +158,30 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
       } else {
         setError(`Biometric authentication failed: ${errorMessage}`);
       }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleHardwareKeyAuth = async () => {
+    if (!user || hardwareKeysWithStorage.length === 0) return;
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Use the first hardware key that has a stored private key
+      const credentialId = hardwareKeysWithStorage[0];
+      
+      // This will prompt the user to touch their hardware key
+      const privateKey = await retrievePrivateKeyFromHardware(credentialId);
+
+      // Submit the decrypted private key
+      await onSubmit(privateKey, true, 'hardware');
+    } catch (error) {
+      console.error('Hardware key authentication error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Hardware key authentication failed';
+      setError(`${errorMessage}. Make sure your key is inserted and touch it when prompted.`);
     } finally {
       setLoading(false);
     }
@@ -261,6 +317,7 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
           <Tabs value={activeTab} onChange={(_, value) => setActiveTab(value)} centered>
             <Tab icon={<VpnKey />} label="Passphrase" />
             {(biometricAvailable && hasBiometric) && <Tab icon={<Fingerprint />} label="Biometric" />}
+            {hardwareKeysWithStorage.length > 0 && <Tab icon={<Key />} label="Hardware Key" />}
             <Tab icon={<Upload />} label="Key File" />
           </Tabs>
         </Box>
@@ -349,8 +406,48 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
           </Box>
         )}
 
+        {/* Hardware Key Tab */}
+        {(() => {
+          let hardwareTabIndex = 1;
+          if (biometricAvailable && hasBiometric) hardwareTabIndex = 2;
+          return activeTab === hardwareTabIndex && hardwareKeysWithStorage.length > 0;
+        })() && (
+          <Box sx={{ textAlign: 'center', py: 3 }}>
+            <Key sx={{ fontSize: 64, color: 'primary.main', mb: 2 }} />
+            <Typography variant="h6" gutterBottom>
+              Use Hardware Security Key
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              Insert your hardware security key (YubiKey, etc.) and touch it when prompted to unlock your private key.
+            </Typography>
+            
+            <Button
+              variant="contained"
+              size="large"
+              startIcon={loading ? <CircularProgress size={16} color="inherit" /> : <Key />}
+              onClick={handleHardwareKeyAuth}
+              disabled={loading}
+              sx={{ minWidth: 180 }}
+            >
+              {loading ? 'Touch Your Key...' : 'Unlock with Hardware Key'}
+            </Button>
+            
+            <Alert severity="info" sx={{ mt: 3, textAlign: 'left' }}>
+              <Typography variant="body2">
+                <strong>Paranoid Mode Active:</strong> Your private key is stored in your browser, 
+                encrypted with your hardware key. It has never been sent to our servers.
+              </Typography>
+            </Alert>
+          </Box>
+        )}
+
         {/* Key File Tab */}
-        {((activeTab === 1 && !(biometricAvailable && hasBiometric)) || (activeTab === 2 && (biometricAvailable && hasBiometric))) && (
+        {(() => {
+          let keyFileTabIndex = 1;
+          if (biometricAvailable && hasBiometric) keyFileTabIndex++;
+          if (hardwareKeysWithStorage.length > 0) keyFileTabIndex++;
+          return activeTab === keyFileTabIndex;
+        })() && (
           <Box>
             <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <Upload />

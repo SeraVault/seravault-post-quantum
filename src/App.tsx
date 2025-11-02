@@ -8,6 +8,8 @@ import ProfilePage from './pages/ProfilePage';
 import CleanupPage from './pages/CleanupPage';
 import SecurityPage from './pages/SecurityPage';
 import ContactsPage from './pages/ContactsPage';
+import ChatPage from './pages/ChatPage';
+import FormTemplatesPage from './pages/FormTemplatesPage';
 import ProtectedRoute from './auth/ProtectedRoute';
 import ProfileCheck from './auth/ProfileCheck';
 import { useAuth } from './auth/AuthContext';
@@ -103,6 +105,8 @@ const App: React.FC = () => {
               </Route>
               <Route path="/profile" element={<ProfilePage />} />
               <Route path="/contacts" element={<ContactsPage />} />
+              <Route path="/chat" element={<ChatPage />} />
+              <Route path="/templates" element={<FormTemplatesPage />} />
               <Route path="/cleanup" element={<CleanupPage />} />
               <Route path="/security" element={<SecurityPage />} />
             </Route>

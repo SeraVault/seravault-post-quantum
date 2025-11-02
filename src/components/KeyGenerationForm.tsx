@@ -1,5 +1,5 @@
-import React from 'react';
-import { Container, Paper, Typography, TextField, Button, Alert } from '@mui/material';
+import React, { useState } from 'react';
+import { Container, Paper, Typography, TextField, Button, Alert, Box, FormControlLabel, Checkbox, Divider } from '@mui/material';
 import { type UserProfile } from '../firestore';
 
 interface KeyGenerationFormProps {
@@ -11,7 +11,7 @@ interface KeyGenerationFormProps {
   onDisplayNameChange: (name: string) => void;
   onPassphraseChange: (passphrase: string) => void;
   onConfirmPassphraseChange: (confirmPassphrase: string) => void;
-  onGenerateKeys: () => void;
+  onGenerateKeys: (useHardwareStorage: boolean) => void;
 }
 
 const KeyGenerationForm: React.FC<KeyGenerationFormProps> = ({
@@ -25,12 +25,22 @@ const KeyGenerationForm: React.FC<KeyGenerationFormProps> = ({
   onConfirmPassphraseChange,
   onGenerateKeys,
 }) => {
+  const [useHardwareStorage, setUseHardwareStorage] = useState(false);
+  
   return (
     <Container component="main" maxWidth="sm">
       <Paper elevation={3} sx={{ padding: 4, marginTop: 8, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         <Typography component="h1" variant="h5">
           {(userProfile?.publicKey || userProfile?.encryptedPrivateKey || userProfile?.legacyEncryptedPrivateKey) ? 'Regenerate Your Secure Key Pair' : 'Create Your Secure Key Pair'}
         </Typography>
+        
+        <Alert severity="info" sx={{ mt: 2, width: '100%' }}>
+          <Typography variant="body2">
+            <strong>Your keys are generated on YOUR device</strong> - they never travel to our servers unencrypted.
+            This ensures maximum security and privacy.
+          </Typography>
+        </Alert>
+        
         <Typography variant="body1" sx={{ mt: 2, mb: 2 }}>
           {(userProfile?.publicKey || userProfile?.encryptedPrivateKey || userProfile?.legacyEncryptedPrivateKey)
             ? 'Your account needs updated post-quantum secure keys. Please regenerate your key pair with a strong passphrase.'
@@ -71,14 +81,62 @@ const KeyGenerationForm: React.FC<KeyGenerationFormProps> = ({
           value={confirmPassphrase}
           onChange={(e) => onConfirmPassphraseChange(e.target.value)}
         />
+        
+        <Divider sx={{ width: '100%', my: 3 }} />
+        
+        <Box sx={{ width: '100%', mb: 2 }}>
+          <Typography variant="h6" gutterBottom>
+            Advanced Security Options
+          </Typography>
+          
+          <FormControlLabel
+            control={
+              <Checkbox 
+                checked={useHardwareStorage}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setUseHardwareStorage(e.target.checked)}
+              />
+            }
+            label={
+              <Box>
+                <Typography variant="body2">
+                  <strong>Store my private key in a hardware security key (YubiKey, etc.)</strong>
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Maximum paranoid mode: Your private key will be encrypted and stored in your browser, 
+                  decryptable only by your physical hardware key. It will NEVER be sent to our servers, 
+                  even in encrypted form.
+                </Typography>
+              </Box>
+            }
+          />
+          
+          {useHardwareStorage && (
+            <Alert severity="warning" sx={{ mt: 2 }}>
+              <Typography variant="body2">
+                <strong>Important:</strong> You'll need your hardware key every time you access your files. 
+                We recommend registering at least 2 backup keys to avoid losing access to your data.
+              </Typography>
+            </Alert>
+          )}
+          
+          {!useHardwareStorage && (
+            <Alert severity="info" sx={{ mt: 2 }}>
+              <Typography variant="body2">
+                <strong>Standard mode:</strong> Your private key will be encrypted with your passphrase 
+                and stored on our servers. You can add hardware key authentication later in your profile settings.
+              </Typography>
+            </Alert>
+          )}
+        </Box>
+        
         <Button
           type="submit"
           fullWidth
           variant="contained"
           sx={{ mt: 3, mb: 2 }}
-          onClick={onGenerateKeys}
+          onClick={() => onGenerateKeys(useHardwareStorage)}
         >
-          Generate Keys
+          {useHardwareStorage ? 'Generate Keys & Set Up Hardware Key' : 'Generate Keys'}
         </Button>
       </Paper>
     </Container>

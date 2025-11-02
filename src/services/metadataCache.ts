@@ -1,5 +1,6 @@
 /**
- * In-memory cache for decrypted file metadata to speed up search and filtering
+ * Persistent cache for decrypted file metadata to speed up search and filtering
+ * Now uses IndexedDB for offline persistence
  */
 
 import type { FileData } from '../files';
@@ -20,11 +21,74 @@ export interface CachedFolderMetadata {
 
 export type CachedMetadata = CachedFileMetadata | CachedFolderMetadata;
 
+// Helper to check if metadata is file metadata
+function isFileMetadata(metadata: CachedMetadata): metadata is CachedFileMetadata {
+  return 'tags' in metadata;
+}
+
+const DB_NAME = 'SeraVaultMetadataCache';
+const DB_VERSION = 1;
+const STORE_NAME = 'decryptedMetadata';
+
 class MetadataCache {
-  private cache = new Map<string, CachedMetadata>();
+  private memoryCache = new Map<string, CachedMetadata>(); // Fast in-memory cache
+  private dbPromise: Promise<IDBDatabase> | null = null;
   private readonly CACHE_TTL_SHORT = 15 * 60 * 1000; // 15 minutes - matches passphrase timeout
   private readonly CACHE_TTL_LONG = 60 * 60 * 1000; // 60 minutes - matches extended passphrase timeout
   private currentTTL = this.CACHE_TTL_SHORT; // Default to short timeout
+
+  constructor() {
+    this.initDB();
+  }
+
+  /**
+   * Initialize IndexedDB
+   */
+  private initDB(): void {
+    this.dbPromise = new Promise((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const db = request.result;
+        // Load all data into memory cache on startup
+        this.loadAllToMemory(db);
+        resolve(db);
+      };
+
+      request.onupgradeneeded = (event) => {
+        const db = (event.target as IDBOpenDBRequest).result;
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+          store.createIndex('lastModified', 'lastModified', { unique: false });
+        }
+      };
+    });
+  }
+
+  /**
+   * Load all cached metadata into memory for fast access
+   */
+  private async loadAllToMemory(db: IDBDatabase): Promise<void> {
+    try {
+      const transaction = db.transaction([STORE_NAME], 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.getAll();
+
+      request.onsuccess = () => {
+        const items = request.result as CachedMetadata[];
+        items.forEach(item => {
+          // Only load non-expired items
+          if (Date.now() - item.lastModified <= this.currentTTL) {
+            this.memoryCache.set(item.id, item);
+          }
+        });
+        console.log(`📦 Loaded ${this.memoryCache.size} cached metadata items from IndexedDB`);
+      };
+    } catch (error) {
+      console.error('Error loading cache to memory:', error);
+    }
+  }
 
   /**
    * Set cache timeout to match passphrase timeout preference
@@ -34,15 +98,61 @@ class MetadataCache {
   }
 
   /**
+   * Save metadata to IndexedDB
+   */
+  private async saveToDB(metadata: CachedMetadata): Promise<void> {
+    try {
+      const db = await this.dbPromise;
+      if (!db) return;
+      const transaction = db.transaction([STORE_NAME], 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      store.put(metadata);
+    } catch (error) {
+      console.error('Failed to save metadata to IndexedDB:', error);
+    }
+  }
+
+  /**
+   * Delete metadata from IndexedDB
+   */
+  private async deleteFromDB(itemId: string): Promise<void> {
+    try {
+      const db = await this.dbPromise;
+      if (!db) return;
+      const transaction = db.transaction([STORE_NAME], 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      store.delete(itemId);
+    } catch (error) {
+      console.error('Failed to delete metadata from IndexedDB:', error);
+    }
+  }
+
+  /**
+   * Clear all metadata from IndexedDB
+   */
+  private async clearDB(): Promise<void> {
+    try {
+      const db = await this.dbPromise;
+      if (!db) return;
+      const transaction = db.transaction([STORE_NAME], 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      store.clear();
+    } catch (error) {
+      console.error('Failed to clear IndexedDB:', error);
+    }
+  }
+
+  /**
    * Get cached metadata for a file or folder
    */
   get(itemId: string): CachedMetadata | null {
-    const cached = this.cache.get(itemId);
+    const cached = this.memoryCache.get(itemId);
     if (!cached) return null;
 
     // Check if cache entry is expired using current TTL
     if (Date.now() - cached.lastModified > this.currentTTL) {
-      this.cache.delete(itemId);
+      this.memoryCache.delete(itemId);
+      this.deleteFromDB(itemId); // Also remove from IndexedDB
       return null;
     }
 
@@ -53,18 +163,22 @@ class MetadataCache {
    * Set cached metadata for a file or folder
    */
   set(itemId: string, metadata: Omit<CachedMetadata, 'id' | 'lastModified'>): void {
-    this.cache.set(itemId, {
+    const cachedData: CachedMetadata = {
       id: itemId,
       ...metadata,
       lastModified: Date.now(),
-    });
+    } as CachedMetadata;
+    
+    this.memoryCache.set(itemId, cachedData);
+    this.saveToDB(cachedData); // Persist to IndexedDB
   }
 
   /**
    * Invalidate cache for a specific file
    */
   invalidate(fileId: string): void {
-    this.cache.delete(fileId);
+    this.memoryCache.delete(fileId);
+    this.deleteFromDB(fileId);
   }
 
   /**
@@ -72,35 +186,51 @@ class MetadataCache {
    */
   invalidateMultiple(fileIds: string[]): void {
     for (const fileId of fileIds) {
-      this.cache.delete(fileId);
+      this.memoryCache.delete(fileId);
+      this.deleteFromDB(fileId);
     }
   }
 
   /**
-   * Invalidate cache based on file modification time
+   * Invalidate cache if file was modified
+   * Used to detect when files have been updated on the server
    */
-  invalidateIfModified(fileId: string, lastModified: number): void {
-    const cached = this.cache.get(fileId);
-    if (cached && cached.lastModified < lastModified) {
-      this.cache.delete(fileId);
+  invalidateIfModified(fileId: string, currentModifiedTime: number): void {
+    const cached = this.memoryCache.get(fileId);
+    if (cached) {
+      // If the cached entry is older than the file's modified time, invalidate it
+      if (cached.lastModified < currentModifiedTime) {
+        console.log(`🔄 Invalidating stale cache for ${fileId}`);
+        this.memoryCache.delete(fileId);
+        this.deleteFromDB(fileId);
+      }
     }
   }
 
   /**
-   * Clear entire cache
+   * Clear all cached metadata
    */
   clear(): void {
-    this.cache.clear();
+    this.memoryCache.clear();
+    this.clearDB();
   }
 
   /**
-   * Clean up expired entries
+   * Clear expired cache entries (alias for clearExpired)
    */
   cleanup(): void {
+    this.clearExpired();
+  }
+
+  /**
+   * Clear expired cache entries
+   */
+  clearExpired(): void {
     const now = Date.now();
-    for (const [fileId, metadata] of this.cache.entries()) {
+    for (const [fileId, metadata] of this.memoryCache.entries()) {
       if (now - metadata.lastModified > this.currentTTL) {
-        this.cache.delete(fileId);
+        this.memoryCache.delete(fileId);
+        this.deleteFromDB(fileId);
       }
     }
   }
@@ -108,10 +238,10 @@ class MetadataCache {
   /**
    * Get cache statistics
    */
-  getStats(): { size: number; hitRate: number } {
+  getStats(): { size: number; ttl: number } {
     return {
-      size: this.cache.size,
-      hitRate: 0, // TODO: Track hit rate if needed
+      size: this.memoryCache.size,
+      ttl: this.currentTTL,
     };
   }
 
@@ -122,44 +252,17 @@ class MetadataCache {
     const fileMetadata = new Map<string, CachedFileMetadata>();
     const now = Date.now();
 
-    for (const [itemId, metadata] of this.cache.entries()) {
+    for (const [itemId, metadata] of this.memoryCache.entries()) {
       // Check if not expired and is file metadata (has tags field)
       if (
         (now - metadata.lastModified <= this.currentTTL) &&
-        'tags' in metadata
+        isFileMetadata(metadata)
       ) {
-        fileMetadata.set(itemId, metadata as CachedFileMetadata);
+        fileMetadata.set(itemId, metadata);
       }
     }
 
     return fileMetadata;
-  }
-
-  /**
-   * Build FileData objects instantly from cache for specific file IDs
-   */
-  buildFileDataFromCache(fileIds: string[], originalFiles: any[]): FileData[] {
-    const result: FileData[] = [];
-    const now = Date.now();
-
-    for (const originalFile of originalFiles) {
-      if (!fileIds.includes(originalFile.id)) continue;
-
-      const cached = this.cache.get(originalFile.id);
-      if (cached && 'tags' in cached && (now - cached.lastModified <= this.currentTTL)) {
-        // Use cached metadata - instant performance!
-        result.push({
-          ...originalFile,
-          name: cached.decryptedName,
-          size: cached.decryptedSize,
-        });
-      } else {
-        // Fallback to original data if not cached
-        result.push(originalFile);
-      }
-    }
-
-    return result;
   }
 
   /**
@@ -170,7 +273,7 @@ class MetadataCache {
     const now = Date.now();
 
     for (const itemId of itemIds) {
-      const cached = this.cache.get(itemId);
+      const cached = this.memoryCache.get(itemId);
       if (cached && (now - cached.lastModified <= this.currentTTL)) {
         result.set(itemId, cached);
       }
@@ -185,12 +288,43 @@ class MetadataCache {
   setBatch(entries: Array<{ fileId: string; metadata: Omit<CachedFileMetadata, 'id' | 'lastModified'> }>): void {
     const now = Date.now();
     for (const { fileId, metadata } of entries) {
-      this.cache.set(fileId, {
+      const cachedData: CachedFileMetadata = {
         id: fileId,
         ...metadata,
         lastModified: now,
-      });
+      };
+      this.memoryCache.set(fileId, cachedData);
+      this.saveToDB(cachedData);
     }
+  }
+
+  /**
+   * Build file data from cache, using original files as fallback
+   * Used for instant loading when all files are cached
+   */
+  buildFileDataFromCache(fileIds: string[], originalFiles: FileData[]): FileData[] {
+    const result: FileData[] = [];
+    
+    for (const fileId of fileIds) {
+      const originalFile = originalFiles.find(f => f.id === fileId);
+      if (!originalFile) continue;
+      
+      const cached = this.memoryCache.get(fileId);
+      
+      if (cached && isFileMetadata(cached)) {
+        // Use cached metadata
+        result.push({
+          ...originalFile,
+          name: cached.decryptedName,
+          size: cached.decryptedSize,
+        });
+      } else {
+        // Use original file (encrypted metadata)
+        result.push(originalFile);
+      }
+    }
+    
+    return result;
   }
 }
 
@@ -221,7 +355,7 @@ export const getOrDecryptMetadata = async (
 ): Promise<CachedFileMetadata> => {
   // Check cache first
   const cached = metadataCache.get(file.id!);
-  if (cached) {
+  if (cached && isFileMetadata(cached)) {
     return cached;
   }
 

@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Box, Button, TextField, Typography, Alert, Container, Paper, Divider } from '@mui/material';
 import { backendService } from '../backend/BackendService';
 import { useNavigate, Link } from 'react-router-dom';
+import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import { auth } from '../firebase';
 
 const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');

@@ -13,8 +13,6 @@ import {
   Tabs,
   Tab,
   CircularProgress,
-  Divider,
-  IconButton,
 } from '@mui/material';
 import {
   CreditCard,
@@ -30,15 +28,11 @@ import {
   VpnKey as License,
   Security,
   DriveEta,
-  Add as AddIcon,
-  Public as PublicIcon,
-  Lock as PrivateIcon,
   Star as StarIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import { 
   createBlankForm, 
-  saveFormAsFile,
   type SecureFormData,
   type FormTemplate
 } from '../utils/formFiles';
@@ -51,6 +45,7 @@ interface FormBuilderProps {
   privateKey: string;
   parentFolder: string | null;
   onFormCreated: (fileId: string | null, formData?: SecureFormData) => void;
+  initialTemplateId?: string; // Optional template to pre-select
 }
 
 const TEMPLATE_ICONS = {
@@ -75,6 +70,7 @@ const FormBuilder: React.FC<FormBuilderProps> = ({
   privateKey,
   parentFolder,
   onFormCreated,
+  initialTemplateId,
 }) => {
   const { t } = useTranslation();
   const [allTemplates, setAllTemplates] = useState<{ [key: string]: FormTemplate }>({});
@@ -98,8 +94,18 @@ const FormBuilder: React.FC<FormBuilderProps> = ({
   const [saving, setSaving] = useState(false);
   
   // Template browsing state
-  const [currentTab, setCurrentTab] = useState(0); // 0: All Templates, 1: Categories
+  const [currentTab, setCurrentTab] = useState(0); // 0: Built-in, 1: Personal, 2: Categories
   const [selectedCategory, setSelectedCategory] = useState<string>('');
+  
+  // If initialTemplateId is provided, auto-select it when templates load
+  useEffect(() => {
+    if (initialTemplateId && allTemplates[initialTemplateId] && open) {
+      const template = allTemplates[initialTemplateId];
+      // Auto-select this template
+      handleTemplateSelect(template);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialTemplateId, allTemplates, open]);
   
   // Reset state when dialog opens
   React.useEffect(() => {
@@ -114,12 +120,16 @@ const FormBuilder: React.FC<FormBuilderProps> = ({
   // Get all templates as array
   const templatesArray = Object.values(allTemplates);
   
-  // Get categories from templates
-  const categories = Array.from(new Set(templatesArray.map(t => t.category).filter(Boolean)));
+  // Separate built-in and custom templates
+  const builtInTemplates = templatesArray.filter(t => t.isOfficial !== false && !t.author);
+  const customTemplates = templatesArray.filter(t => t.author === userId || t.isOfficial === false);
+  
+  // Get categories from built-in templates
+  const categories = Array.from(new Set(builtInTemplates.map(t => t.category).filter(Boolean)));
   
   // Filter templates by category if one is selected
   const categoryTemplates = selectedCategory 
-    ? templatesArray.filter(template => template.category === selectedCategory)
+    ? builtInTemplates.filter(template => template.category === selectedCategory)
     : [];
 
 
@@ -137,16 +147,6 @@ const FormBuilder: React.FC<FormBuilderProps> = ({
     createFormDirectly(template, template.name).catch(error => {
       console.error('Error in handleTemplateSelect:', error);
       // Reset the saving state if there was an error
-      setSaving(false);
-      setStep('choose');
-    });
-  };
-
-  const handleCreateBlank = () => {
-    const blankFormName = t('forms.newForm');
-    
-    createFormDirectly(null, blankFormName).catch(error => {
-      console.error('Error in handleCreateBlank:', error);
       setSaving(false);
       setStep('choose');
     });
@@ -281,53 +281,6 @@ const FormBuilder: React.FC<FormBuilderProps> = ({
         {t('forms.createNewForm')}
       </DialogTitle>
       <DialogContent sx={{ px: 3, py: 2, maxHeight: 'calc(90vh - 200px)', overflowY: 'auto' }}>
-        
-        {/* Blank Form Option - Prominent */}
-        <Card 
-          sx={{ 
-            mb: 3, 
-            cursor: 'pointer',
-            border: '2px solid',
-            borderColor: 'primary.main',
-            '&:hover': {
-              boxShadow: (theme) => theme.shadows[8],
-              borderColor: 'primary.dark',
-            }
-          }} 
-          onClick={handleCreateBlank}
-        >
-          <CardContent sx={{ py: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center' }}>
-              <Box 
-                sx={{ 
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: 64,
-                  height: 64,
-                  borderRadius: '50%',
-                  bgcolor: 'primary.main',
-                  color: 'primary.contrastText',
-                  mr: 3
-                }}
-              >
-                <Extension sx={{ fontSize: 32 }} />
-              </Box>
-              <Box sx={{ flex: 1 }}>
-                <Typography variant="h5" sx={{ fontWeight: 600, mb: 1 }}>
-                  {t('forms.blankForm')}
-                </Typography>
-                <Typography variant="body1" color="text.secondary">
-                  {t('forms.blankFormDescription')}
-                </Typography>
-              </Box>
-            </Box>
-          </CardContent>
-        </Card>
-
-        <Typography variant="h5" sx={{ mb: 2, textAlign: 'center', fontWeight: 500 }}>
-          {t('forms.startFromTemplate')}
-        </Typography>
 
         {/* Template Tabs */}
         <Tabs 
@@ -336,11 +289,12 @@ const FormBuilder: React.FC<FormBuilderProps> = ({
           sx={{ mb: 3, borderBottom: 1, borderColor: 'divider' }}
           centered
         >
-          <Tab label={t('forms.allTemplates', 'All Templates')} />
+          <Tab label={t('forms.builtInTemplates', 'Built-in Templates')} />
+          <Tab label={t('forms.personalTemplates', 'Personal Templates')} />
           <Tab label={t('forms.categories', 'Categories')} />
         </Tabs>
 
-        {/* All Templates Tab */}
+        {/* Built-in Templates Tab */}
         {currentTab === 0 && (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {loading ? (
@@ -349,19 +303,14 @@ const FormBuilder: React.FC<FormBuilderProps> = ({
               </Box>
             ) : (
               <>
-                {Object.values(allTemplates).length === 0 ? (
+                {builtInTemplates.length === 0 ? (
                   <Typography color="text.secondary" align="center" sx={{ py: 4 }}>
-                    No templates available
+                    No built-in templates available
                   </Typography>
                 ) : (
-                  templatesArray.map((template, index) => (
+                  builtInTemplates.map((template, index) => (
                     <Box key={`${template.templateId}-${template.name}-${index}`}>
                       {renderTemplateCard(template)}
-                      {!template.isOfficial && (
-                        <Typography variant="caption" color="text.secondary" sx={{ ml: 2, display: 'block' }}>
-                          Custom Template
-                        </Typography>
-                      )}
                     </Box>
                   ))
                 )}
@@ -370,8 +319,33 @@ const FormBuilder: React.FC<FormBuilderProps> = ({
           </Box>
         )}
 
-            {/* Categories Tab */}
-            {currentTab === 1 && (
+        {/* Personal/Custom Templates Tab */}
+        {currentTab === 1 && (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {loading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <CircularProgress />
+              </Box>
+            ) : (
+              <>
+                {customTemplates.length === 0 ? (
+                  <Typography color="text.secondary" align="center" sx={{ py: 4 }}>
+                    No personal templates yet. Create your own templates in the Advanced menu.
+                  </Typography>
+                ) : (
+                  customTemplates.map((template, index) => (
+                    <Box key={`${template.templateId}-${template.name}-${index}`}>
+                      {renderTemplateCard(template)}
+                    </Box>
+                  ))
+                )}
+              </>
+            )}
+          </Box>
+        )}
+
+        {/* Categories Tab */}
+        {currentTab === 2 && (
               <Box>
                 {!selectedCategory ? (
                   <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 2 }}>
@@ -384,7 +358,7 @@ const FormBuilder: React.FC<FormBuilderProps> = ({
                             boxShadow: (theme) => theme.shadows[2],
                           }
                         }}
-                        onClick={() => setSelectedCategory(category)}
+                        onClick={() => category && setSelectedCategory(category)}
                       >
                         <CardContent sx={{ textAlign: 'center', py: 2 }}>
                           <Typography variant="body1" fontWeight={500}>

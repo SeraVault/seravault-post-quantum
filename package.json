@@ -38,6 +38,7 @@
     "@types/react-router-dom": "^5.3.3",
     "@uiw/react-md-editor": "^4.0.8",
     "crypto-js": "^4.2.0",
+    "date-fns": "^4.1.0",
     "firebase": "^12.1.0",
     "firebase-admin": "^13.5.0",
     "i18next": "^25.4.2",

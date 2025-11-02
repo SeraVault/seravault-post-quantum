@@ -6,6 +6,10 @@ import './index.css'
 import CssBaseline from '@mui/material/CssBaseline';
 import { AuthProvider } from './auth/AuthContext';
 import { AppThemeProvider } from './theme/ThemeContext';
+import { cleanupObsoleteCaches } from './services/cacheCleanup';
+
+// Cleanup obsolete cache databases from previous versions
+cleanupObsoleteCaches();
 
 // PWA Service Worker Registration
 if ('serviceWorker' in navigator) {

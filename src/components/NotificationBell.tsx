@@ -292,6 +292,7 @@ const NotificationBell: React.FC<NotificationBellProps> = ({ className }) => {
                     )}
                   </Box>
                 }
+                secondaryTypographyProps={{ component: 'div' }}
               />
             </MenuItem>
           ))

@@ -120,7 +120,7 @@ const PassphraseProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     clearStoredPrivateKey();
   };
 
-  const handlePassphraseSubmit = async (passphraseOrPrivateKey: string, rememberChoice = false, method: 'passphrase' | 'biometric' | 'keyfile' = 'passphrase') => {
+  const handlePassphraseSubmit = async (passphraseOrPrivateKey: string, rememberChoice = false, method: 'passphrase' | 'biometric' | 'keyfile' | 'hardware' = 'passphrase') => {
     setLoading(true);
     
     if (!user) {
@@ -131,7 +131,7 @@ const PassphraseProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       let decryptedPrivateKey: string;
       
-      if (method === 'biometric' || method === 'keyfile') {
+      if (method === 'biometric' || method === 'keyfile' || method === 'hardware') {
         // Private key is already decrypted
         decryptedPrivateKey = passphraseOrPrivateKey;
       } else {

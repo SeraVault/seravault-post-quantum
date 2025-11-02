@@ -23,7 +23,8 @@ export interface UseKeyGenerationReturn {
     displayName: string,
     onSuccess: (profile: UserProfile) => void,
     onError: (error: string) => void,
-    setLoading: (loading: boolean) => void
+    setLoading: (loading: boolean) => void,
+    useHardwareStorage?: boolean
   ) => Promise<void>;
   handleRegenerateKeys: () => void;
   handleConfirmRegeneration: (
@@ -60,7 +61,8 @@ export const useKeyGeneration = (): UseKeyGenerationReturn => {
     displayName: string,
     onSuccess: (profile: UserProfile) => void,
     onError: (error: string) => void,
-    setLoading: (loading: boolean) => void
+    setLoading: (loading: boolean) => void,
+    useHardwareStorage?: boolean
   ) => {
     if (passphrase !== confirmPassphrase) {
       onError('Passphrases do not match');
@@ -86,10 +88,30 @@ export const useKeyGeneration = (): UseKeyGenerationReturn => {
         passphrase
       );
       
-      // Store private key in secure storage
-      const { usePrivateKeyStorage } = await import('../utils/secureStorage');
-      const { storePrivateKey } = usePrivateKeyStorage(user.uid);
-      storePrivateKey(privateKey, true); // Default to remember for convenience
+      if (useHardwareStorage) {
+        // Store private key in hardware key
+        const { registerHardwareKey, storePrivateKeyInHardware } = await import('../utils/hardwareKeyAuth');
+        
+        try {
+          // Register the hardware key
+          const credential = await registerHardwareKey(user.uid, 'Primary Security Key');
+          
+          // Store the private key in the hardware key
+          await storePrivateKeyInHardware(credential.id, privateKey);
+          
+          console.log('✅ Private key stored in hardware key');
+        } catch (hardwareError) {
+          console.error('Hardware key setup failed:', hardwareError);
+          onError('Hardware key setup failed. Please try again or use standard mode.');
+          setLoading(false);
+          return;
+        }
+      } else {
+        // Store private key in secure storage (standard mode)
+        const { usePrivateKeyStorage } = await import('../utils/secureStorage');
+        const { storePrivateKey } = usePrivateKeyStorage(user.uid);
+        storePrivateKey(privateKey, true); // Default to remember for convenience
+      }
       
       console.log('✅ Key generation completed successfully');
       onSuccess(profile);

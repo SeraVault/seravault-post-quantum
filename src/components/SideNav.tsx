@@ -12,12 +12,12 @@ import {
   Divider,
   ListItemIcon,
   IconButton,
+  Collapse,
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import {
   Home,
   Share,
-  Delete,
   Star,
   AccessTime,
   CloudSync,
@@ -25,7 +25,12 @@ import {
   Info,
   ChevronLeft,
   ChevronRight,
-  People
+  People,
+  LibraryBooks,
+  ExpandMore,
+  ExpandLess,
+  Settings,
+  Chat as ChatIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import FolderTree from './FolderTree';
@@ -80,6 +85,9 @@ const SideNav: React.FC<SideNavProps> = ({
   const { allFolders } = useFolders();
   const { isRecentsView, setIsRecentsView, isFavoritesView, setIsFavoritesView, isSharedView, setIsSharedView } = useRecents();
   
+  // Advanced menu expanded state
+  const [advancedExpanded, setAdvancedExpanded] = React.useState(false);
+  
   // Storage usage
   const { usage: storageUsage, loading: storageLoading, refresh: refreshStorage } = useSimpleStorageUsage();
   
@@ -114,7 +122,7 @@ const SideNav: React.FC<SideNavProps> = ({
     }
 
     // Also update local state for when we're already on HomePage
-    setCurrentFolder(folderId);
+    // setCurrentFolder(folderId); // Redundant, navigation is handled by navigate(). HomePage reads folder from URL.
     setIsRecentsView(false);
     setIsFavoritesView(false);
     setIsSharedView(false);
@@ -346,6 +354,9 @@ const SideNav: React.FC<SideNavProps> = ({
           onClick={() => {
             handleViewNavigateAndClose('/');
             setCurrentFolder(null);
+            setIsRecentsView(false);
+            setIsFavoritesView(false);
+            setIsSharedView(false);
           }}
           onDragOver={handleRootDragOver}
           onDragLeave={handleRootDragLeave}
@@ -371,7 +382,7 @@ const SideNav: React.FC<SideNavProps> = ({
           />
         </ListItemButton>
         
-        <Box sx={{ ml: 1 }}>
+        <Box sx={{ mx: 1 }}>
           <FolderTree 
             folders={allFolders} 
             onFolderClick={handleFolderClick}
@@ -431,23 +442,84 @@ const SideNav: React.FC<SideNavProps> = ({
         </ListItemButton>
         
         <ListItemButton
+          onClick={() => handleNavigateAndClose('/chat')}
           sx={{
             borderRadius: 1,
             mx: 1,
             mb: 0.5,
+            justifyContent: collapsed && !isMobile ? 'center' : 'flex-start',
             '&:hover': {
               backgroundColor: 'action.hover',
             }
           }}
+          title={collapsed && !isMobile ? t('navigation.chat', 'Chat') : undefined}
         >
-          <ListItemIcon sx={{ minWidth: 32 }}>
-            <Delete fontSize="small" />
+          <ListItemIcon sx={{ minWidth: collapsed && !isMobile ? 'auto' : 32 }}>
+            <ChatIcon fontSize="small" />
           </ListItemIcon>
-          <ListItemText 
-            primary="Trash" 
-            primaryTypographyProps={{ fontSize: '14px' }}
-          />
+          {(!collapsed || isMobile) && (
+            <ListItemText 
+              primary={t('navigation.chat', 'Chat')} 
+              primaryTypographyProps={{ fontSize: '14px' }}
+            />
+          )}
         </ListItemButton>
+        
+        {/* Advanced Section */}
+        <ListItemButton
+          onClick={() => setAdvancedExpanded(!advancedExpanded)}
+          sx={{
+            borderRadius: 1,
+            mx: 1,
+            mb: 0.5,
+            justifyContent: collapsed && !isMobile ? 'center' : 'flex-start',
+            '&:hover': {
+              backgroundColor: 'action.hover',
+            }
+          }}
+          title={collapsed && !isMobile ? 'Advanced' : undefined}
+        >
+          <ListItemIcon sx={{ minWidth: collapsed && !isMobile ? 'auto' : 32 }}>
+            <Settings fontSize="small" />
+          </ListItemIcon>
+          {(!collapsed || isMobile) && (
+            <>
+              <ListItemText 
+                primary="Advanced" 
+                primaryTypographyProps={{ fontSize: '14px' }}
+              />
+              {advancedExpanded ? <ExpandLess /> : <ExpandMore />}
+            </>
+          )}
+        </ListItemButton>
+        
+        {/* Advanced submenu */}
+        {(!collapsed || isMobile) && (
+          <Collapse in={advancedExpanded} timeout="auto" unmountOnExit>
+            <List component="div" disablePadding>
+              <ListItemButton
+                onClick={() => handleNavigateAndClose('/templates')}
+                sx={{
+                  borderRadius: 1,
+                  mx: 1,
+                  mb: 0.5,
+                  pl: 5,
+                  '&:hover': {
+                    backgroundColor: 'action.hover',
+                  }
+                }}
+              >
+                <ListItemIcon sx={{ minWidth: 32 }}>
+                  <LibraryBooks fontSize="small" />
+                </ListItemIcon>
+                <ListItemText 
+                  primary="Form Templates" 
+                  primaryTypographyProps={{ fontSize: '14px' }}
+                />
+              </ListItemButton>
+            </List>
+          </Collapse>
+        )}
 
         <ListItemButton
           onClick={() => handleNavigateAndClose('/security')}
@@ -467,7 +539,7 @@ const SideNav: React.FC<SideNavProps> = ({
           </ListItemIcon>
           {(!collapsed || isMobile) && (
             <ListItemText 
-              primary={t('navigation.about', 'About')} 
+              primary={t('navigation.about', 'About') } 
               primaryTypographyProps={{ fontSize: '14px' }}
             />
           )}

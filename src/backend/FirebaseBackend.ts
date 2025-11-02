@@ -253,8 +253,8 @@ export class FirebaseBackend implements BackendInterface {
 
     // Subscribe to shared files (different from owned)
     const sharedQuery = folderId
-      ? query(collection(db, 'files'), where('sharedWith', 'array-contains', userId), where('owner', '!=', userId), where('parent', '==', folderId))
-      : query(collection(db, 'files'), where('sharedWith', 'array-contains', userId), where('owner', '!=', userId), where('parent', '==', null));
+      ? query(collection(db, 'files'), where('sharedWith', 'array-contains', userId), where('parent', '==', folderId))
+      : query(collection(db, 'files'), where('sharedWith', 'array-contains', userId), where('parent', '==', null));
 
     sharedUnsubscribe = onSnapshot(sharedQuery, (querySnapshot) => {
       // Update shared files in the map

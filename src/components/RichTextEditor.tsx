@@ -1,5 +1,6 @@
-import React, { useCallback } from 'react';
-import { Box, Typography } from '@mui/material';
+import React, { useCallback, useState } from 'react';
+import { Box, Typography, ToggleButtonGroup, ToggleButton } from '@mui/material';
+import { Edit, Visibility, ViewColumn } from '@mui/icons-material';
 import MDEditor from '@uiw/react-md-editor';
 import '@uiw/react-md-editor/markdown-editor.css';
 
@@ -22,6 +23,8 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
   sensitive = false,
   disabled = false,
 }) => {
+  const [previewMode, setPreviewMode] = useState<'edit' | 'preview' | 'live'>('live');
+  
   const handleChange = (val: string | undefined) => {
     onChange(val || '');
   };
@@ -89,17 +92,43 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
 
   return (
     <Box sx={{ mb: 2 }}>
-      <Typography 
-        variant="subtitle2" 
-        gutterBottom
-        sx={{ 
-          mb: 1,
-          color: sensitive ? 'error.main' : 'text.primary',
-          fontWeight: required ? 600 : 400,
-        }}
-      >
-        {label} {required && '*'} {sensitive && '🔒'}
-      </Typography>
+      {/* Header with Label and Preview Toggle */}
+      <Box sx={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center', 
+        mb: 1 
+      }}>
+        <Typography 
+          variant="subtitle2" 
+          sx={{ 
+            color: sensitive ? 'error.main' : 'text.primary',
+            fontWeight: required ? 600 : 400,
+          }}
+        >
+          {label} {required && '*'} {sensitive && '🔒'}
+        </Typography>
+        
+        {!disabled && (
+          <ToggleButtonGroup
+            value={previewMode}
+            exclusive
+            onChange={(_e, newMode) => newMode && setPreviewMode(newMode)}
+            size="small"
+            aria-label="preview mode"
+          >
+            <ToggleButton value="edit" aria-label="edit only">
+              <Edit fontSize="small" />
+            </ToggleButton>
+            <ToggleButton value="live" aria-label="split view">
+              <ViewColumn fontSize="small" />
+            </ToggleButton>
+            <ToggleButton value="preview" aria-label="preview only">
+              <Visibility fontSize="small" />
+            </ToggleButton>
+          </ToggleButtonGroup>
+        )}
+      </Box>
       
       <Box 
         sx={{ 
@@ -146,7 +175,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
         <MDEditor
           value={value}
           onChange={handleChange}
-          preview="edit"
+          preview={previewMode}
           hideToolbar={disabled}
           textareaProps={{
             placeholder,
@@ -158,7 +187,6 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
             },
           }}
           height={300}
-          data-color-mode="auto"
         />
       </Box>
       

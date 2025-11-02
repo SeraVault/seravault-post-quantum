@@ -21,8 +21,6 @@ import {
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
-import { signOut } from 'firebase/auth';
-import { auth } from '../firebase';
 import { useThemeContext } from '../theme/ThemeContext';
 import { useTranslation } from 'react-i18next';
 import { getUserProfile, updateUserProfile } from '../firestore';
@@ -41,7 +39,7 @@ const languages: Language[] = [
 ];
 
 const UserAvatar: React.FC = () => {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { mode, toggleTheme } = useThemeContext();
   const { i18n } = useTranslation();
@@ -76,7 +74,7 @@ const UserAvatar: React.FC = () => {
 
   const handleLogout = async () => {
     handleClose();
-    await signOut(auth);
+    await logout();
   };
 
   const handleThemeToggle = () => {

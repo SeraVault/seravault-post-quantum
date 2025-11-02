@@ -439,9 +439,35 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
             border: '1px solid',
             borderColor: 'divider',
             borderRadius: 1,
-            p: 1,
+            p: 2,
             backgroundColor: 'background.paper',
             minHeight: '60px',
+            overflow: 'auto',
+            '& p': {
+              color: 'text.primary',
+              margin: '0 0 1em 0',
+            },
+            '& h1, & h2, & h3, & h4, & h5, & h6': {
+              color: 'text.primary',
+              margin: '0.5em 0',
+            },
+            '& strong': {
+              fontWeight: 600,
+            },
+            '& a': {
+              color: 'primary.main',
+              textDecoration: 'underline',
+            },
+            '& img': {
+              maxWidth: '100%',
+              height: 'auto',
+              borderRadius: 1,
+              boxShadow: 1,
+            },
+            '& ul, & ol': {
+              paddingLeft: 3,
+            },
+            // Also support markdown rendering for legacy content
             '& .w-md-editor-preview': {
               backgroundColor: 'transparent',
               padding: '8px',
@@ -451,7 +477,12 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
             }
           }}>
             {fieldValue && (
-              <MDEditor.Markdown source={fieldValue} />
+              // Check if content looks like HTML (contains tags) or markdown
+              fieldValue.includes('<') && fieldValue.includes('>') ? (
+                <div dangerouslySetInnerHTML={{ __html: fieldValue }} />
+              ) : (
+                <MDEditor.Markdown source={fieldValue} />
+              )
             )}
           </Box>
         </Box>

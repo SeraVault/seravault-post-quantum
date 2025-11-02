@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react';
-import { Box, Typography, Paper, Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField } from '@mui/material';
+import { Box, Typography, Paper, Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, ToggleButtonGroup, ToggleButton } from '@mui/material';
+import { Edit, Visibility } from '@mui/icons-material';
 import Quill from 'quill';
 import 'quill/dist/quill.snow.css';
 
@@ -22,14 +23,20 @@ const WYSIWYGEditor: React.FC<WYSIWYGEditorProps> = ({
   sensitive = false,
   disabled = false,
 }) => {
-  const editorRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
   const quillRef = useRef<Quill | null>(null);
-  const isUpdatingRef = useRef(false);
+  const onChangeRef = useRef(onChange);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [linkText, setLinkText] = useState('');
   const [linkUrl, setLinkUrl] = useState('');
+  const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit');
+
+  // Keep onChange ref up to date
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
 
   // Handle fullscreen toggle using browser API
   const toggleFullscreen = useCallback(() => {
@@ -60,11 +67,11 @@ const WYSIWYGEditor: React.FC<WYSIWYGEditorProps> = ({
     }
   }, []);
 
-  // Initialize Quill editor
+  // Initialize Quill editor once
   useEffect(() => {
-    if (!editorRef.current || quillRef.current) return;
-
-    console.log('Initializing Quill editor');
+    if (!editorRef.current || quillRef.current) {
+      return;
+    }
     
     // Create custom toolbar
     const toolbarOptions = disabled ? false : [
@@ -104,47 +111,11 @@ const WYSIWYGEditor: React.FC<WYSIWYGEditorProps> = ({
         const fullscreenButton = toolbar.container.querySelector('.ql-fullscreen');
         if (fullscreenButton) {
           fullscreenButton.addEventListener('click', () => {
-            console.log('Fullscreen button clicked');
             toggleFullscreen();
           });
         }
       }
     }
-
-    // Handle content changes with debouncing
-    let changeTimeout: NodeJS.Timeout;
-    const handleTextChange = () => {
-      if (isUpdatingRef.current) return;
-
-      // Clear previous timeout
-      if (changeTimeout) {
-        clearTimeout(changeTimeout);
-      }
-
-      // Debounce the onChange call
-      changeTimeout = setTimeout(() => {
-        const html = quill.root.innerHTML;
-        const cleanHtml = html === '<p><br></p>' ? '' : html;
-        onChange(cleanHtml);
-      }, 1000); // 1000ms debounce - longer delay to capture full text
-    };
-
-    // Use multiple events to ensure we capture all changes
-    quill.on('text-change', handleTextChange);
-    quill.on('editor-change', handleTextChange);
-    quill.on('selection-change', () => {
-      // Also trigger on selection change (when user clicks away)
-      if (!isUpdatingRef.current) {
-        handleTextChange();
-      }
-    });
-
-    // Cleanup function for timeout
-    const cleanup = () => {
-      if (changeTimeout) {
-        clearTimeout(changeTimeout);
-      }
-    };
 
     // Custom link handler
     (quill.getModule('toolbar') as any).addHandler('link', () => {
@@ -178,40 +149,32 @@ const WYSIWYGEditor: React.FC<WYSIWYGEditorProps> = ({
       };
     });
 
-
     // Set initial content
     if (value) {
-      isUpdatingRef.current = true;
       quill.root.innerHTML = value;
-      isUpdatingRef.current = false;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount
+
+  // Register text-change listener (separate effect so it re-registers after cleanup)
+  useEffect(() => {
+    const quill = quillRef.current;
+    if (!quill) {
+      return;
+    }
+
+    const handleTextChange = () => {
+      const html = quill.root.innerHTML;
+      const cleanHtml = html === '<p><br></p>' ? '' : html;
+      onChangeRef.current(cleanHtml);
+    };
+
+    quill.on('text-change', handleTextChange);
 
     return () => {
-      cleanup();
-      if (quillRef.current) {
-        quillRef.current.off('text-change', handleTextChange);
-        quillRef.current.off('editor-change', handleTextChange);
-      }
+      quill.off('text-change', handleTextChange);
     };
-  }, [disabled, placeholder, onChange, toggleFullscreen]);
-
-  // Update content when value prop changes
-  useEffect(() => {
-    if (!quillRef.current || isUpdatingRef.current) return;
-    
-    const currentHtml = quillRef.current.root.innerHTML;
-    const cleanCurrentHtml = currentHtml === '<p><br></p>' ? '' : currentHtml;
-    
-    if (cleanCurrentHtml !== value) {
-      isUpdatingRef.current = true;
-      if (value) {
-        quillRef.current.root.innerHTML = value;
-      } else {
-        quillRef.current.setText('');
-      }
-      isUpdatingRef.current = false;
-    }
-  }, [value]);
+  }); // No dependencies - runs on every render to ensure listener is always registered
 
   // Update disabled state
   useEffect(() => {
@@ -318,22 +281,95 @@ const WYSIWYGEditor: React.FC<WYSIWYGEditorProps> = ({
   return (
     <>
       <Box sx={{ mb: 2 }}>
-        <Typography 
-          variant="subtitle2" 
-          gutterBottom
-          sx={{ 
-            mb: 1,
-            color: sensitive ? 'error.main' : 'text.primary',
-            fontWeight: required ? 600 : 400,
-          }}
-        >
-          {label} {required && '*'} {sensitive && '🔒'}
-        </Typography>
+        {/* Header with Label and Preview Toggle */}
+        <Box sx={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center', 
+          mb: 1 
+        }}>
+          <Typography 
+            variant="subtitle2" 
+            sx={{ 
+              color: sensitive ? 'error.main' : 'text.primary',
+              fontWeight: required ? 600 : 400,
+            }}
+          >
+            {label} {required && '*'} {sensitive && '🔒'}
+          </Typography>
+          
+          {!disabled && (
+            <ToggleButtonGroup
+              value={viewMode}
+              exclusive
+              onChange={(_e, newMode) => newMode && setViewMode(newMode)}
+              size="small"
+              aria-label="view mode"
+            >
+              <ToggleButton value="edit" aria-label="edit mode">
+                <Edit fontSize="small" sx={{ mr: 0.5 }} />
+                Edit
+              </ToggleButton>
+              <ToggleButton value="preview" aria-label="preview mode">
+                <Visibility fontSize="small" sx={{ mr: 0.5 }} />
+                Preview
+              </ToggleButton>
+            </ToggleButtonGroup>
+          )}
+        </Box>
         
-        <Paper 
-          ref={containerRef}
-          variant="outlined"
-          sx={{ 
+        {viewMode === 'preview' ? (
+          // Preview Mode - Show rendered HTML
+          <Paper 
+            variant="outlined"
+            sx={{ 
+              border: '1px solid',
+              borderColor: 'divider',
+              borderRadius: 1,
+              p: 2,
+              backgroundColor: 'background.paper',
+              minHeight: 300,
+              overflow: 'auto',
+              '& p': {
+                color: 'text.primary',
+                margin: '0 0 1em 0',
+              },
+              '& h1, & h2, & h3, & h4, & h5, & h6': {
+                color: 'text.primary',
+                margin: '0.5em 0',
+              },
+              '& strong': {
+                fontWeight: 600,
+              },
+              '& a': {
+                color: 'primary.main',
+                textDecoration: 'underline',
+              },
+              '& img': {
+                maxWidth: '100%',
+                height: 'auto',
+                borderRadius: 1,
+                boxShadow: 1,
+              },
+              '& ul, & ol': {
+                paddingLeft: 3,
+              },
+            }}
+          >
+            {value ? (
+              <div dangerouslySetInnerHTML={{ __html: value }} />
+            ) : (
+              <Typography color="text.disabled" fontStyle="italic">
+                No content to preview
+              </Typography>
+            )}
+          </Paper>
+        ) : (
+          // Edit Mode - Show Quill editor
+          <Paper 
+            ref={containerRef}
+            variant="outlined"
+            sx={{ 
             border: '1px solid',
             borderColor: disabled ? 'action.disabled' : 'divider',
             borderRadius: 1,
@@ -490,8 +526,9 @@ const WYSIWYGEditor: React.FC<WYSIWYGEditorProps> = ({
         >
           <div ref={editorRef} />
         </Paper>
+        )}
         
-        {placeholder && !value && (
+        {placeholder && !value && viewMode === 'edit' && (
           <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
             {placeholder}
           </Typography>

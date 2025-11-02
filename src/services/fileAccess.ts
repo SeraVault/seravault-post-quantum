@@ -3,6 +3,8 @@ import { db } from '../firebase';
 import { decryptData, hexToBytes, decryptMetadata } from '../crypto/quantumSafeCrypto';
 import { isFormFile } from '../utils/formFiles';
 import type { FileData } from '../files';
+import { fileCacheService } from './FileCacheService';
+import { offlineFileCache } from './offlineFileCache';
 
 export interface FileAccessResult {
   file: FileData;
@@ -74,54 +76,199 @@ export class FileAccessService {
   }
 
   /**
-   * Load file content for viewing/editing
+   * Load file content for viewing/editing, with local caching
    */
   static async loadFileContent(file: FileData, userId: string, privateKey: string): Promise<ArrayBuffer> {
+    if (!file.id) {
+      throw new Error('File has no ID, cannot process content.');
+    }
     if (!file.encryptedKeys || !file.encryptedKeys[userId]) {
       throw new Error('No access key found for this file');
     }
 
-    // Download encrypted file from storage
+    // When online, fetch fresh metadata from Firestore to check for updates
+    let remoteTimestamp = 0;
+    let isOnline = navigator.onLine;
+    
+    if (isOnline) {
+      try {
+        console.log(`🔍 Checking server for updates to ${file.id}`);
+        const freshFile = await this.loadFileById(file.id, userId, privateKey);
+        remoteTimestamp = freshFile.lastModified
+          ? (freshFile.lastModified as any).toDate ? (freshFile.lastModified as any).toDate().getTime() : new Date(freshFile.lastModified as any).getTime()
+          : 0;
+        
+        // Update file object with fresh metadata (for encryption keys, etc.)
+        if (freshFile.encryptedKeys) {
+          file.encryptedKeys = freshFile.encryptedKeys;
+        }
+      } catch (error) {
+        console.warn('Failed to fetch fresh file metadata, using cached timestamp:', error);
+        // Fall back to provided timestamp if server check fails
+        remoteTimestamp = file.lastModified
+          ? (file.lastModified as any).toDate ? (file.lastModified as any).toDate().getTime() : new Date(file.lastModified as any).getTime()
+          : 0;
+        isOnline = false; // Treat as offline if server check failed
+      }
+    } else {
+      // Offline - use provided timestamp
+      console.log(`📵 Offline mode - using cached file metadata`);
+      remoteTimestamp = file.lastModified
+        ? (file.lastModified as any).toDate ? (file.lastModified as any).toDate().getTime() : new Date(file.lastModified as any).getTime()
+        : 0;
+    }
+
+    // 1. Check offline cache first (persistent)
+    const offlineCached = await offlineFileCache.getCachedFileWithMetadata(file.id);
+    if (offlineCached) {
+      // Check if cached version is current
+      if (offlineCached.cachedAt >= remoteTimestamp) {
+        console.log(`💾 Using offline cached encrypted content for ${file.id}`);
+        // Convert Blob to ArrayBuffer
+        const encryptedContent = await offlineCached.blob.arrayBuffer();
+        
+        // Decrypt the cached encrypted content
+        const userEncryptedKey = file.encryptedKeys[userId];
+        const privateKeyBytes = hexToBytes(privateKey);
+        
+        try {
+          const keyData = hexToBytes(userEncryptedKey);
+          const keyIv = keyData.slice(0, 12);
+          const encapsulatedKey = keyData.slice(12, 12 + 1088);
+          const keyCiphertext = keyData.slice(12 + 1088);
+          
+          const fileKey = await decryptData(
+            { iv: keyIv, encapsulatedKey, ciphertext: keyCiphertext },
+            privateKeyBytes
+          );
+          
+          const contentIv = encryptedContent.slice(0, 12);
+          const encryptedData = encryptedContent.slice(12);
+          
+          const aesKey = await crypto.subtle.importKey('raw', fileKey, { name: 'AES-GCM' }, false, ['decrypt']);
+          const decryptedContent = await crypto.subtle.decrypt(
+            { name: 'AES-GCM', iv: contentIv }, 
+            aesKey, 
+            encryptedData
+          );
+
+          // Save decrypted content to memory cache for faster subsequent access
+          await fileCacheService.saveFile(file.id, decryptedContent, offlineCached.cachedAt, typeof file.name === 'string' ? file.name : '', isFormFile(typeof file.name === 'string' ? file.name : ''));
+          
+          return decryptedContent;
+        } catch (error) {
+          console.error('Failed to decrypt offline cached content:', error);
+          // Fall through to download from server
+        }
+      } else {
+        // Cached version is outdated
+        console.log(`⚠️ Cached file ${file.id} is outdated (cached: ${new Date(offlineCached.cachedAt).toISOString()}, remote: ${new Date(remoteTimestamp).toISOString()})`);
+        if (!isOnline) {
+          console.warn(`📵 Offline: Using outdated cached version of ${file.id}`);
+          // Still use outdated cache if offline - better than nothing
+          try {
+            const encryptedContent = await offlineCached.blob.arrayBuffer();
+            const userEncryptedKey = file.encryptedKeys[userId];
+            const privateKeyBytes = hexToBytes(privateKey);
+            
+            const keyData = hexToBytes(userEncryptedKey);
+            const keyIv = keyData.slice(0, 12);
+            const encapsulatedKey = keyData.slice(12, 12 + 1088);
+            const keyCiphertext = keyData.slice(12 + 1088);
+            
+            const fileKey = await decryptData(
+              { iv: keyIv, encapsulatedKey, ciphertext: keyCiphertext },
+              privateKeyBytes
+            );
+            
+            const contentIv = encryptedContent.slice(0, 12);
+            const encryptedData = encryptedContent.slice(12);
+            
+            const aesKey = await crypto.subtle.importKey('raw', fileKey, { name: 'AES-GCM' }, false, ['decrypt']);
+            const decryptedContent = await crypto.subtle.decrypt(
+              { name: 'AES-GCM', iv: contentIv }, 
+              aesKey, 
+              encryptedData
+            );
+
+            await fileCacheService.saveFile(file.id, decryptedContent, offlineCached.cachedAt, typeof file.name === 'string' ? file.name : '', isFormFile(typeof file.name === 'string' ? file.name : ''));
+            
+            return decryptedContent;
+          } catch (error) {
+            throw new Error(`Failed to decrypt outdated cached file while offline: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+        // Online and outdated - will download fresh version below
+      }
+    }
+
+    // 2. Check in-memory cache
+    const cachedFile = await fileCacheService.getFile(file.id);
+    if (cachedFile) {
+      const cachedTimestamp = cachedFile.timestamp;
+      if (cachedTimestamp >= remoteTimestamp) {
+        console.log(`⚡️ Using memory cached content for ${file.id}`);
+        return cachedFile.content;
+      } else {
+        console.log(`Cache outdated for ${file.id}. Remote: ${remoteTimestamp}, Cached: ${cachedTimestamp}`);
+      }
+    }
+
+    // 3. Download from storage if not cached or outdated
+    console.log(`⬇️ Downloading content for ${file.id}`);
     const { getFile } = await import('../storage');
     const encryptedContent = await getFile(file.storagePath);
     
-    // Decrypt file content using ML-KEM-768
+    // 4. Save encrypted content to offline cache for future offline access
+    try {
+      await offlineFileCache.cacheFile(
+        file.id,
+        encryptedContent,
+        file.storagePath,
+        'application/octet-stream'
+      );
+      console.log(`💾 Cached encrypted file ${file.id} for offline access`);
+    } catch (error) {
+      console.warn('Failed to cache file for offline access:', error);
+      // Continue even if caching fails
+    }
+    
+    // 5. Decrypt file content
     const userEncryptedKey = file.encryptedKeys[userId];
     const privateKeyBytes = hexToBytes(privateKey);
     
     try {
-      // Parse ML-KEM-768 encrypted key format
       const keyData = hexToBytes(userEncryptedKey);
-      
-      // ML-KEM-768: IV (12 bytes) + encapsulated key (1088 bytes) + ciphertext
       const keyIv = keyData.slice(0, 12);
       const encapsulatedKey = keyData.slice(12, 12 + 1088);
       const keyCiphertext = keyData.slice(12 + 1088);
       
-      // Decrypt the file key using ML-KEM-768
       const fileKey = await decryptData(
         { iv: keyIv, encapsulatedKey, ciphertext: keyCiphertext },
         privateKeyBytes
       );
       
-      // Files are encrypted with AES-GCM with IV prepended
-      if (encryptedContent.byteLength > 12) {
-        const contentIv = encryptedContent.slice(0, 12);
-        const encryptedData = encryptedContent.slice(12);
-        
-        const aesKey = await crypto.subtle.importKey('raw', fileKey, { name: 'AES-GCM' }, false, ['decrypt']);
-        const decryptedContent = await crypto.subtle.decrypt(
-          { name: 'AES-GCM', iv: contentIv }, 
-          aesKey, 
-          encryptedData
-        );
-        
-        return decryptedContent;
-      } else {
+      if (encryptedContent.byteLength <= 12) {
         throw new Error('Invalid encrypted content format');
       }
+
+      const contentIv = encryptedContent.slice(0, 12);
+      const encryptedData = encryptedContent.slice(12);
+      
+      const aesKey = await crypto.subtle.importKey('raw', fileKey, { name: 'AES-GCM' }, false, ['decrypt']);
+      const decryptedContent = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: contentIv }, 
+        aesKey, 
+        encryptedData
+      );
+
+      // 6. Save decrypted content to memory cache for faster subsequent access
+      await fileCacheService.saveFile(file.id, decryptedContent, remoteTimestamp, typeof file.name === 'string' ? file.name : '', isFormFile(typeof file.name === 'string' ? file.name : ''));
+      
+      return decryptedContent;
+
     } catch (error) {
-      console.error('ML-KEM-768 file content decryption failed:', error);
+      console.error('File content decryption failed:', error);
       throw new Error(`Failed to decrypt file content: ${error instanceof Error ? error.message : String(error)}`);
     }
   }

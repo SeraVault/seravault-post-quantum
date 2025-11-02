@@ -3,6 +3,8 @@ import { Box, Button, TextField, Typography, Alert, Container, Paper, Divider } 
 import { backendService } from '../backend/BackendService';
 import { useNavigate, Link } from 'react-router-dom';
 import { createUserProfile } from '../firestore';
+import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import { auth } from '../firebase';
 
 const SignupPage: React.FC = () => {
   const [email, setEmail] = useState('');

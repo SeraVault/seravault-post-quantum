@@ -252,7 +252,6 @@ export class FileOperationsService {
     // Add folder, favorite, and tag associations for newly shared users
     const { addUserFolderAssociation } = await import('./userFolderManagement');
     const { addUserFavoriteAssociation } = await import('./userFavoritesManagement');
-    const { encryptMetadata } = await import('../crypto/quantumSafeCrypto');
     
     const folderUpdates: Promise<void>[] = [];
     const favoriteUpdates: Promise<void>[] = [];
@@ -270,7 +269,7 @@ export class FileOperationsService {
     if (currentUserEncryptedKey && file.userTags) {
       try {
         // Decrypt file key using current user's private key
-        const { decryptData, hexToBytes } = await import('../crypto/quantumSafeCrypto');
+        const { decryptData, hexToBytes, encryptStringToMetadata } = await import('../crypto/quantumSafeCrypto');
         const keyData = hexToBytes(currentUserEncryptedKey);
         const iv = keyData.slice(0, 12);
         const encapsulatedKey = keyData.slice(12, 12 + 1088);
@@ -282,8 +281,8 @@ export class FileOperationsService {
         for (const userId of newUserIds) {
           if (!updatedUserTags[userId]) {
             const emptyTagsJson = JSON.stringify([]);
-            const encryptedTags = await encryptMetadata({ tags: emptyTagsJson }, fileKey);
-            updatedUserTags[userId] = encryptedTags.tags;
+            const encryptedTags = await encryptStringToMetadata(emptyTagsJson, fileKey);
+            updatedUserTags[userId] = encryptedTags;
             hasUserTagsUpdates = true;
           }
         }
@@ -300,7 +299,7 @@ export class FileOperationsService {
     if (currentUserEncryptedKey && file.userNames) {
       try {
         // Decrypt file key using current user's private key
-        const { decryptData, hexToBytes } = await import('../crypto/quantumSafeCrypto');
+        const { decryptData, hexToBytes, encryptStringToMetadata, decryptMetadata } = await import('../crypto/quantumSafeCrypto');
         const keyData = hexToBytes(currentUserEncryptedKey);
         const iv = keyData.slice(0, 12);
         const encapsulatedKey = keyData.slice(12, 12 + 1088);
@@ -311,8 +310,7 @@ export class FileOperationsService {
         // Get original file name
         let originalName = '[Encrypted File]';
         if (typeof file.name === 'object') {
-          const decryptedOriginal = await decryptData(file.name, fileKey);
-          originalName = decryptedOriginal.name;
+          originalName = await decryptMetadata(file.name, fileKey);
         } else {
           originalName = file.name;
         }
@@ -320,7 +318,7 @@ export class FileOperationsService {
         // Create encrypted name copies for new users
         for (const userId of newUserIds) {
           if (!updatedUserNames[userId]) {
-            const encryptedName = await encryptMetadata(originalName, fileKey);
+            const encryptedName = await encryptStringToMetadata(originalName, fileKey);
             updatedUserNames[userId] = encryptedName;
             hasUserNamesUpdates = true;
           }

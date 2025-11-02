@@ -10,6 +10,7 @@ import { debugUserData, testCountFunction } from '../services/debugMigration';
 import { debugSharedFilesForUser } from '../utils/debugSharing';
 import AppLayout from '../components/AppLayout';
 import BiometricSetup from '../components/BiometricSetup';
+import HardwareKeySetup from '../components/HardwareKeySetup';
 import DeviceCapabilityInfo from '../components/DeviceCapabilityInfo';
 import DecryptedKeyWarningDialog from '../components/DecryptedKeyWarningDialog';
 import KeyRegenerationWarningDialog from '../components/KeyRegenerationWarningDialog';
@@ -171,7 +172,7 @@ const ProfilePage: React.FC = () => {
           onDisplayNameChange={setDisplayName}
           onPassphraseChange={setPassphrase}
           onConfirmPassphraseChange={setConfirmPassphrase}
-          onGenerateKeys={() => handleGenerateKeys(user, displayName, handleKeyGenerationSuccess, setError, setLoading)}
+          onGenerateKeys={(useHardwareStorage) => handleGenerateKeys(user, displayName, handleKeyGenerationSuccess, setError, setLoading, useHardwareStorage)}
         />
       </AppLayout>
     );
@@ -277,6 +278,9 @@ const ProfilePage: React.FC = () => {
 
         {/* Biometric Authentication Setup */}
         <BiometricSetup />
+
+        {/* Hardware Security Keys */}
+        <HardwareKeySetup />
 
       </Box>
       

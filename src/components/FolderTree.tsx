@@ -1,5 +1,5 @@
 import React from 'react';
-import { List, ListItemButton, ListItemText, Collapse, ListItemIcon, IconButton } from '@mui/material';
+import { List, ListItemButton, ListItemText, Collapse, ListItemIcon, IconButton, Box } from '@mui/material';
 import { ChevronRight, ExpandMore, Folder, FolderOpen } from '@mui/icons-material';
 import { type Folder as FolderData } from '../firestore';
 
@@ -117,15 +117,17 @@ const FolderTreeItem: React.FC<FolderTreeItemProps> = ({ folder, allFolders, onF
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         sx={{ 
-          pl: level * 2,
+          pl: level * 1.5 + 1,
+          pr: 1,
+          py: 0.25,
           borderRadius: 1,
-          mx: 0.5,
-          mb: 0.2,
+          mb: 0,
           minHeight: 32,
           cursor: 'pointer',
           backgroundColor: isDragOver ? 'primary.light' : 'transparent',
           border: isDragOver ? '2px dashed' : '2px solid transparent',
           borderColor: isDragOver ? 'primary.main' : 'transparent',
+          transition: 'background-color 0.2s ease',
           '&:hover': {
             backgroundColor: isDragOver ? 'primary.light' : 'action.hover',
           },
@@ -134,30 +136,37 @@ const FolderTreeItem: React.FC<FolderTreeItemProps> = ({ folder, allFolders, onF
           }
         }}
       >
-        {children.length > 0 && (
+        {children.length > 0 ? (
           <IconButton
             size="small"
             onClick={handleToggleExpand}
             sx={{ 
-              mr: 0.5,
-              padding: '2px',
-              width: 20,
-              height: 20
+              mr: 0.25,
+              padding: 0.25,
+              width: 18,
+              height: 18,
+              color: 'text.secondary'
             }}
           >
-            {open ? <ExpandMore fontSize="small" /> : <ChevronRight fontSize="small" />}
+            {open ? <ExpandMore sx={{ fontSize: 16 }} /> : <ChevronRight sx={{ fontSize: 16 }} />}
           </IconButton>
+        ) : (
+          <Box sx={{ width: 18, mr: 0.25 }} />
         )}
-        <ListItemIcon sx={{ minWidth: 24, ml: children.length === 0 ? 2.5 : 0 }}>
-          {open ? <FolderOpen fontSize="small" /> : <Folder fontSize="small" />}
+        <ListItemIcon sx={{ minWidth: 24 }}>
+          {open ? <FolderOpen sx={{ fontSize: 18 }} /> : <Folder sx={{ fontSize: 18 }} />}
         </ListItemIcon>
         <ListItemText 
           primary={typeof folder.name === 'string' ? folder.name : '[Encrypted]'} 
-          primaryTypographyProps={{ fontSize: '14px' }}
+          primaryTypographyProps={{ 
+            fontSize: '13px',
+            fontWeight: 400,
+            lineHeight: 1.2
+          }}
         />
       </ListItemButton>
       <Collapse in={open} timeout="auto" unmountOnExit>
-        <List component="div" disablePadding>
+        <List component="div" disablePadding dense>
           {children.map((child) => (
             <FolderTreeItem
               key={child.id}
@@ -178,7 +187,7 @@ const FolderTree: React.FC<FolderTreeProps> = ({ folders, onFolderClick, onMoveI
   const rootFolders = folders.filter((f) => f.parent === null);
 
   return (
-    <List>
+    <List disablePadding>
       {rootFolders.map((folder) => (
         <FolderTreeItem
           key={folder.id}

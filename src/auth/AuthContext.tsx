@@ -1,5 +1,8 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { backendService, type User } from '../backend/BackendService';
+import { offlineFileCache } from '../services/offlineFileCache';
+import { metadataCache } from '../services/metadataCache';
+import { fileCacheService } from '../services/FileCacheService';
 
 interface AuthContextType {
   user: User | null;
@@ -23,6 +26,20 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       window.dispatchEvent(new CustomEvent('sessionTimeout', {
         detail: { reason: 'user_logout' }
       }));
+      
+      // Clear all caches
+      console.log('🧹 Clearing all caches on logout...');
+      
+      // Clear offline file cache (IndexedDB)
+      await offlineFileCache.clearAll();
+      
+      // Clear metadata cache (IndexedDB + memory)
+      metadataCache.clear();
+      
+      // Clear in-memory file cache
+      fileCacheService.clearCache();
+      
+      console.log('✅ All caches cleared');
       
       await backendService.auth.signOut();
       

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, forwardRef, useImperativeHandle } from 'react';
-import {
+import { useSearchParams } from 'react-router-dom';
+import { 
   Box,
   Typography,
   Breadcrumbs,
@@ -18,7 +19,7 @@ import {
   FormControlLabel,
   Checkbox,
 } from '@mui/material';
-import {
+import { 
   AccessTime,
   Clear,
   ContentCopy,
@@ -235,6 +236,19 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
   const [unsavedFormData, setUnsavedFormData] = useState<SecureFormData | null>(null);
   const [formViewerOpen, setFormViewerOpen] = useState(false);
   const [formFillerOpen, setFormFillerOpen] = useState(false);
+  
+  // Handle URL query params for creating forms from templates
+  const [searchParams, setSearchParams] = useSearchParams();
+  
+  useEffect(() => {
+    const createFormTemplate = searchParams.get('createForm');
+    if (createFormTemplate) {
+      // Open form builder with template pre-selected
+      setFormBuilderOpen(true);
+      // Remove the query param
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   // Expose methods to parent component via ref
   useImperativeHandle(ref, () => ({}));
@@ -315,35 +329,7 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
           // For form files, also search in form content
           if (!matches && isFormFile(decryptedName)) {
             try {
-              const encryptedContent = await (await import('../storage')).getFile(data.storagePath);
-              const privateKeyBytes = hexToBytes(privateKey);
-              const keyData = hexToBytes(userEncryptedKey);
-              
-              // ML-KEM-768 encrypted keys contain: IV (12 bytes) + encapsulated_key (1088 bytes) + ciphertext  
-              const iv = keyData.slice(0, 12);
-              const encapsulatedKey = keyData.slice(12, 12 + 1088);
-              const ciphertext = keyData.slice(12 + 1088);
-              
-              const fileKey = await decryptData(
-                { iv, encapsulatedKey, ciphertext },
-                privateKeyBytes
-              );
-              
-              let contentIv, ciphertextData;
-              if (encryptedContent.byteLength > 12) {
-                contentIv = encryptedContent.slice(0, 12);
-                ciphertextData = encryptedContent.slice(12);
-              } else {
-                continue;
-              }
-              
-              const key = await crypto.subtle.importKey('raw', fileKey, { name: 'AES-GCM' }, false, ['decrypt']);
-              const decryptedContentBuffer = await crypto.subtle.decrypt(
-                { name: 'AES-GCM', iv: contentIv }, 
-                key, 
-                ciphertextData
-              );
-              
+              const decryptedContentBuffer = await FileAccessService.loadFileContent(data as FileData, user.uid, privateKey);
               const decryptedContent = new TextDecoder().decode(decryptedContentBuffer);
               const formData = JSON.parse(decryptedContent);
               
@@ -402,34 +388,7 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
           const userEncryptedKey = item.encryptedKeys[user.uid];
           
           if (userEncryptedKey) {
-            const privateKeyBytes = hexToBytes(privateKey);
-            const keyData = hexToBytes(userEncryptedKey);
-            
-            // ML-KEM-768 encrypted keys contain: IV (12 bytes) + encapsulated_key (1088 bytes) + ciphertext  
-            const iv = keyData.slice(0, 12);
-            const encapsulatedKey = keyData.slice(12, 12 + 1088);
-            const ciphertext = keyData.slice(12 + 1088);
-            
-            const fileKey = await decryptData(
-              { iv, encapsulatedKey, ciphertext },
-              privateKeyBytes
-            );
-            
-            let contentIv, ciphertextData;
-            if (encryptedContent.byteLength > 12) {
-              contentIv = encryptedContent.slice(0, 12);
-              ciphertextData = encryptedContent.slice(12);
-            } else {
-              continue;
-            }
-            
-            const key = await crypto.subtle.importKey('raw', fileKey, { name: 'AES-GCM' }, false, ['decrypt']);
-            const decryptedContentBuffer = await crypto.subtle.decrypt(
-              { name: 'AES-GCM', iv: contentIv }, 
-              key, 
-              ciphertextData
-            );
-            
+            const decryptedContentBuffer = await FileAccessService.loadFileContent(item, user.uid, privateKey);
             const decryptedContent = new TextDecoder().decode(decryptedContentBuffer);
             const formData = JSON.parse(decryptedContent);
             
@@ -1280,122 +1239,6 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
     };
 
     loadSharedFiles();
-
-    // Legacy code - can be removed after testing
-    const sharedFilesMap = new Map<string, FileData>();
-
-    const processSharedResults = async (snapshot: any) => {
-      console.log(`🔧 MainContent SharedFiles snapshot:`, { 
-        size: snapshot.size, 
-        isEmpty: snapshot.empty,
-        docsLength: snapshot.docs.length 
-      });
-      
-      // Early exit if no documents to process
-      if (snapshot.empty || snapshot.docs.length === 0) {
-        console.log(`✅ SharedFiles: No shared files found, skipping decryption`);
-        setFiles([]);
-        setFilteredFiles([]);
-        setLoading(false);
-        setIsDataLoading(false);
-        return;
-      }
-      
-      for (const doc of snapshot.docs) {
-        const data = doc.data();
-
-        // Skip files owned by this user (they'll see those in regular folder view)
-        if (data.owner === user.uid) {
-          continue;
-        }
-
-        if (!data.encryptedKeys || !data.encryptedKeys[user.uid]) {
-          sharedFilesMap.set(doc.id, { ...data, id: doc.id, name: '[No Access]', size: '' });
-          continue;
-        }
-
-        try {
-          const userEncryptedKey = data.encryptedKeys[user.uid];
-          if (!userEncryptedKey || !privateKey) {
-            sharedFilesMap.set(doc.id, { ...data, id: doc.id, name: '[No Access]', size: '' });
-            continue;
-          }
-          
-          console.log(`[SharedFiles] Processing shared file decryption:`, {
-            fileId: doc.id,
-            userId: user.uid,
-            fileOwner: data.owner,
-            userEncryptedKeyLength: userEncryptedKey.length,
-            userEncryptedKeyPreview: userEncryptedKey.substring(0, 16) + '...',
-            privateKeyLength: privateKey.length,
-            isSharedFile: data.owner !== user.uid
-          });
-          
-          // Use centralized FileEncryptionService for consistent decryption
-          console.log(`[SharedFiles] Using FileEncryptionService to decrypt metadata:`, {
-            fileId: doc.id,
-            userId: user.uid,
-            userEncryptedKeyLength: userEncryptedKey.length,
-            privateKeyLength: privateKey.length
-          });
-          
-          const { FileEncryptionService } = await import('../services/fileEncryption');
-          const { name: decryptedName, size: decryptedSize } = await FileEncryptionService.decryptFileMetadata(
-            data.name as { ciphertext: string; nonce: string },
-            data.size as { ciphertext: string; nonce: string },
-            userEncryptedKey,
-            privateKey
-          );
-          
-          console.log(`[SharedFiles] Shared file decryption completed successfully:`, {
-            fileId: doc.id,
-            decryptedName: decryptedName,
-            decryptedSize: decryptedSize
-          });
-          
-          
-          sharedFilesMap.set(doc.id, { ...data, id: doc.id, name: decryptedName, size: decryptedSize });
-        } catch (error) {
-          console.error(`[SharedFiles] Error decrypting shared file metadata:`, {
-            fileId: doc.id,
-            userId: user.uid,
-            fileOwner: data.owner,
-            isSharedFile: data.owner !== user.uid,
-            error: error,
-            errorMessage: error instanceof Error ? error.message : String(error),
-            errorStack: error instanceof Error ? error.stack : 'No stack trace',
-            userEncryptedKeyLength: data.encryptedKeys[user.uid]?.length || 'N/A',
-            privateKeyLength: privateKey?.length || 'N/A'
-          });
-          sharedFilesMap.set(doc.id, { ...data, id: doc.id, name: '[Encrypted File]', size: '' });
-        }
-      }
-
-      // Update UI with shared files
-      const finalFiles = Array.from(sharedFilesMap.values());
-      setFiles(finalFiles);
-      setFilteredFiles(finalFiles);
-      setLoading(false);
-      setIsDataLoading(false);
-    };
-
-    const handleSharedError = (error: any) => {
-      console.warn('Shared files query failed:', error.message);
-      setFiles([]);
-      setFilteredFiles([]);
-      setLoading(false);
-      setIsDataLoading(false);
-    };
-
-    const unsubscribe = onSnapshot(
-      sharedFilesQuery,
-      processSharedResults,
-      handleSharedError
-    );
-
-    return () => {
-      unsubscribe();
-    };
   }, [isSharedView, user, privateKey]);
 
   // Event handlers
@@ -2479,6 +2322,7 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
           userId={user?.uid || ''}
           privateKey={privateKey || ''}
           parentFolder={currentFolder}
+          initialTemplateId={searchParams.get('createForm') || undefined}
           onFormCreated={async (fileId: string | null, formData?: SecureFormData) => {
             setFormBuilderOpen(false);
             

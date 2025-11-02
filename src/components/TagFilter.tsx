@@ -182,15 +182,17 @@ const TagFilter: React.FC<TagFilterProps> = ({
       {/* Filter Header */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
         <Tooltip title="Filter by tags">
-          <IconButton
-            size="small"
-            onClick={() => setExpanded(!expanded)}
-            disabled={loading}
-          >
-            <Badge badgeContent={activeFilterCount} color="primary">
-              <FilterList />
-            </Badge>
-          </IconButton>
+          <span>
+            <IconButton
+              size="small"
+              onClick={() => setExpanded(!expanded)}
+              disabled={loading}
+            >
+              <Badge badgeContent={activeFilterCount} color="primary">
+                <FilterList />
+              </Badge>
+            </IconButton>
+          </span>
         </Tooltip>
 
         <Typography variant="body2" color="text.secondary">

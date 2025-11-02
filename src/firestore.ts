@@ -73,6 +73,17 @@ export const getUserPublicProfile = async (uid: string): Promise<{ displayName: 
   }
 };
 
+export const getUserPublicKey = async (uid: string): Promise<string | null> => {
+  const docRef = doc(db, 'users', uid);
+  const docSnap = await getDoc(docRef);
+  if (docSnap.exists()) {
+    const data = docSnap.data() as UserProfile;
+    return data.publicKey || null;
+  } else {
+    return null;
+  }
+};
+
 export const getUserByEmail = async (email: string): Promise<{ id: string; profile: UserProfile } | null> => {
   const q = query(collection(db, 'users'), where('email', '==', email));
   const querySnapshot = await getDocs(q);

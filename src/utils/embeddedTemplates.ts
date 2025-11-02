@@ -373,11 +373,43 @@ export function getTemplatesByCategory(category: string): FormTemplate[] {
 }
 
 /**
- * Get all templates (only built-in templates now)
+ * Get all templates (built-in + user's custom templates from Firestore)
  */
 export async function getAllTemplates(userId?: string): Promise<{ [key: string]: FormTemplate }> {
   const builtInTemplates = getBuiltInFormTemplates();
-  return { ...builtInTemplates };
+  
+  // If no userId provided, return only built-in templates
+  if (!userId) {
+    return { ...builtInTemplates };
+  }
+  
+  // Fetch custom templates from Firestore
+  try {
+    const { collection, query, where, getDocs } = await import('firebase/firestore');
+    const { db } = await import('../firebase');
+    
+    const templatesRef = collection(db, 'formTemplates');
+    const q = query(templatesRef, where('author', '==', userId));
+    const snapshot = await getDocs(q);
+    
+    const customTemplates: { [key: string]: FormTemplate } = {};
+    snapshot.docs.forEach(doc => {
+      const data = doc.data() as FormTemplate;
+      // Use templateId as the key, or fall back to doc.id
+      const key = data.templateId || doc.id;
+      customTemplates[key] = {
+        ...data,
+        templateId: doc.id, // Ensure we have the Firestore doc ID
+      };
+    });
+    
+    // Merge built-in and custom templates
+    return { ...builtInTemplates, ...customTemplates };
+  } catch (error) {
+    console.error('Error loading custom templates:', error);
+    // Return built-in templates if there's an error
+    return { ...builtInTemplates };
+  }
 }
 
 /**
