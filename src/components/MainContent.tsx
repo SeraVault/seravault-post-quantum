@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, forwardRef, useImperativeHandle } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { 
   Box,
   Typography,
@@ -118,6 +118,7 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
   } = props;
   const { user } = useAuth();
   const { privateKey } = usePassphrase();
+  const navigate = useNavigate();
   const { 
     clipboardItem, 
     clipboardItems, 
@@ -1024,7 +1025,9 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
 
     const handleFilesUpdate = async (rawFiles: any[]) => {
       try {
-        console.log(`🔄 Loading ${rawFiles.length} files...`);
+        const stack = new Error().stack;
+        const chatCountInRaw = rawFiles.filter((f: any) => f.fileType === 'chat').length;
+        console.log(`🔄 Loading ${rawFiles.length} files (${chatCountInRaw} chats)...`, stack?.split('\n')[2]);
 
         // Check if all files are cached for instant loading
         const fileIds = rawFiles.map(f => f.id);
@@ -1050,6 +1053,9 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
           const dateB = b.lastModified instanceof Date ? b.lastModified : new Date(b.lastModified);
           return dateB.getTime() - dateA.getTime(); // Sort by most recent first
         });
+        
+        const chatCount = sortedFiles.filter((f: any) => f.fileType === 'chat').length;
+        console.log(`📁 Setting files state: ${sortedFiles.length} total (${chatCount} chats)`);
         
         setFiles(sortedFiles);
         setFilteredFiles(sortedFiles);
@@ -1138,9 +1144,11 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
   // Load recent files when in recents view
   useEffect(() => {
     if (!isRecentsView || !user || !privateKey) {
+      console.log('⏭️ Skipping recents view effect:', { isRecentsView, hasUser: !!user, hasPrivateKey: !!privateKey });
       return;
     }
 
+    console.log('📅 Loading recents view...');
     const loadRecentFiles = async () => {
       setLoading(true);
       setIsDataLoading(true);
@@ -1174,9 +1182,11 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
   // Load favorite files when in favorites view
   useEffect(() => {
     if (!isFavoritesView || !user || !privateKey) {
+      console.log('⏭️ Skipping favorites view effect:', { isFavoritesView, hasUser: !!user, hasPrivateKey: !!privateKey });
       return;
     }
 
+    console.log('⭐ Loading favorites view...');
     const loadFavoriteFiles = async () => {
       setLoading(true);
       setIsDataLoading(true);
@@ -1256,9 +1266,11 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
   // Load shared files when in shared view
   useEffect(() => {
     if (!isSharedView || !user || !privateKey) {
+      console.log('⏭️ Skipping shared view effect:', { isSharedView, hasUser: !!user, hasPrivateKey: !!privateKey });
       return;
     }
 
+    console.log('🤝 Loading shared view...');
     const loadSharedFiles = async () => {
       setLoading(true);
       setIsDataLoading(true);
@@ -1304,6 +1316,14 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
     // Don't allow file operations if private key isn't available
     if (!user || !privateKey) {
       console.warn('Cannot open file: User or private key not available');
+      return;
+    }
+
+    // Check if this is a chat file
+    const isChat = 'fileType' in fileInfo && (fileInfo as any).fileType === 'chat';
+    if (isChat) {
+      // Navigate to chat page with the conversation selected
+      navigate('/chat', { state: { selectedConversationId: fileInfo.id } });
       return;
     }
 
@@ -2412,6 +2432,9 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
             onUploadFiles={handleUploadClick}
             onCreateForm={() => {
               setFormBuilderOpen(true);
+            }}
+            onCreateChat={() => {
+              navigate('/chat', { state: { openNewChatDialog: true } });
             }}
             onPaste={handlePaste}
             showPaste={!!clipboardItem}

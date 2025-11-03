@@ -25,6 +25,7 @@ import {
   StarBorder,
   Share,
   People,
+  Chat,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import type { FileData } from '../files';
@@ -786,13 +787,18 @@ const FileTable: React.FC<FileTableProps> = ({
           {sortedFiles.map((file) => {
             const fileName = typeof file.name === 'string' ? file.name : '[Encrypted]';
             const isForm = isFormFile(fileName);
+            const isChat = (file as any).fileType === 'chat';
             
             // Get form-specific display data if it's a form file
             let displayIcon = InsertDriveFile;
             let displayType = t('common.file', 'file');
             let displaySize = typeof file.size === 'string' ? formatFileSize(file.size) : '[Encrypted]';
             
-            if (isForm) {
+            if (isChat) {
+              displayIcon = Chat;
+              displayType = t('common.conversation', 'Conversation');
+              displaySize = '—'; // Chats don't have a meaningful size
+            } else if (isForm) {
               // For the new form system, all forms use the same icon
               // Form type will be determined from the filename patterns
               displayIcon = Assignment;

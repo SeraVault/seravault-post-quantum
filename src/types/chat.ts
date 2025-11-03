@@ -51,13 +51,31 @@ export interface ChatMessage {
 
 /**
  * Chat conversation (individual or group)
+ * Now stored in the files collection with fileType: 'chat'
+ * This allows conversations to be organized in folders like regular files
  */
 export interface Conversation {
   id?: string;
-  type: 'individual' | 'group';
   
-  // Participants
-  participants: string[]; // Array of user IDs
+  // File system integration - conversations are files
+  owner: string; // Creator of the conversation
+  name: string | { ciphertext: string; nonce: string }; // Conversation display name (encrypted)
+  fileType: 'chat'; // Distinguishes chat files from regular files
+  parent: string | null; // Deprecated - kept for backward compatibility
+  userFolders?: { [uid: string]: string | null }; // Per-user folder associations (uid -> folderId or null)
+  userNames?: { [uid: string]: { ciphertext: string; nonce: string } }; // Per-user conversation names (uid -> encrypted name)
+  createdAt: FieldValue | Date;
+  lastModified?: Date | string; // Last message timestamp
+  size: string | { ciphertext: string; nonce: string }; // Message count or "0" (encrypted)
+  storagePath?: string; // Not used for chats, but required for FileData compatibility
+  encryptedKeys: { [uid: string]: string }; // uid -> encrypted conversation key
+  sharedWith: string[]; // Same as participants - users with access
+  userFavorites?: { [uid: string]: boolean }; // Per-user favorite status (uid -> isFavorite)
+  userTags?: { [uid: string]: { ciphertext: string; nonce: string } }; // Per-user encrypted tags
+  
+  // Chat-specific fields
+  type: 'individual' | 'group';
+  participants: string[]; // Array of user IDs (same as sharedWith)
   
   // Group metadata (only for group chats)
   groupName?: string;
@@ -66,15 +84,9 @@ export interface Conversation {
   admins?: string[]; // User IDs with admin privileges
   
   // Conversation metadata
-  createdAt: FieldValue | Date;
   createdBy: string;
   lastMessageAt?: Date;
   lastMessagePreview?: string; // Encrypted preview for each user
-  
-  // Encryption keys - each participant has encrypted conversation key
-  encryptedKeys: {
-    [userId: string]: string; // userId -> encrypted conversation key
-  };
   
   // Per-user settings
   userSettings?: {

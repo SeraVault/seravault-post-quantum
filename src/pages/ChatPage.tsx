@@ -37,7 +37,7 @@ import {
 } from '@mui/icons-material';
 import { useAuth } from '../auth/AuthContext';
 import { usePassphrase } from '../auth/PassphraseContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { ChatService } from '../services/chatService';
 import type { Conversation, ChatMessage } from '../types/chat';
 import ContactSelector from '../components/ContactSelector';
@@ -49,6 +49,7 @@ const ChatPage: React.FC = () => {
   const { user } = useAuth();
   const { privateKey } = usePassphrase();
   const navigate = useNavigate();
+  const location = useLocation();
   
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
@@ -67,6 +68,28 @@ const ChatPage: React.FC = () => {
   
   // Menu state
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
+  
+  // Handle navigation from file manager
+  useEffect(() => {
+    const state = location.state as { selectedConversationId?: string; openNewChatDialog?: boolean } | null;
+    
+    // Handle opening a specific conversation
+    if (state?.selectedConversationId && conversations.length > 0) {
+      const convo = conversations.find(c => c.id === state.selectedConversationId);
+      if (convo) {
+        setSelectedConversation(convo);
+        // Clear the state to prevent re-selecting on refresh
+        navigate('/chat', { replace: true, state: {} });
+      }
+    }
+    
+    // Handle opening the new chat dialog
+    if (state?.openNewChatDialog) {
+      setNewChatDialogOpen(true);
+      // Clear the state to prevent re-opening on refresh
+      navigate('/chat', { replace: true, state: {} });
+    }
+  }, [location.state, conversations, navigate]);
   
   // Load conversations on mount
   useEffect(() => {

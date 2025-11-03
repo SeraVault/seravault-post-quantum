@@ -11,12 +11,14 @@ import {
   Upload,
   Description,
   ContentPaste,
+  Chat,
 } from '@mui/icons-material';
 
 interface CreationFABProps {
   onCreateFolder: () => void;
   onUploadFiles: () => void;
   onCreateForm: () => void;
+  onCreateChat: () => void;
   onPaste?: () => void;
   showPaste?: boolean;
 }
@@ -25,6 +27,7 @@ const CreationFAB: React.FC<CreationFABProps> = ({
   onCreateFolder,
   onUploadFiles,
   onCreateForm,
+  onCreateChat,
   onPaste,
   showPaste = false,
 }) => {
@@ -48,6 +51,14 @@ const CreationFAB: React.FC<CreationFABProps> = ({
       action: () => {
         setOpen(false);
         onCreateFolder();
+      }
+    },
+    {
+      icon: <Chat />,
+      name: t('fab.newChat', 'New Chat'),
+      action: () => {
+        setOpen(false);
+        onCreateChat();
       }
     },
     {

@@ -22,6 +22,7 @@ import { encryptStringToMetadata, decryptMetadata, encryptData, decryptData, hex
 export class ChatService {
   /**
    * Create a new conversation (individual or group)
+   * Now stores conversations in the 'files' collection with fileType: 'chat'
    */
   static async createConversation(
     currentUserId: string,
@@ -38,7 +39,9 @@ export class ChatService {
     const { getUserPublicKey } = await import('../firestore');
     const encryptedKeys: { [userId: string]: string } = {};
     
-    for (const participantId of [currentUserId, ...participantIds]) {
+    const allParticipants = [currentUserId, ...participantIds];
+    
+    for (const participantId of allParticipants) {
       const publicKey = await getUserPublicKey(participantId);
       if (!publicKey) {
         throw new Error(`Public key not found for user ${participantId}`);
@@ -55,14 +58,49 @@ export class ChatService {
       encryptedKeys[participantId] = bytesToHex(keyData);
     }
     
-    // Create conversation document
+    // Determine default conversation name
+    let conversationName = groupName || 'New Conversation';
+    if (type === 'individual' && participantIds.length === 1) {
+      // For individual chats, use the other participant's name
+      const { getUserProfile } = await import('../firestore');
+      const otherUser = await getUserProfile(participantIds[0]);
+      if (otherUser) {
+        conversationName = `Chat with ${otherUser.displayName}`;
+      }
+    }
+    
+    // Encrypt conversation name for each participant
+    const encryptedName = await encryptStringToMetadata(conversationName, conversationKey);
+    
+    // Create per-user encrypted names (each user can customize the chat name)
+    const userNames: { [uid: string]: { ciphertext: string; nonce: string } } = {};
+    for (const participantId of allParticipants) {
+      userNames[participantId] = encryptedName;
+    }
+    
+    // Create conversation document as a file
     const conversationData: any = {
-      type,
-      participants: [currentUserId, ...participantIds],
+      // File system fields
+      fileType: 'chat',
+      owner: currentUserId,
+      name: encryptedName, // Encrypted conversation name
+      userNames, // Per-user names
+      userFolders: {
+        [currentUserId]: null // Initialize with creator in root folder (each user can organize independently)
+      },
+      parent: null, // Deprecated
+      storagePath: '', // Not used for chats
+      size: await encryptStringToMetadata('0', conversationKey), // Message count as encrypted metadata
+      sharedWith: allParticipants,
+      encryptedKeys,
       createdAt: serverTimestamp(),
+      lastModified: serverTimestamp(),
+      
+      // Chat-specific fields
+      type,
+      participants: allParticipants,
       createdBy: currentUserId,
       lastMessageAt: serverTimestamp(),
-      encryptedKeys,
     };
     
     if (type === 'group') {
@@ -71,7 +109,8 @@ export class ChatService {
       conversationData.admins = [currentUserId];
     }
     
-    const conversationRef = await addDoc(collection(db, 'conversations'), conversationData);
+    // Store in files collection instead of conversations collection
+    const conversationRef = await addDoc(collection(db, 'files'), conversationData);
     return conversationRef.id;
   }
   
@@ -83,7 +122,7 @@ export class ChatService {
     currentUserId: string,
     userPrivateKey: string
   ): Promise<Uint8Array> {
-    const conversationRef = doc(db, 'conversations', conversationId);
+    const conversationRef = doc(db, 'files', conversationId);
     const conversationSnap = await getDoc(conversationRef);
     
     if (!conversationSnap.exists()) {
@@ -120,7 +159,7 @@ export class ChatService {
     fileMetadata?: ChatMessage['fileMetadata']
   ): Promise<string> {
     // Get conversation to find participants
-    const conversationRef = doc(db, 'conversations', conversationId);
+    const conversationRef = doc(db, 'files', conversationId);
     const conversationSnap = await getDoc(conversationRef);
     
     if (!conversationSnap.exists()) {
@@ -159,8 +198,8 @@ export class ChatService {
       messageData.fileMetadata = fileMetadata;
     }
     
-    // Use subcollection path: conversations/{conversationId}/messages
-    const messagesCollectionRef = collection(db, 'conversations', conversationId, 'messages');
+    // Use subcollection path: files/{conversationId}/messages
+    const messagesCollectionRef = collection(db, 'files', conversationId, 'messages');
     const messageRef = await addDoc(messagesCollectionRef, messageData);
     
     // Update conversation's last message timestamp
@@ -182,8 +221,8 @@ export class ChatService {
   ): Promise<ChatMessage[]> {
     const conversationKey = await this.getConversationKey(conversationId, currentUserId, userPrivateKey);
     
-    // Use subcollection path: conversations/{conversationId}/messages
-    const messagesCollectionRef = collection(db, 'conversations', conversationId, 'messages');
+    // Use subcollection path: files/{conversationId}/messages
+    const messagesCollectionRef = collection(db, 'files', conversationId, 'messages');
     const messagesQuery = query(
       messagesCollectionRef,
       orderBy('timestamp', 'desc'),
@@ -229,8 +268,8 @@ export class ChatService {
     onUpdate: (messages: ChatMessage[]) => void,
     limitCount: number = 50
   ): () => void {
-    // Use subcollection path: conversations/{conversationId}/messages
-    const messagesCollectionRef = collection(db, 'conversations', conversationId, 'messages');
+    // Use subcollection path: files/{conversationId}/messages
+    const messagesCollectionRef = collection(db, 'files', conversationId, 'messages');
     const messagesQuery = query(
       messagesCollectionRef,
       orderBy('timestamp', 'desc'),
@@ -276,8 +315,10 @@ export class ChatService {
    * Get all conversations for current user
    */
   static async getConversations(currentUserId: string): Promise<Conversation[]> {
+    // Query files collection for chat type files
     const conversationsQuery = query(
-      collection(db, 'conversations'),
+      collection(db, 'files'),
+      where('fileType', '==', 'chat'),
       where('participants', 'array-contains', currentUserId),
       orderBy('lastMessageAt', 'desc')
     );
@@ -296,8 +337,10 @@ export class ChatService {
     currentUserId: string,
     onUpdate: (conversations: Conversation[]) => void
   ): () => void {
+    // Query files collection for chat type files
     const conversationsQuery = query(
-      collection(db, 'conversations'),
+      collection(db, 'files'),
+      where('fileType', '==', 'chat'),
       where('participants', 'array-contains', currentUserId),
       orderBy('lastMessageAt', 'desc')
     );
@@ -322,8 +365,8 @@ export class ChatService {
     messageId: string,
     currentUserId: string
   ): Promise<void> {
-    // Use subcollection path: conversations/{conversationId}/messages/{messageId}
-    const messageRef = doc(db, 'conversations', conversationId, 'messages', messageId);
+    // Use subcollection path: files/{conversationId}/messages/{messageId}
+    const messageRef = doc(db, 'files', conversationId, 'messages', messageId);
     await updateDoc(messageRef, {
       [`readBy.${currentUserId}`]: new Date()
     });
@@ -336,8 +379,8 @@ export class ChatService {
     conversationId: string,
     currentUserId: string
   ): Promise<void> {
-    // Use subcollection path: conversations/{conversationId}/messages
-    const messagesCollectionRef = collection(db, 'conversations', conversationId, 'messages');
+    // Use subcollection path: files/{conversationId}/messages
+    const messagesCollectionRef = collection(db, 'files', conversationId, 'messages');
     const messagesQuery = query(
       messagesCollectionRef,
       where(`readBy.${currentUserId}`, '==', null)
@@ -363,7 +406,7 @@ export class ChatService {
     currentUserId: string,
     isTyping: boolean
   ): Promise<void> {
-    const conversationRef = doc(db, 'conversations', conversationId);
+    const conversationRef = doc(db, 'files', conversationId);
     
     if (isTyping) {
       await updateDoc(conversationRef, {
@@ -385,7 +428,7 @@ export class ChatService {
     userPrivateKey: string,
     newParticipantIds: string[]
   ): Promise<void> {
-    const conversationRef = doc(db, 'conversations', conversationId);
+    const conversationRef = doc(db, 'files', conversationId);
     const conversationSnap = await getDoc(conversationRef);
     
     if (!conversationSnap.exists()) {
@@ -463,7 +506,7 @@ export class ChatService {
     conversationId: string,
     currentUserId: string
   ): Promise<void> {
-    const conversationRef = doc(db, 'conversations', conversationId);
+    const conversationRef = doc(db, 'files', conversationId);
     const conversationSnap = await getDoc(conversationRef);
     
     if (!conversationSnap.exists()) {
@@ -494,7 +537,7 @@ export class ChatService {
     currentUserId: string,
     emoji: string
   ): Promise<void> {
-    const messageRef = doc(db, 'conversations', conversationId, 'messages', messageId);
+    const messageRef = doc(db, 'files', conversationId, 'messages', messageId);
     const messageDoc = await getDoc(messageRef);
     
     if (!messageDoc.exists()) {
@@ -526,7 +569,7 @@ export class ChatService {
     currentUserId: string,
     emoji: string
   ): Promise<void> {
-    const messageRef = doc(db, 'conversations', conversationId, 'messages', messageId);
+    const messageRef = doc(db, 'files', conversationId, 'messages', messageId);
     const messageDoc = await getDoc(messageRef);
     
     if (!messageDoc.exists()) {
@@ -558,7 +601,7 @@ export class ChatService {
     currentUserId: string,
     emoji: string
   ): Promise<void> {
-    const messageRef = doc(db, 'conversations', conversationId, 'messages', messageId);
+    const messageRef = doc(db, 'files', conversationId, 'messages', messageId);
     const messageDoc = await getDoc(messageRef);
     
     if (!messageDoc.exists()) {

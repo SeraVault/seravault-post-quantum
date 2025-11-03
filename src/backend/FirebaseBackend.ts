@@ -224,11 +224,24 @@ export class FirebaseBackend implements BackendInterface {
     const allFiles = new Map<string, FileRecord>();
     let ownedUnsubscribe: (() => void) | null = null;
     let sharedUnsubscribe: (() => void) | null = null;
+    let ownedReady = false;
+    let sharedReady = false;
+    let callbackTimeout: NodeJS.Timeout | null = null;
 
-    const updateCallback = () => {
-      const mergedFiles = Array.from(allFiles.values());
-      console.log(`📡 Real-time subscription: ${mergedFiles.length} total files in folder ${folderId || 'root'}`);
-      callback(mergedFiles);
+    const updateCallback = (source: string) => {
+      // Clear any pending callback
+      if (callbackTimeout) {
+        clearTimeout(callbackTimeout);
+      }
+
+      // Debounce the callback to wait for both subscriptions to update
+      // This prevents race conditions where owned and shared fire separately
+      callbackTimeout = setTimeout(() => {
+        const mergedFiles = Array.from(allFiles.values());
+        const chatCount = mergedFiles.filter((f: any) => f.fileType === 'chat').length;
+        console.log(`📡 Real-time subscription (${source}): ${mergedFiles.length} total files in folder ${folderId || 'root'} (${chatCount} chats) | owned=${ownedReady}, shared=${sharedReady}`);
+        callback(mergedFiles);
+      }, 50); // 50ms debounce
     };
 
     // Subscribe to owned files
@@ -237,16 +250,20 @@ export class FirebaseBackend implements BackendInterface {
       : query(collection(db, 'files'), where('owner', '==', userId), where('parent', '==', null));
 
     ownedUnsubscribe = onSnapshot(ownedQuery, (querySnapshot) => {
+      console.log(`🔵 Owned files snapshot: ${querySnapshot.size} docs, ${querySnapshot.docChanges().length} changes`);
       // Update owned files in the map
       querySnapshot.docChanges().forEach((change) => {
         const fileData = { id: change.doc.id, ...change.doc.data() } as FileRecord;
+        const isChat = (fileData as any).fileType === 'chat';
+        console.log(`📄 Owned file ${change.type}: ${change.doc.id}${isChat ? ' (CHAT)' : ''}`);
         if (change.type === 'removed') {
           allFiles.delete(change.doc.id);
         } else {
           allFiles.set(change.doc.id, fileData);
         }
       });
-      updateCallback();
+      ownedReady = true;
+      updateCallback('OWNED');
     }, (error) => {
       console.warn('Error in owned files subscription:', error);
     });
@@ -257,22 +274,29 @@ export class FirebaseBackend implements BackendInterface {
       : query(collection(db, 'files'), where('sharedWith', 'array-contains', userId), where('parent', '==', null));
 
     sharedUnsubscribe = onSnapshot(sharedQuery, (querySnapshot) => {
+      console.log(`🟢 Shared files snapshot: ${querySnapshot.size} docs, ${querySnapshot.docChanges().length} changes`);
       // Update shared files in the map
       querySnapshot.docChanges().forEach((change) => {
         const fileData = { id: change.doc.id, ...change.doc.data() } as FileRecord;
+        const isChat = (fileData as any).fileType === 'chat';
+        console.log(`📄 Shared file ${change.type}: ${change.doc.id}${isChat ? ' (CHAT)' : ''}`);
         if (change.type === 'removed') {
           allFiles.delete(change.doc.id);
         } else {
           allFiles.set(change.doc.id, fileData);
         }
       });
-      updateCallback();
+      sharedReady = true;
+      updateCallback('SHARED');
     }, (error) => {
       console.warn('Error in shared files subscription:', error);
     });
 
     // Return cleanup function that unsubscribes from both
     return () => {
+      if (callbackTimeout) {
+        clearTimeout(callbackTimeout);
+      }
       if (ownedUnsubscribe) ownedUnsubscribe();
       if (sharedUnsubscribe) sharedUnsubscribe();
     };

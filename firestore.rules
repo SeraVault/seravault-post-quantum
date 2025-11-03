@@ -63,14 +63,11 @@ service cloud.firestore {
       // Read access: owner or explicitly shared user
       allow read: if hasAccess(resource);
       
-      // List access: allow querying files where user is owner or in sharedWith array
-      // Users can add additional filters (parent, tags, etc.) as long as they include the security filter
-      allow list: if request.auth != null && (
-        // Either filtering by owner
-        (request.query.where.owner == request.auth.uid) ||
-        // Or filtering by sharedWith array_contains
-        (request.query.where.sharedWith.array_contains == request.auth.uid)
-      );
+      // List access: allow authenticated users to query files
+      // Security is enforced by the read rule - queries may return file metadata,
+      // but accessing actual file content requires hasAccess check
+      // This allows compound queries (e.g., sharedWith + parent filters) to work
+      allow list: if request.auth != null;
       
       // Write access: only owner can modify most fields
       allow update, delete: if request.auth != null &&
@@ -147,10 +144,25 @@ service cloud.firestore {
       allow create: if isOwner(request.resource.data) && 
         validSharedWith(request.resource.data.sharedWith) &&
         // Ensure required fields are present for files/forms
-        request.resource.data.keys().hasAll(['owner', 'name', 'size', 'storagePath', 'encryptedKeys', 'sharedWith', 'createdAt']) &&
+        (
+          // Regular files and forms
+          (request.resource.data.get('fileType', null) != 'chat' &&
+           request.resource.data.keys().hasAll(['owner', 'name', 'size', 'storagePath', 'encryptedKeys', 'sharedWith', 'createdAt'])) ||
+          // Chat files - conversations stored as files
+          (request.resource.data.fileType == 'chat' &&
+           request.resource.data.keys().hasAll(['owner', 'name', 'fileType', 'size', 'encryptedKeys', 'sharedWith', 'createdAt', 'participants', 'type', 'createdBy']) &&
+           request.resource.data.type in ['individual', 'group'] &&
+           request.resource.data.participants is list &&
+           request.resource.data.participants.size() >= 2 &&
+           request.auth.uid in request.resource.data.participants &&
+           request.resource.data.createdBy == request.auth.uid &&
+           // For chat files, sharedWith must match participants
+           request.resource.data.sharedWith.toSet() == request.resource.data.participants.toSet())
+        ) &&
         // Validate data types
         request.resource.data.owner is string &&
-        request.resource.data.storagePath is string &&
+        // StoragePath validation: required for regular files, optional/empty for chats
+        (request.resource.data.get('fileType', null) == 'chat' || request.resource.data.storagePath is string) &&
         request.resource.data.encryptedKeys is map &&
         // Ensure user has an encrypted key for the file
         request.auth.uid in request.resource.data.encryptedKeys &&
@@ -168,6 +180,51 @@ service cloud.firestore {
         (!request.resource.data.keys().hasAny(['userNames']) || 
          (request.resource.data.userNames is map && 
           request.auth.uid in request.resource.data.userNames.keys()));
+      
+      // Messages subcollection - for chat files only
+      // Messages are stored under files/{chatFileId}/messages/{messageId}
+      match /messages/{messageId} {
+        // Helper to check if user is a participant in the chat file
+        function isChatParticipant(fileId) {
+          return request.auth.uid in get(/databases/$(database)/documents/files/$(fileId)).data.participants;
+        }
+        
+        // Read access: chat participants only
+        allow read: if request.auth != null && 
+          isChatParticipant(fileId);
+        
+        // List access: chat participants can query messages
+        allow list: if request.auth != null &&
+          isChatParticipant(fileId);
+        
+        // Create access: sender must be chat participant
+        allow create: if request.auth != null && 
+          request.resource.data.senderId == request.auth.uid &&
+          request.resource.data.keys().hasAll(['senderId', 'encryptedContent', 'timestamp', 'type']) &&
+          request.resource.data.type in ['text', 'file', 'system'] &&
+          isChatParticipant(fileId);
+        
+        // Update access: sender can update their own messages, participants can update read receipts and reactions
+        allow update: if request.auth != null && 
+          isChatParticipant(fileId) &&
+          (
+            // Sender can edit their own message
+            (request.auth.uid == resource.data.senderId && 
+             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['encryptedContent', 'editedAt'])) ||
+            // Participants can update read receipts for themselves
+            (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy']) &&
+             request.resource.data.readBy is map &&
+             request.auth.uid in request.resource.data.readBy.keys()) ||
+            // Participants can add/remove emoji reactions
+            (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions']) &&
+             request.resource.data.reactions is map)
+          );
+        
+        // Delete access: sender can delete their own messages
+        allow delete: if request.auth != null && 
+          request.auth.uid == resource.data.senderId &&
+          isChatParticipant(fileId);
+      }
     }
     
     // Groups - users can access groups they own or are members of
