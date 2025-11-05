@@ -479,9 +479,9 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
             {fieldValue && (
               // Check if content looks like HTML (contains tags) or markdown
               fieldValue.includes('<') && fieldValue.includes('>') ? (
-                <div dangerouslySetInnerHTML={{ __html: fieldValue }} />
+                <div dangerouslySetInnerHTML={{ __html: Array.isArray(fieldValue) ? fieldValue.join(', ') : fieldValue }} />
               ) : (
-                <MDEditor.Markdown source={fieldValue} />
+                <MDEditor.Markdown source={Array.isArray(fieldValue) ? fieldValue.join(', ') : fieldValue} />
               )
             )}
           </Box>
@@ -517,7 +517,7 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
                   <Tooltip title={copiedField === field.id ? 'Copied!' : 'Copy'}>
                     <IconButton
                       size="small"
-                      onClick={() => copyToClipboard(fieldValue, field.id)}
+                      onClick={() => copyToClipboard(Array.isArray(fieldValue) ? fieldValue.join(', ') : fieldValue, field.id)}
                       sx={{ 
                         color: copiedField === field.id ? 'success.main' : 'text.secondary',
                       }}

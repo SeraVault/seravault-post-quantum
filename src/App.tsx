@@ -12,6 +12,7 @@ import ChatPage from './pages/ChatPage';
 import FormTemplatesPage from './pages/FormTemplatesPage';
 import ProtectedRoute from './auth/ProtectedRoute';
 import ProfileCheck from './auth/ProfileCheck';
+import TermsEnforcement from './components/TermsEnforcement';
 import { useAuth } from './auth/AuthContext';
 import { usePassphrase } from './auth/PassphraseContext';
 import { CircularProgress, Typography, useTheme, Dialog, DialogContent } from '@mui/material';
@@ -95,22 +96,24 @@ const App: React.FC = () => {
       <LoadingProvider>
         <RecentsProvider>
           <MetadataProvider>
-            <GlobalLoadingSpinner />
-            <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/signup" element={<SignupPage />} />
-            <Route element={<ProtectedRoute />}>
-              <Route element={<ProfileCheck />}>
-                <Route path="/" element={<HomePage />} />
-              </Route>
-              <Route path="/profile" element={<ProfilePage />} />
-              <Route path="/contacts" element={<ContactsPage />} />
-              <Route path="/chat" element={<ChatPage />} />
-              <Route path="/templates" element={<FormTemplatesPage />} />
-              <Route path="/cleanup" element={<CleanupPage />} />
-              <Route path="/security" element={<SecurityPage />} />
-            </Route>
-          </Routes>
+            <TermsEnforcement>
+              <GlobalLoadingSpinner />
+              <Routes>
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/signup" element={<SignupPage />} />
+                <Route element={<ProtectedRoute />}>
+                  <Route element={<ProfileCheck />}>
+                    <Route path="/" element={<HomePage />} />
+                  </Route>
+                  <Route path="/profile" element={<ProfilePage />} />
+                  <Route path="/contacts" element={<ContactsPage />} />
+                  <Route path="/chat" element={<ChatPage />} />
+                  <Route path="/templates" element={<FormTemplatesPage />} />
+                  <Route path="/cleanup" element={<CleanupPage />} />
+                  <Route path="/security" element={<SecurityPage />} />
+                </Route>
+              </Routes>
+            </TermsEnforcement>
           </MetadataProvider>
         </RecentsProvider>
       </LoadingProvider>

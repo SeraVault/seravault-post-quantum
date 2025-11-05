@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node copy-pdf-worker.js && tsc -b && vite build && node copy-landing.js",
-    "build:deploy": "node copy-pdf-worker.js && vite build && node copy-landing.js",
+    "build": "node copy-pdf-worker.js && tsc -b && vite build",
+    "build:deploy": "node copy-pdf-worker.js && vite build",
+    "build:landing": "./build-landing-with-env.sh",
     "postinstall": "node copy-pdf-worker.js",
     "lint": "eslint .",
     "preview": "vite preview",
@@ -25,7 +26,10 @@
     "deploy:firestore": "./deploy.sh firestore",
     "deploy:storage": "./deploy.sh storage",
     "deploy:test": "./deploy.sh -t",
-    "deploy:quick": "./deploy.sh -s"
+    "deploy:quick": "./deploy.sh -s",
+    "deploy:landing": "npm run build:landing && firebase deploy --only hosting:landing",
+    "deploy:app": "npm run build:deploy && firebase deploy --only hosting:app",
+    "deploy:both": "npm run build:landing && npm run build:deploy && firebase deploy --only hosting"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

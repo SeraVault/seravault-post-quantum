@@ -17,6 +17,8 @@ export interface UserProfile {
   };
   // Legacy field - will be migrated
   legacyEncryptedPrivateKey?: string;
+  // Terms acceptance
+  termsAcceptedAt?: string; // ISO timestamp when user accepted terms
   // UI preferences
   columnVisibility?: {
     type: boolean;

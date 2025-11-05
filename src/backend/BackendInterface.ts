@@ -25,6 +25,7 @@ export interface UserProfile {
   lastModified: string;
   keyVersion: number;
   theme: 'light' | 'dark';
+  termsAcceptedAt?: string; // ISO timestamp when user accepted terms
   columnVisibility?: {
     type: boolean;
     size: boolean;
