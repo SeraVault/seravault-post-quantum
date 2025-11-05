@@ -1,5 +1,5 @@
 import React from 'react';
-import { AppBar, Toolbar, Typography, Button, Box, IconButton } from '@mui/material';
+import { AppBar, Toolbar, Button, Box, IconButton } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
@@ -26,9 +26,23 @@ const TopBar: React.FC<TopBarProps> = ({ handleDrawerToggle }) => {
         >
           <MenuIcon />
         </IconButton>
-        <Typography variant="h6" noWrap component={Link} to="/" sx={{ flexGrow: 1, color: 'inherit', textDecoration: 'none' }}>
-          Seravault
-        </Typography>
+        <Box 
+          component={Link} 
+          to="/" 
+          sx={{ 
+            flexGrow: 1, 
+            display: 'flex', 
+            alignItems: 'center',
+            textDecoration: 'none',
+            gap: 1
+          }}
+        >
+          <img 
+            src="/seravault_logo.svg" 
+            alt="SeraVault" 
+            style={{ height: '32px', width: 'auto' }}
+          />
+        </Box>
         {user ? (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <SecurityStatusIndicator />

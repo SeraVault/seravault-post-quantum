@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy - SeraVault</title>
+  <meta name="description" content="SeraVault's privacy policy explaining our zero-knowledge architecture and data handling practices.">
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .policy {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: var(--spacing-3xl) var(--spacing-md);
+      color: var(--text-primary);
+    }
+    
+    .policy-header {
+      text-align: center;
+      margin-bottom: var(--spacing-3xl);
+      padding-bottom: var(--spacing-xl);
+      border-bottom: 2px solid var(--border);
+    }
+    
+    .policy-title {
+      font-size: 2.5rem;
+      font-weight: 800;
+      margin-bottom: var(--spacing-md);
+    }
+    
+    .policy-meta {
+      color: var(--text-secondary);
+      font-size: 0.875rem;
+    }
+    
+    .policy-section {
+      margin-bottom: var(--spacing-3xl);
+    }
+    
+    .policy-section h2 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      margin-bottom: var(--spacing-lg);
+      padding-top: var(--spacing-xl);
+      border-top: 1px solid var(--border);
+      color: var(--primary);
+    }
+    
+    .policy-section h3 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-top: var(--spacing-lg);
+      margin-bottom: var(--spacing-md);
+    }
+    
+    .policy-section p {
+      line-height: 1.8;
+      margin-bottom: var(--spacing-md);
+    }
+    
+    .policy-section ul, .policy-section ol {
+      margin-bottom: var(--spacing-md);
+      margin-left: var(--spacing-lg);
+      line-height: 1.8;
+    }
+    
+    .policy-section li {
+      margin-bottom: var(--spacing-xs);
+    }
+    
+    .highlight-box {
+      background: var(--bg-elevated);
+      border-left: 4px solid var(--primary);
+      padding: var(--spacing-lg);
+      margin: var(--spacing-lg) 0;
+      border-radius: var(--radius-md);
+    }
+    
+    .highlight-box strong {
+      color: var(--primary);
+    }
+    
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: var(--spacing-lg) 0;
+      background: var(--bg-secondary);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+    
+    th, td {
+      padding: var(--spacing-md);
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    
+    th {
+      background: var(--bg-tertiary);
+      font-weight: 600;
+    }
+    
+    .footer-nav {
+      margin-top: var(--spacing-3xl);
+      padding-top: var(--spacing-xl);
+      border-top: 2px solid var(--border);
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <nav class="navbar">
+    <div class="container">
+      <div class="nav-content">
+        <div class="logo">
+          <img src="seravault_logo.svg" alt="SeraVault" class="logo-image" height="32">
+        </div>
+        <div class="nav-links">
+          <a href="index.html">Home</a>
+          <a href="index.html#features">Features</a>
+          <a href="index.html#pricing">Pricing</a>
+          <a href="/app" class="btn btn-primary">Launch App</a>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <div class="policy">
+    <header class="policy-header">
+      <h1 class="policy-title">Privacy Policy</h1>
+      <div class="policy-meta">
+        <p><strong>Effective Date:</strong> November 4, 2025</p>
+        <p><strong>Last Updated:</strong> November 4, 2025</p>
+      </div>
+    </header>
+
+    <div class="highlight-box">
+      <p><strong>Zero-Knowledge Privacy:</strong> SeraVault is designed with a zero-knowledge architecture. We cannot access, read, or decrypt your files, messages, or encrypted metadata. Your data is encrypted on your device before it reaches our servers, and only you hold the decryption keys.</p>
+    </div>
+
+    <section class="policy-section">
+      <h2>1. Introduction</h2>
+      <p>
+        SeraVault ("we," "us," or "our") operates a zero-knowledge, end-to-end encrypted file storage and messaging platform. 
+        This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our service.
+      </p>
+      <p>
+        By using SeraVault, you agree to the collection and use of information in accordance with this policy. If you do not 
+        agree with our policies and practices, please do not use our service.
+      </p>
+    </section>
+
+    <section class="policy-section">
+      <h2>2. Information We Collect</h2>
+      
+      <h3>2.1 Account Information</h3>
+      <p>When you create an account, we collect:</p>
+      <ul>
+        <li><strong>Email Address:</strong> Used for account authentication and service communications</li>
+        <li><strong>Account Credentials:</strong> Authentication tokens (managed by Firebase Authentication)</li>
+        <li><strong>Display Name:</strong> Optional, used to personalize your account</li>
+      </ul>
+
+      <h3>2.2 Encrypted Data</h3>
+      <p>We store the following encrypted data that we <strong>cannot</strong> access or decrypt:</p>
+      <ul>
+        <li><strong>Encrypted Files:</strong> Your file contents, encrypted client-side with AES-256-GCM</li>
+        <li><strong>Encrypted Metadata:</strong> File names, folder structures, file types, and descriptions</li>
+        <li><strong>Encrypted Messages:</strong> All chat messages, encrypted end-to-end using ML-KEM-768</li>
+        <li><strong>Encrypted Private Keys:</strong> Your encryption keys, encrypted with your passphrase</li>
+      </ul>
+
+      <h3>2.3 Unencrypted Metadata</h3>
+      <p>Due to technical requirements, we collect certain metadata in unencrypted form:</p>
+      <ul>
+        <li><strong>File Sizes:</strong> The size of encrypted file blobs (not the original file names)</li>
+        <li><strong>Timestamps:</strong> Upload times, modification times, last access times</li>
+        <li><strong>Sharing Relationships:</strong> Which users have shared access to which encrypted files</li>
+        <li><strong>Public Keys:</strong> Your ML-KEM-768 public keys (required for others to share files with you)</li>
+        <li><strong>Contact Lists:</strong> Your encrypted contact relationships</li>
+        <li><strong>Storage Usage:</strong> Total storage consumed per account</li>
+      </ul>
+
+      <h3>2.4 Technical Data</h3>
+      <p>We automatically collect certain technical information:</p>
+      <ul>
+        <li><strong>IP Address:</strong> For security, fraud prevention, and service delivery</li>
+        <li><strong>Browser Type and Version:</strong> To ensure compatibility</li>
+        <li><strong>Device Information:</strong> Operating system and device type</li>
+        <li><strong>Log Data:</strong> Access logs, error logs, and performance metrics</li>
+        <li><strong>Cookies:</strong> Authentication cookies and session management</li>
+      </ul>
+
+      <h3>2.5 Payment Information</h3>
+      <p>For paid subscriptions:</p>
+      <ul>
+        <li><strong>Payment Processing:</strong> Handled by Stripe (we do not store credit card numbers)</li>
+        <li><strong>Billing Information:</strong> Name, billing address, email for receipts</li>
+        <li><strong>Transaction History:</strong> Payment dates, amounts, subscription status</li>
+      </ul>
+    </section>
+
+    <section class="policy-section">
+      <h2>3. How We Use Your Information</h2>
+      
+      <h3>3.1 Service Delivery</h3>
+      <ul>
+        <li>Provide, maintain, and improve our file storage and messaging services</li>
+        <li>Authenticate your account and manage your session</li>
+        <li>Store and retrieve your encrypted files and messages</li>
+        <li>Facilitate file sharing between users</li>
+        <li>Process payments and manage subscriptions</li>
+      </ul>
+
+      <h3>3.2 Security and Fraud Prevention</h3>
+      <ul>
+        <li>Detect and prevent unauthorized access or security breaches</li>
+        <li>Monitor for suspicious activity or abuse</li>
+        <li>Enforce our Terms of Service</li>
+        <li>Protect against fraud and spam</li>
+      </ul>
+
+      <h3>3.3 Communications</h3>
+      <ul>
+        <li>Send service-related notifications (security alerts, system updates)</li>
+        <li>Respond to your support requests and inquiries</li>
+        <li>Send billing and payment confirmations</li>
+        <li>Provide optional product updates and feature announcements (you can opt out)</li>
+      </ul>
+
+      <h3>3.4 Analytics and Improvement</h3>
+      <ul>
+        <li>Analyze usage patterns to improve performance and user experience</li>
+        <li>Debug errors and fix technical issues</li>
+        <li>Understand which features are most valuable to users</li>
+        <li>Optimize storage and infrastructure</li>
+      </ul>
+    </section>
+
+    <section class="policy-section">
+      <h2>4. What We CANNOT Access</h2>
+      
+      <div class="highlight-box">
+        <p><strong>Zero-Knowledge Guarantee:</strong> Due to our end-to-end encryption architecture, we have zero access to:</p>
+      </div>
+
+      <ul>
+        <li><strong>File Contents:</strong> We cannot read, view, or access the content of your files</li>
+        <li><strong>File Names:</strong> Your file names are encrypted; we see only random encrypted strings</li>
+        <li><strong>Folder Structures:</strong> Your folder organization is encrypted</li>
+        <li><strong>Message Contents:</strong> We cannot read your chat messages</li>
+        <li><strong>Encryption Keys:</strong> We store only encrypted versions of your private keys</li>
+        <li><strong>Passphrases:</strong> Your passphrases never reach our servers</li>
+      </ul>
+
+      <p>
+        <strong>This means:</strong> Even if compelled by law enforcement or court order, we cannot provide access to your 
+        encrypted data because we do not possess the means to decrypt it. We can only provide encrypted data and unencrypted 
+        metadata (see section 2.3).
+      </p>
+    </section>
+
+    <section class="policy-section">
+      <h2>5. Information Sharing and Disclosure</h2>
+      
+      <h3>5.1 We Do Not Sell Your Data</h3>
+      <p>We <strong>never</strong> sell, rent, or trade your personal information to third parties for marketing purposes.</p>
+
+      <h3>5.2 Service Providers</h3>
+      <p>We share limited data with trusted service providers who assist in operating our service:</p>
+      
+      <table>
+        <tr>
+          <th>Provider</th>
+          <th>Purpose</th>
+          <th>Data Shared</th>
+        </tr>
+        <tr>
+          <td>Google Firebase</td>
+          <td>Backend infrastructure, authentication, database, file storage</td>
+          <td>Email, encrypted files, encrypted metadata, public keys, technical data</td>
+        </tr>
+        <tr>
+          <td>Stripe</td>
+          <td>Payment processing</td>
+          <td>Billing information, payment details</td>
+        </tr>
+        <tr>
+          <td>Email Service Provider</td>
+          <td>Service notifications</td>
+          <td>Email address, notification content</td>
+        </tr>
+      </table>
+
+      <p>All service providers are contractually obligated to protect your data and use it only for specified purposes.</p>
+
+      <h3>5.3 Legal Requirements</h3>
+      <p>We may disclose information if required to do so by law or in response to:</p>
+      <ul>
+        <li>Valid legal process (subpoena, court order, search warrant)</li>
+        <li>Governmental or regulatory requests</li>
+        <li>Protection of our rights, property, or safety</li>
+        <li>Emergency situations involving danger of death or serious physical injury</li>
+      </ul>
+
+      <p>
+        <strong>Limitation:</strong> We can only provide unencrypted metadata and encrypted data. We cannot decrypt your files 
+        or messages, as we do not possess the decryption keys.
+      </p>
+
+      <h3>5.4 Business Transfers</h3>
+      <p>
+        In the event of a merger, acquisition, or sale of assets, your information may be transferred to the acquiring entity. 
+        We will notify you via email and/or prominent notice on our website before your information is transferred and becomes 
+        subject to a different privacy policy.
+      </p>
+
+      <h3>5.5 With Your Consent</h3>
+      <p>We may share information with third parties when you explicitly consent to such sharing.</p>
+    </section>
+
+    <section class="policy-section">
+      <h2>6. Data Retention</h2>
+      
+      <h3>6.1 Active Accounts</h3>
+      <p>We retain your data for as long as your account is active or as needed to provide services.</p>
+
+      <h3>6.2 Account Deletion</h3>
+      <p>When you delete your account:</p>
+      <ul>
+        <li><strong>Encrypted Files:</strong> Deleted within 30 days</li>
+        <li><strong>Account Information:</strong> Deleted within 30 days</li>
+        <li><strong>Backups:</strong> Removed from backups within 90 days</li>
+        <li><strong>Shared Files:</strong> If you shared files with others, they retain access to their copies</li>
+        <li><strong>Legal Holds:</strong> Data subject to legal preservation requirements may be retained longer</li>
+      </ul>
+
+      <h3>6.3 Inactive Accounts</h3>
+      <p>
+        Free accounts inactive for 12+ months may be deleted after email notification. Paid accounts remain active until 
+        subscription cancellation.
+      </p>
+
+      <h3>6.4 Legal and Compliance</h3>
+      <p>
+        We may retain certain information to comply with legal obligations, resolve disputes, and enforce our agreements, 
+        even after account deletion.
+      </p>
+    </section>
+
+    <section class="policy-section">
+      <h2>7. Data Security</h2>
+      
+      <h3>7.1 Encryption</h3>
+      <ul>
+        <li><strong>In Transit:</strong> All data transmitted using TLS 1.3 encryption</li>
+        <li><strong>At Rest:</strong> Files encrypted with AES-256-GCM; private keys encrypted with passphrase-derived keys</li>
+        <li><strong>Post-Quantum:</strong> ML-KEM-768 (NIST FIPS 203) for key encapsulation</li>
+      </ul>
+
+      <h3>7.2 Access Controls</h3>
+      <ul>
+        <li>Employee access to production systems is restricted and logged</li>
+        <li>Two-factor authentication required for all administrative access</li>
+        <li>Regular security audits and penetration testing</li>
+        <li>Automated security monitoring and alerting</li>
+      </ul>
+
+      <h3>7.3 Infrastructure Security</h3>
+      <ul>
+        <li>Firebase infrastructure with enterprise-grade security</li>
+        <li>Regular security patches and updates</li>
+        <li>DDoS protection and rate limiting</li>
+        <li>Isolated database per customer (logical separation)</li>
+      </ul>
+
+      <h3>7.4 Limitations</h3>
+      <p>
+        No method of transmission over the Internet or electronic storage is 100% secure. While we implement industry-standard 
+        security measures, we cannot guarantee absolute security. You are responsible for maintaining the confidentiality of 
+        your passphrase and hardware keys.
+      </p>
+    </section>
+
+    <section class="policy-section">
+      <h2>8. Your Rights and Choices</h2>
+      
+      <h3>8.1 Access and Portability</h3>
+      <ul>
+        <li><strong>Access:</strong> You can access all your data through the SeraVault application</li>
+        <li><strong>Download:</strong> You can download all your files at any time</li>
+        <li><strong>Export:</strong> Bulk export functionality available for data portability</li>
+      </ul>
+
+      <h3>8.2 Correction and Deletion</h3>
+      <ul>
+        <li><strong>Update:</strong> You can update your account information at any time</li>
+        <li><strong>Delete Files:</strong> You can delete individual files or folders</li>
+        <li><strong>Delete Account:</strong> You can request full account deletion in settings</li>
+      </ul>
+
+      <h3>8.3 Communication Preferences</h3>
+      <ul>
+        <li><strong>Marketing Emails:</strong> Opt out via unsubscribe link</li>
+        <li><strong>Service Notifications:</strong> Cannot be disabled (security alerts, billing notices)</li>
+      </ul>
+
+      <h3>8.4 Regional Rights</h3>
+      <p>Depending on your location, you may have additional rights:</p>
+      
+      <h4>European Union (GDPR)</h4>
+      <ul>
+        <li>Right to access personal data</li>
+        <li>Right to rectification</li>
+        <li>Right to erasure ("right to be forgotten")</li>
+        <li>Right to restrict processing</li>
+        <li>Right to data portability</li>
+        <li>Right to object to processing</li>
+        <li>Right to withdraw consent</li>
+        <li>Right to lodge a complaint with supervisory authority</li>
+      </ul>
+
+      <h4>California (CCPA/CPRA)</h4>
+      <ul>
+        <li>Right to know what personal information is collected</li>
+        <li>Right to know if personal information is sold or shared</li>
+        <li>Right to opt out of sale/sharing</li>
+        <li>Right to deletion</li>
+        <li>Right to correct inaccurate information</li>
+        <li>Right to non-discrimination</li>
+      </ul>
+
+      <p>To exercise these rights, contact us at <a href="mailto:privacy@seravault.com">privacy@seravault.com</a>.</p>
+    </section>
+
+    <section class="policy-section">
+      <h2>9. International Data Transfers</h2>
+      <p>
+        SeraVault uses Firebase infrastructure, which stores data in the United States and other countries. By using our 
+        service, you consent to the transfer of your information to countries outside your country of residence, which may 
+        have different data protection laws.
+      </p>
+      <p>
+        For European users, we rely on:
+      </p>
+      <ul>
+        <li>Standard Contractual Clauses (SCCs) approved by the European Commission</li>
+        <li>Google's EU-U.S. Data Privacy Framework certification</li>
+        <li>Adequate safeguards as defined by GDPR Article 46</li>
+      </ul>
+    </section>
+
+    <section class="policy-section">
+      <h2>10. Children's Privacy</h2>
+      <p>
+        SeraVault is not intended for children under the age of 13 (or 16 in the European Union). We do not knowingly collect 
+        personal information from children. If we become aware that a child has provided us with personal information, we will 
+        delete it immediately.
+      </p>
+      <p>
+        If you are a parent or guardian and believe your child has provided us with personal information, please contact us at 
+        <a href="mailto:privacy@seravault.com">privacy@seravault.com</a>.
+      </p>
+    </section>
+
+    <section class="policy-section">
+      <h2>11. Cookies and Tracking</h2>
+      
+      <h3>11.1 Cookies We Use</h3>
+      <table>
+        <tr>
+          <th>Type</th>
+          <th>Purpose</th>
+          <th>Duration</th>
+        </tr>
+        <tr>
+          <td>Authentication Cookies</td>
+          <td>Keep you logged in and manage your session</td>
+          <td>Session / 30 days</td>
+        </tr>
+        <tr>
+          <td>Security Cookies</td>
+          <td>Detect and prevent fraudulent activity</td>
+          <td>Session</td>
+        </tr>
+        <tr>
+          <td>Preference Cookies</td>
+          <td>Remember your settings (language, theme)</td>
+          <td>1 year</td>
+        </tr>
+        <tr>
+          <td>Analytics Cookies</td>
+          <td>Understand how you use our service (optional)</td>
+          <td>1 year</td>
+        </tr>
+      </table>
+
+      <h3>11.2 Third-Party Tracking</h3>
+      <p>We do not allow third-party advertisers or tracking scripts. Our analytics are privacy-focused and aggregate.</p>
+
+      <h3>11.3 Your Choices</h3>
+      <p>You can control cookies through your browser settings. Note that disabling certain cookies may affect functionality.</p>
+    </section>
+
+    <section class="policy-section">
+      <h2>12. Changes to This Policy</h2>
+      <p>
+        We may update this Privacy Policy from time to time. Changes will be posted on this page with an updated "Last Updated" 
+        date. For material changes, we will provide prominent notice:
+      </p>
+      <ul>
+        <li>Email notification to registered users</li>
+        <li>In-app notification upon login</li>
+        <li>Notice on our homepage</li>
+      </ul>
+      <p>
+        Continued use of SeraVault after changes become effective constitutes acceptance of the revised policy.
+      </p>
+    </section>
+
+    <section class="policy-section">
+      <h2>13. Contact Us</h2>
+      <p>If you have questions, concerns, or requests regarding this Privacy Policy or our data practices:</p>
+      
+      <p>
+        <strong>Email:</strong> <a href="mailto:privacy@seravault.com">privacy@seravault.com</a><br>
+        <strong>Security Issues:</strong> <a href="mailto:security@seravault.com">security@seravault.com</a><br>
+        <strong>Support:</strong> <a href="mailto:support@seravault.com">support@seravault.com</a>
+      </p>
+
+      <p>
+        <strong>Data Protection Officer (EU):</strong> <a href="mailto:dpo@seravault.com">dpo@seravault.com</a>
+      </p>
+    </section>
+
+    <section class="policy-section">
+      <h2>14. Transparency Report</h2>
+      <p>
+        We are committed to transparency. We publish an annual transparency report detailing:
+      </p>
+      <ul>
+        <li>Number of government requests for user data</li>
+        <li>Number of users affected</li>
+        <li>Number of requests complied with or rejected</li>
+        <li>Types of data requested</li>
+      </ul>
+      <p>
+        Our latest transparency report is available at <a href="transparency-report.html">transparency-report.html</a>.
+      </p>
+    </section>
+
+    <div class="footer-nav">
+      <p><a href="index.html">← Back to SeraVault Home</a></p>
+    </div>
+  </div>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-bottom">
+        <p>&copy; 2025 SeraVault. Open source security for everyone.</p>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
