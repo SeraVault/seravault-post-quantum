@@ -38,41 +38,130 @@
   <!-- Hero Section -->
   <section class="hero">
     <div class="container">
-      <div class="hero-content">
-        <div class="hero-badge">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M8 0L10.5 5.5L16 8L10.5 10.5L8 16L5.5 10.5L0 8L5.5 5.5L8 0Z"/>
-          </svg>
-          <span>Post-Quantum Security</span>
-        </div>
-        <h1 class="hero-title">Your Files, <span class="gradient-text">Organized & Encrypted</span></h1>
-        <p class="hero-subtitle">
-          Organize your files in folders just like your computer. Store credit cards, passports, tax documents, and medical records. 
-          Chat securely with family or colleagues. Everything protected with post-quantum encryption that even future computers can't break.
-        </p>
-        <div class="hero-cta">
-          <a href="/app" class="btn btn-large btn-primary">
-            Get Started Free
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M5 10h10m0 0l-4-4m4 4l-4 4"/>
+      <div class="hero-layout">
+        <div class="hero-content">
+          <div class="hero-badge">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 0L10.5 5.5L16 8L10.5 10.5L8 16L5.5 10.5L0 8L5.5 5.5L8 0Z"/>
             </svg>
-          </a>
-          <a href="#security" class="btn btn-large btn-outline">
-            Learn About Security
-          </a>
+            <span>Post-Quantum Security</span>
+          </div>
+          <h1 class="hero-title">Your Files, <span class="gradient-text">Organized & Encrypted</span></h1>
+          <p class="hero-subtitle">
+            Organize your files in folders just like your computer. Store credit cards, passports, tax documents, and medical records. 
+            Chat securely with family or colleagues. Everything protected with post-quantum encryption that even future computers can't break.
+          </p>
+          <div class="hero-cta">
+            <a href="/app" class="btn btn-large btn-primary">
+              Get Started Free
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M5 10h10m0 0l-4-4m4 4l-4 4"/>
+              </svg>
+            </a>
+            <a href="#security" class="btn btn-large btn-outline">
+              Learn About Security
+            </a>
+          </div>
+          <div class="hero-stats">
+            <div class="stat">
+              <div class="stat-value">📁 Files/Forms/Folders</div>
+              <div class="stat-label">Organize Like Desktop</div>
+            </div>
+            <div class="stat">
+              <div class="stat-value">💬 Chat</div>
+              <div class="stat-label">E2E Encrypted</div>
+            </div>
+            <div class="stat">
+              <div class="stat-value">🔐 Quantum-Safe</div>
+              <div class="stat-label">ML-KEM-768</div>
+            </div>
+          </div>
         </div>
-        <div class="hero-stats">
-          <div class="stat">
-            <div class="stat-value">📁 Files/Forms/Folders</div>
-            <div class="stat-label">Organize Like Desktop</div>
-          </div>
-          <div class="stat">
-            <div class="stat-value">💬 Chat</div>
-            <div class="stat-label">E2E Encrypted</div>
-          </div>
-          <div class="stat">
-            <div class="stat-value">🔐 Quantum-Safe</div>
-            <div class="stat-label">ML-KEM-768</div>
+        
+        <div class="hero-visual">
+          <!-- Multi-layer security shields -->
+          <svg class="security-fortress" viewBox="0 0 300 300" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="shieldGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" style="stop-color:#00F078;stop-opacity:1" />
+                <stop offset="50%" style="stop-color:#42a5f5;stop-opacity:1" />
+                <stop offset="100%" style="stop-color:#667eea;stop-opacity:1" />
+              </linearGradient>
+              
+              <filter id="strongGlow">
+                <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+                <feMerge>
+                  <feMergeNode in="coloredBlur"/>
+                  <feMergeNode in="SourceGraphic"/>
+                </feMerge>
+              </filter>
+              
+              <linearGradient id="lockGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" style="stop-color:#00F078;stop-opacity:1" />
+                <stop offset="100%" style="stop-color:#667eea;stop-opacity:1" />
+              </linearGradient>
+            </defs>
+            
+            <!-- Outer defense layer -->
+            <path d="M 150 20 L 270 80 L 270 160 Q 270 240 150 280 Q 30 240 30 160 L 30 80 Z" 
+                  fill="none" stroke="url(#shieldGradient)" stroke-width="3" opacity="0.3" class="shield-layer layer-3"/>
+            
+            <!-- Middle defense layer -->
+            <path d="M 150 40 L 250 90 L 250 160 Q 250 225 150 260 Q 50 225 50 160 L 50 90 Z" 
+                  fill="none" stroke="url(#shieldGradient)" stroke-width="3" opacity="0.5" filter="url(#strongGlow)" class="shield-layer layer-2"/>
+            
+            <!-- Inner defense layer -->
+            <path d="M 150 60 L 230 100 L 230 160 Q 230 210 150 240 Q 70 210 70 160 L 70 100 Z" 
+                  fill="none" stroke="url(#shieldGradient)" stroke-width="4" opacity="0.8" filter="url(#strongGlow)" class="shield-layer layer-1"/>
+            
+            <!-- Core shield -->
+            <path d="M 150 80 L 210 110 L 210 160 Q 210 195 150 220 Q 90 195 90 160 L 90 110 Z" 
+                  fill="rgba(0, 240, 120, 0.05)" stroke="url(#shieldGradient)" stroke-width="4" filter="url(#strongGlow)" class="core-shield"/>
+            
+            <!-- Quantum encryption symbol -->
+            <g class="quantum-lock">
+              <!-- Lock body -->
+              <rect x="135" y="155" width="30" height="35" rx="3" fill="url(#lockGradient)" stroke="url(#shieldGradient)" stroke-width="2"/>
+              
+              <!-- Lock shackle -->
+              <path d="M 140 155 L 140 145 Q 140 130 150 130 Q 160 130 160 145 L 160 155" 
+                    fill="none" stroke="url(#shieldGradient)" stroke-width="3" stroke-linecap="round"/>
+              
+              <!-- Keyhole -->
+              <circle cx="150" cy="167" r="4" fill="#000"/>
+              <rect x="148" y="170" width="4" height="10" fill="#000"/>
+            </g>
+            
+            <!-- Security nodes at key points -->
+            <circle cx="150" cy="80" r="4" fill="url(#shieldGradient)" class="security-node" filter="url(#strongGlow)"/>
+            <circle cx="210" cy="110" r="4" fill="url(#shieldGradient)" class="security-node" filter="url(#strongGlow)"/>
+            <circle cx="90" cy="110" r="4" fill="url(#shieldGradient)" class="security-node" filter="url(#strongGlow)"/>
+            <circle cx="210" cy="160" r="4" fill="url(#shieldGradient)" class="security-node" filter="url(#strongGlow)"/>
+            <circle cx="90" cy="160" r="4" fill="url(#shieldGradient)" class="security-node" filter="url(#strongGlow)"/>
+            
+            <!-- Encryption particles -->
+            <circle cx="120" cy="120" r="2" fill="#00F078" opacity="0.6" class="particle p1"/>
+            <circle cx="180" cy="130" r="2" fill="#42a5f5" opacity="0.6" class="particle p2"/>
+            <circle cx="140" cy="190" r="2" fill="#667eea" opacity="0.6" class="particle p3"/>
+            <circle cx="160" cy="200" r="2" fill="#00F078" opacity="0.6" class="particle p4"/>
+            <circle cx="130" cy="140" r="2" fill="#42a5f5" opacity="0.6" class="particle p5"/>
+            <circle cx="170" cy="180" r="2" fill="#667eea" opacity="0.6" class="particle p6"/>
+          </svg>
+          
+          <!-- Security status indicators -->
+          <div class="security-indicators">
+            <div class="indicator active">
+              <span class="indicator-dot"></span>
+              <span class="indicator-text">ML-KEM-768</span>
+            </div>
+            <div class="indicator active">
+              <span class="indicator-dot"></span>
+              <span class="indicator-text">AES-256-GCM</span>
+            </div>
+            <div class="indicator active">
+              <span class="indicator-dot"></span>
+              <span class="indicator-text">Zero-Knowledge</span>
+            </div>
           </div>
         </div>
       </div>
@@ -882,8 +971,6 @@
         <div class="footer-section">
           <h4 class="footer-title">Resources</h4>
           <ul class="footer-links">
-            <li><a href="#">Documentation</a></li>
-            <li><a href="#">API Reference</a></li>
             <li><a href="security-whitepaper.html">Security Whitepaper</a></li>
             <li><a href="https://github.com/seravault">GitHub</a></li>
           </ul>
@@ -892,8 +979,6 @@
         <div class="footer-section">
           <h4 class="footer-title">Company</h4>
           <ul class="footer-links">
-            <li><a href="#">About Us</a></li>
-            <li><a href="#">Blog</a></li>
             <li><a href="privacy-policy.html">Privacy Policy</a></li>
             <li><a href="terms-of-service.html">Terms of Service</a></li>
           </ul>

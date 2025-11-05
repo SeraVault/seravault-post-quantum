@@ -344,7 +344,7 @@
 
       <h4>3.2.2 Firebase Backend</h4>
       <ul>
-        <li><strong>Firestore:</strong> Stores encrypted file metadata, user profiles, sharing permissions</li>
+        <li><strong>Backend Database:</strong> Stores encrypted file metadata, user profiles, sharing permissions</li>
         <li><strong>Firebase Storage:</strong> Stores encrypted file blobs</li>
         <li><strong>Firebase Authentication:</strong> Handles user authentication (email/password, not used for encryption keys)</li>
         <li><strong>Cloud Functions:</strong> Minimal server-side logic for notifications and cleanup (no access to plaintext data)</li>
@@ -361,14 +361,14 @@
           <li>Client encrypts file metadata (name, size, type) with user's Shared Secret</li>
           <li>Client encapsulates File Key for user's public key using ML-KEM-768</li>
           <li>Client uploads encrypted blob to Firebase Storage</li>
-          <li>Client writes encrypted metadata and encapsulated key to Firestore</li>
+          <li>Client writes encrypted metadata and encapsulated key to backend database</li>
         </ol>
       </div>
 
       <div class="algorithm-box">
         <h4>File Download Flow</h4>
         <ol>
-          <li>Client retrieves encrypted metadata from Firestore</li>
+          <li>Client retrieves encrypted metadata from backend database</li>
           <li>Client decrypts metadata using user's Shared Secret</li>
           <li>Client decapsulates File Key using ML-KEM-768 with user's private key</li>
           <li>Client downloads encrypted blob from Firebase Storage</li>
@@ -486,8 +486,8 @@ encryptionKey = PBKDF2-SHA256(passphrase, salt, 100000, 32 bytes)
 iv = CSPRNG(12 bytes)
 encryptedPrivateKey = AES-256-GCM.Encrypt(encryptionKey, iv, privateKey)
 
-// Store encrypted private key in Firestore
-// Public key stored in Firestore (plaintext, it's public)
+// Store encrypted private key in backend database
+// Public key stored in backend database (plaintext, it's public)
       </div>
 
       <h3>5.2 File Encryption</h3>
@@ -582,12 +582,12 @@ metadata = AES-256-GCM.Decrypt(userSharedSecret, metadataNonce, encryptedMetadat
         <tr>
           <td>ML-KEM-768 Public Key</td>
           <td>File key encapsulation (others encrypt for you)</td>
-          <td>Firestore (plaintext)</td>
+          <td>Backend database (plaintext)</td>
         </tr>
         <tr>
           <td>ML-KEM-768 Private Key</td>
           <td>File key decapsulation</td>
-          <td>Firestore (encrypted with passphrase-derived key)</td>
+          <td>Backend database (encrypted with passphrase-derived key)</td>
         </tr>
         <tr>
           <td>Shared Secret</td>
@@ -605,12 +605,12 @@ metadata = AES-256-GCM.Decrypt(userSharedSecret, metadataNonce, encryptedMetadat
 
       <h4>6.2.1 Standard Mode</h4>
       <p>
-        In standard mode, the encrypted private key is stored in Firestore and loaded when the user logs in:
+        In standard mode, the encrypted private key is stored in the backend database and loaded when the user logs in:
       </p>
       <ul>
         <li>User enters passphrase</li>
         <li>Passphrase derives encryption key via PBKDF2</li>
-        <li>Encrypted private key downloaded from Firestore</li>
+        <li>Encrypted private key downloaded from backend database</li>
         <li>Private key decrypted and held in browser memory</li>
         <li>Private key discarded on logout</li>
       </ul>
@@ -658,7 +658,7 @@ metadata = AES-256-GCM.Decrypt(userSharedSecret, metadataNonce, encryptedMetadat
             <ul>
               <li>Decrypt file key using old private key</li>
               <li>Re-encapsulate file key using new public key</li>
-              <li>Update Firestore with new encapsulated key</li>
+              <li>Update backend database with new encapsulated key</li>
             </ul>
           </li>
           <li>For each shared file:
@@ -688,8 +688,8 @@ metadata = AES-256-GCM.Decrypt(userSharedSecret, metadataNonce, encryptedMetadat
 
       <div class="code-block">
 // File owner shares file with recipient
-// 1. Owner retrieves recipient's public key from Firestore
-recipientPublicKey = Firestore.getPublicKey(recipientUserId)
+// 1. Owner retrieves recipient's public key from backend database
+recipientPublicKey = Backend.getPublicKey(recipientUserId)
 
 // 2. Owner decrypts file key for themselves
 ownerSharedSecret = ML-KEM-768.Decapsulate(ownerPrivateKey, ownerCiphertext)
@@ -700,8 +700,8 @@ fileKey = AES-256-GCM.Decrypt(ownerSharedSecret, keyNonce, encryptedFileKey)
 recipientKeyNonce = CSPRNG(12 bytes)
 recipientEncryptedFileKey = AES-256-GCM.Encrypt(recipientSharedSecret, recipientKeyNonce, fileKey)
 
-// 4. Store recipient's encapsulated key in Firestore
-Firestore.grantAccess(fileId, recipientUserId, recipientCiphertext, recipientEncryptedFileKey)
+// 4. Store recipient's encapsulated key in backend database
+Backend.grantAccess(fileId, recipientUserId, recipientCiphertext, recipientEncryptedFileKey)
       </div>
 
       <h3>7.2 Sharing Properties</h3>
@@ -773,7 +773,7 @@ Firestore.grantAccess(fileId, recipientUserId, recipientCiphertext, recipientEnc
         <li>Passphrase used to derive key via PBKDF2 (100,000 iterations)</li>
         <li>Derived key encrypts the user's ML-KEM-768 private key</li>
         <li>Passphrase never sent to server</li>
-        <li>Encrypted private key stored in Firestore</li>
+        <li>Encrypted private key stored in backend database</li>
       </ul>
 
       <h3>8.3 Biometric Authentication</h3>
@@ -831,7 +831,7 @@ conversationKey = CSPRNG(32 bytes)
 nonce_i = CSPRNG(12 bytes)
 encryptedConversationKey_i = AES-256-GCM.Encrypt(sharedSecret_i, nonce_i, conversationKey)
 
-// 3. Store encrypted conversation keys in Firestore
+// 3. Store encrypted conversation keys in backend database
 // Each participant can decrypt using their private key
       </div>
 
@@ -847,8 +847,8 @@ conversationKey = AES-256-GCM.Decrypt(sharedSecret, nonce, encryptedConversation
 messageNonce = CSPRNG(12 bytes)
 encryptedMessage = AES-256-GCM.Encrypt(conversationKey, messageNonce, messageContent)
 
-// 3. Upload to Firestore
-Firestore.addMessage(conversationId, encryptedMessage, messageNonce, timestamp)
+// 3. Upload to backend database
+Backend.addMessage(conversationId, encryptedMessage, messageNonce, timestamp)
       </div>
 
       <h3>9.4 Chat Properties</h3>
@@ -856,7 +856,7 @@ Firestore.addMessage(conversationId, encryptedMessage, messageNonce, timestamp)
         <li><strong>End-to-End Encrypted:</strong> Server cannot read message contents</li>
         <li><strong>Post-Quantum Secure:</strong> Uses ML-KEM-768 for key exchange</li>
         <li><strong>Group Chat:</strong> Supports multi-participant conversations</li>
-        <li><strong>Persistent:</strong> Messages stored encrypted in Firestore</li>
+        <li><strong>Persistent:</strong> Messages stored encrypted in backend database</li>
         <li><strong>Invite-Only:</strong> Must be contacts to initiate conversations (prevents spam)</li>
       </ul>
 
@@ -901,7 +901,7 @@ Firestore.addMessage(conversationId, encryptedMessage, messageNonce, timestamp)
         </tr>
         <tr>
           <td>Backend</td>
-          <td>Firebase (Firestore, Storage, Auth, Functions)</td>
+          <td>Firebase (Database, Storage, Auth, Functions)</td>
         </tr>
         <tr>
           <td>Authentication</td>
