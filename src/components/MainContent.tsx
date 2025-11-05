@@ -971,8 +971,16 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
       await Promise.all(
         batch.map(async (fileData) => {
           try {
-            const userEncryptedKey = fileData.encryptedKeys[user.uid];
-            if (!userEncryptedKey || !privateKey) {
+            const userEncryptedKey = fileData.encryptedKeys?.[user.uid];
+            if (!userEncryptedKey || !privateKey || !fileData.encryptedKeys) {
+              console.warn('Missing encrypted key for file:', {
+                fileId: fileData.id,
+                fileName: fileData.name,
+                userId: user.uid,
+                hasEncryptedKeys: !!fileData.encryptedKeys,
+                encryptedKeysKeys: fileData.encryptedKeys ? Object.keys(fileData.encryptedKeys) : [],
+                userHasKey: fileData.encryptedKeys ? user.uid in fileData.encryptedKeys : false
+              });
               filesMap.set(fileData.id, { ...fileData, name: '[No Access]', size: '' });
               return;
             }
@@ -1561,7 +1569,7 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
           if (item.operation === 'cut') {
             // Use the new per-user folder management system
             const { moveFileForUser } = await import('../services/userFolderManagement');
-            await moveFileForUser(file.id!, user!.uid, currentFolder);
+            await moveFileForUser(file.id!, user!.uid, currentFolder, file);
           } else if (item.operation === 'copy') {
             // For single items, show dialog; for multiple items, copy without dialog
             if (clipboardItems.length === 1) {

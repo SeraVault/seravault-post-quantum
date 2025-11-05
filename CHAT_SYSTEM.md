@@ -2,14 +2,20 @@
 
 ## Overview
 
-The chat system uses **subcollections** for messages, providing better isolation, scalability, and performance.
+The chat system stores conversations in the **files collection** as special files with `fileType: 'chat'`. Messages are stored in **subcollections** under each chat file, providing better isolation, scalability, and performance.
 
 ## Data Structure
 
 ```
-/conversations/{conversationId}
+/files/{chatId}
+  - fileType: 'chat'
   - type: 'individual' | 'group'
   - participants: ['user1', 'user2', ...]
+  - owner: string
+  - name: string | { ciphertext, nonce }
+  - userFolders: { [uid]: folderId | null }
+  - encryptedKeys: { [uid]: encryptedKey }
+  - sharedWith: string[]
   - createdAt: timestamp
   - lastMessageAt: timestamp
   
@@ -27,15 +33,15 @@ The chat system uses **subcollections** for messages, providing better isolation
 ## Key Features
 
 ### ✅ Subcollections
-- Messages stored under their parent conversation
-- Path: `conversations/{id}/messages/{messageId}`
+- Messages stored under their parent chat file
+- Path: `files/{chatId}/messages/{messageId}`
 - Each conversation's messages are isolated
 - Better query performance (only scans one conversation)
 
 ### ✅ Security
-- Security rules check conversation membership once
+- Security rules check chat participant access via files collection
 - No need for denormalized `participants` array in each message
-- Rules path: `conversations/{conversationId}/messages/{messageId}`
+- Rules path: `files/{chatId}/messages/{messageId}`
 
 ### ✅ Encryption
 - Each message encrypted separately for each recipient
@@ -56,7 +62,7 @@ The chat system uses **subcollections** for messages, providing better isolation
 
 ### Send Message
 ```typescript
-const messagesRef = collection(db, 'conversations', conversationId, 'messages');
+const messagesRef = collection(db, 'files', chatId, 'messages');
 await addDoc(messagesRef, {
   senderId: currentUserId,
   senderName: userName,
@@ -68,7 +74,7 @@ await addDoc(messagesRef, {
 
 ### Query Messages
 ```typescript
-const messagesRef = collection(db, 'conversations', conversationId, 'messages');
+const messagesRef = collection(db, 'files', chatId, 'messages');
 const q = query(
   messagesRef,
   orderBy('timestamp', 'desc'),
@@ -79,7 +85,7 @@ const snapshot = await getDocs(q);
 
 ### Real-time Listener
 ```typescript
-const messagesRef = collection(db, 'conversations', conversationId, 'messages');
+const messagesRef = collection(db, 'files', chatId, 'messages');
 const q = query(messagesRef, orderBy('timestamp', 'desc'));
 const unsubscribe = onSnapshot(q, (snapshot) => {
   // Handle new/updated messages
@@ -88,18 +94,18 @@ const unsubscribe = onSnapshot(q, (snapshot) => {
 
 ### Add Emoji Reaction
 ```typescript
-await ChatService.addReaction(conversationId, messageId, currentUserId, '👍');
+await ChatService.addReaction(chatId, messageId, currentUserId, '👍');
 ```
 
 ### Remove Emoji Reaction
 ```typescript
-await ChatService.removeReaction(conversationId, messageId, currentUserId, '👍');
+await ChatService.removeReaction(chatId, messageId, currentUserId, '👍');
 ```
 
 ### Toggle Emoji Reaction
 ```typescript
 // Adds if not present, removes if already reacted
-await ChatService.toggleReaction(conversationId, messageId, currentUserId, '❤️');
+await ChatService.toggleReaction(chatId, messageId, currentUserId, '❤️');
 ```
 
 ## UI Component
@@ -110,7 +116,7 @@ Use the `MessageReactions` component to display and manage reactions:
 import { MessageReactions } from '../components/MessageReactions';
 
 <MessageReactions
-  conversationId={conversationId}
+  conversationId={chatId}
   message={message}
   currentUserId={currentUserId}
   onReactionUpdate={() => console.log('Reaction updated')}

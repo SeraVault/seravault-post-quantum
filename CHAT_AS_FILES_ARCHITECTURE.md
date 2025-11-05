@@ -36,11 +36,10 @@ export interface Conversation {
 
 ### 2. Storage Location
 
-- **Before**: `conversations/{conversationId}`
-- **After**: `files/{conversationId}` with `fileType: 'chat'`
+- **Current**: `files/{chatId}` with `fileType: 'chat'`
+- **Messages**: `files/{chatId}/messages/{messageId}`
 
-- **Messages Before**: `conversations/{conversationId}/messages/{messageId}`
-- **Messages After**: `files/{conversationId}/messages/{messageId}`
+Chats are fully integrated into the files collection, with no separate conversations collection.
 
 ### 3. Service Layer (`src/services/chatService.ts`)
 
@@ -53,13 +52,14 @@ All chat operations updated to use the files collection:
 
 ### 4. Security Rules (`firestore.rules`)
 
-- Added chat file validation in files create rules
-- Added messages subcollection rules under files
+- Chat file validation in files create rules
+- Messages subcollection rules under `files/{fileId}/messages`
 - Validates that for chat files, `sharedWith` matches `participants`
+- All chat security handled through unified files collection rules
 
 ### 5. Firestore Indexes (`firestore.indexes.json`)
 
-Added composite index for querying chat files:
+Composite index for querying chat files:
 
 ```json
 {
@@ -72,13 +72,16 @@ Added composite index for querying chat files:
 }
 ```
 
+**Note**: The old `conversations` collection index has been removed.
+
 ## Benefits
 
 1. **Unified File Management**: Chats can be organized in folders like any other file
-2. **Consistent Permissions**: Uses the same userFolders, userTags, userFavorites system
-3. **Folder Organization**: Users can move chats into project folders, organize by topic, etc.
+2. **Consistent Permissions**: Uses the same `userFolders`, `userTags`, `userFavorites` system
+3. **Folder Organization**: Each user can independently organize chats in their own folders
 4. **Search Integration**: Chats appear in file search results
 5. **Tagging**: Users can tag chats for better organization
+6. **Real-time Updates**: Dual subscription system (owned + shared) with debounce ensures immediate display
 
 ## Usage
 
@@ -122,16 +125,21 @@ const chatsQuery = query(
 
 ## Migration Notes
 
-- Old conversations in `conversations` collection still work (backward compatible)
-- New conversations are created in `files` collection
-- Both storage paths are supported for messages
-- Firestore rules support both `conversations` and `files` paths
+**Migration Complete** - The old `conversations` collection has been fully deprecated and removed:
+- All new chats created in `files` collection
+- Security rules for `conversations` collection removed
+- Firestore index for `conversations` collection removed
+- All chat functionality now uses unified `files` collection architecture
 
-## Next Steps
+## Implementation Status
 
-To fully integrate chat-as-files into the UI:
+✅ **Completed Features**:
 
-1. Update file table to display chat files with chat icon
-2. Update FileViewer to open ChatPage when clicking chat file
-3. Enable folder operations (move, copy) for chat files
-4. Add chat filter to file manager
+1. File table displays chat files with chat icon
+2. FileViewer opens ChatPage when clicking chat file
+3. Folder operations (move, organize) work for chat files
+4. Chat filter available in file manager
+5. Per-user folder organization via `userFolders` map
+6. Real-time subscription system with 50ms debounce to prevent race conditions
+7. Full security rules integration
+8. All deprecated code removed and deployed

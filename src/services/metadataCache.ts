@@ -361,13 +361,36 @@ export const getOrDecryptMetadata = async (
 
   // Cache miss - decrypt and cache the metadata
   try {
+    // Check if user has access to this file
+    const userEncryptedKey = file.encryptedKeys?.[userId];
+    if (!userEncryptedKey) {
+      console.error('No encrypted key found for user:', {
+        userId,
+        fileId: file.id,
+        fileName: file.name,
+        hasEncryptedKeys: !!file.encryptedKeys,
+        encryptedKeysKeys: file.encryptedKeys ? Object.keys(file.encryptedKeys) : [],
+        userInKeys: file.encryptedKeys ? userId in file.encryptedKeys : false,
+        fullFile: file
+      });
+      throw new Error('User does not have access to this file');
+    }
+    
     // Get user's personalized file name
     const { getUserFileName } = await import('./userNamesManagement');
     const decryptedName = await getUserFileName(file, userId, privateKey);
 
     // Decrypt file size
     const { FileEncryptionService } = await import('./fileEncryption');
-    const userEncryptedKey = file.encryptedKeys[userId];
+    console.log('About to decrypt metadata:', {
+      userId,
+      fileId: file.id,
+      userEncryptedKey,
+      userEncryptedKeyType: typeof userEncryptedKey,
+      userEncryptedKeyLength: userEncryptedKey?.length,
+      encryptedName: file.name,
+      encryptedSize: file.size
+    });
     const { size: decryptedSize } = await FileEncryptionService.decryptFileMetadata(
       file.name as { ciphertext: string; nonce: string },
       file.size as { ciphertext: string; nonce: string },

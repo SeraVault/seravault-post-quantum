@@ -57,7 +57,7 @@ const SecurityPage: React.FC = () => {
           </Typography>
           <Alert severity="success" sx={{ display: 'inline-flex', alignItems: 'center' }}>
             <ShieldOutlined sx={{ mr: 1 }} />
-            SeraVault uses quantum-resistant HPKE (RFC 9180) encryption
+            SeraVault uses quantum-resistant ML-KEM-768 (NIST FIPS 203) encryption
           </Alert>
         </Box>
 
@@ -80,12 +80,11 @@ const SecurityPage: React.FC = () => {
           <Box sx={{ mt: 3, p: 3, bgcolor: 'background.default', borderRadius: 2 }}>
             <Typography variant="h6" gutterBottom>Key Technologies Used:</Typography>
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-              <Chip label="HPKE (RFC 9180)" color="primary" />
-              <Chip label="X25519 Key Exchange" color="secondary" />
-              <Chip label="AES-128-GCM" color="success" />
-              <Chip label="ChaCha20-Poly1305" color="info" />
+              <Chip label="ML-KEM-768 (NIST FIPS 203)" color="primary" />
+              <Chip label="AES-256-GCM" color="success" />
               <Chip label="BLAKE3 Hashing" color="warning" />
               <Chip label="PBKDF2 Key Derivation" color="error" />
+              <Chip label="WebAuthn/FIDO2" color="secondary" />
             </Box>
           </Box>
         </Paper>
@@ -101,35 +100,36 @@ const SecurityPage: React.FC = () => {
             <AccordionSummary expandIcon={<ExpandMore />}>
               <Typography variant="h6">
                 <Key sx={{ mr: 1, verticalAlign: 'middle' }} />
-                1. Key Generation (HPKE)
+                1. Key Generation (ML-KEM-768)
               </Typography>
             </AccordionSummary>
             <AccordionDetails>
               <Typography paragraph>
                 When you create your account, SeraVault generates a quantum-resistant key pair using 
-                <strong> X25519 elliptic curve cryptography</strong>:
+                <strong> ML-KEM-768 (Module-Lattice-Based Key Encapsulation Mechanism)</strong>, 
+                standardized by NIST in FIPS 203:
               </Typography>
               <List dense>
                 <ListItem>
                   <ListItemIcon><VpnKey color="primary" /></ListItemIcon>
                   <ListItemText 
-                    primary="Public Key (32 bytes)" 
+                    primary="Public Key (1,184 bytes)" 
                     secondary="Shared with others to encrypt files for you" 
                   />
                 </ListItem>
                 <ListItem>
                   <ListItemIcon><LockOutlined color="secondary" /></ListItemIcon>
                   <ListItemText 
-                    primary="Private Key (32 bytes)" 
+                    primary="Private Key (2,400 bytes)" 
                     secondary="Encrypted with your passphrase and stored securely" 
                   />
                 </ListItem>
               </List>
-              <Alert severity="info" sx={{ mt: 2 }}>
+              <Alert severity="success" sx={{ mt: 2 }}>
                 <Typography variant="body2">
-                  <strong>Why X25519?</strong> While technically not post-quantum by itself, X25519 is used within 
-                  the HPKE framework which provides post-quantum security through its hybrid approach and 
-                  quantum-resistant symmetric algorithms.
+                  <strong>Why ML-KEM-768?</strong> This is a NIST-standardized post-quantum cryptographic algorithm
+                  based on lattice mathematics. It provides security equivalent to AES-192 and is resistant to attacks
+                  by both classical and quantum computers. The "768" refers to the security level parameter.
                 </Typography>
               </Alert>
             </AccordionDetails>
@@ -156,25 +156,25 @@ const SecurityPage: React.FC = () => {
                 <ListItem>
                   <ListItemText 
                     primary="Step 2: Encrypt File Content" 
-                    secondary="Your file is encrypted with AES-128-GCM using the random key" 
+                    secondary="Your file is encrypted with AES-256-GCM using the random key" 
                   />
                 </ListItem>
                 <ListItem>
                   <ListItemText 
-                    primary="Step 3: Encrypt File Key with HPKE" 
-                    secondary="The file key is encrypted using HPKE with your public key" 
+                    primary="Step 3: Encapsulate File Key with ML-KEM-768" 
+                    secondary="The file key is encapsulated using ML-KEM-768 with your public key" 
                   />
                 </ListItem>
                 <ListItem>
                   <ListItemText 
                     primary="Step 4: Encrypt Metadata" 
-                    secondary="File names and sizes are encrypted with ChaCha20-Poly1305" 
+                    secondary="File names and sizes are encrypted with AES-GCM" 
                   />
                 </ListItem>
               </List>
               <Alert severity="success" sx={{ mt: 2 }}>
-                This hybrid approach combines the efficiency of symmetric encryption with the security of 
-                post-quantum public key cryptography.
+                This hybrid approach combines the efficiency of symmetric encryption with the post-quantum
+                security of ML-KEM-768 key encapsulation.
               </Alert>
             </AccordionDetails>
           </Accordion>
@@ -188,7 +188,7 @@ const SecurityPage: React.FC = () => {
             </AccordionSummary>
             <AccordionDetails>
               <Typography paragraph>
-                HPKE enables true multi-recipient encryption:
+                ML-KEM-768 enables true multi-recipient encryption:
               </Typography>
               <List dense>
                 <ListItem>
@@ -199,8 +199,8 @@ const SecurityPage: React.FC = () => {
                 </ListItem>
                 <ListItem>
                   <ListItemText 
-                    primary="Per-Recipient Key Encryption" 
-                    secondary="The file key is encrypted separately for each recipient's public key" 
+                    primary="Per-Recipient Key Encapsulation" 
+                    secondary="The file key is encapsulated separately for each recipient's ML-KEM-768 public key" 
                   />
                 </ListItem>
                 <ListItem>
@@ -212,7 +212,7 @@ const SecurityPage: React.FC = () => {
                 <ListItem>
                   <ListItemText 
                     primary="Granular Access Control" 
-                    secondary="Access can be revoked by removing the recipient's encrypted key" 
+                    secondary="Access can be revoked by removing the recipient's encapsulated key" 
                   />
                 </ListItem>
               </List>

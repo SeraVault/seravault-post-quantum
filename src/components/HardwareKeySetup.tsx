@@ -21,6 +21,10 @@ import {
   CircularProgress,
   FormControlLabel,
   Checkbox,
+  RadioGroup,
+  Radio,
+  FormControl,
+  FormLabel,
 } from '@mui/material';
 import {
   VpnKey,
@@ -32,7 +36,10 @@ import {
   Bluetooth as BluetoothIcon,
   CheckCircle,
   Warning,
+  Help as HelpIcon,
+  Fingerprint,
 } from '@mui/icons-material';
+import AuthenticationMethodsHelp from './AuthenticationMethodsHelp';
 import { useAuth } from '../auth/AuthContext';
 import { usePassphrase } from '../auth/PassphraseContext';
 import {
@@ -43,9 +50,6 @@ import {
   updateHardwareKeyNickname,
   getAuthenticatorName,
   storePrivateKeyInHardware,
-  hasStoredPrivateKey,
-  retrievePrivateKeyFromHardware,
-  removeStoredPrivateKey,
   type HardwareKeyCredential,
 } from '../utils/hardwareKeyAuth';
 
@@ -68,31 +72,33 @@ const HardwareKeySetup: React.FC = () => {
   const [nicknameDialogOpen, setNicknameDialogOpen] = useState(false);
   const [newKeyNickname, setNewKeyNickname] = useState('');
   const [storePrivateKeyOption, setStorePrivateKeyOption] = useState(false);
+  const [authenticatorType, setAuthenticatorType] = useState<'cross-platform' | 'platform'>('cross-platform');
+  const [helpDialogOpen, setHelpDialogOpen] = useState(false);
   const [editingKey, setEditingKey] = useState<HardwareKeyCredential | null>(null);
   const [editNickname, setEditNickname] = useState('');
 
   useEffect(() => {
+    const loadData = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const caps = await getHardwareKeyCapabilities();
+        setCapabilities(caps);
+
+        if (user) {
+          const keys = await getRegisteredHardwareKeys(user.uid);
+          setRegisteredKeys(keys);
+        }
+      } catch (error) {
+        console.error('Failed to load hardware key data:', error);
+        setError('Failed to load hardware key information');
+      } finally {
+        setLoading(false);
+      }
+    };
+
     loadData();
   }, [user]);
-
-  const loadData = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const caps = await getHardwareKeyCapabilities();
-      setCapabilities(caps);
-
-      if (user) {
-        const keys = await getRegisteredHardwareKeys(user.uid);
-        setRegisteredKeys(keys);
-      }
-    } catch (err) {
-      console.error('Failed to load hardware key data:', err);
-      setError('Failed to load hardware key information');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleRegisterKey = async () => {
     if (!user) return;
@@ -103,29 +109,34 @@ const HardwareKeySetup: React.FC = () => {
 
     try {
       const nickname = newKeyNickname.trim() || undefined;
-      const newKey = await registerHardwareKey(user.uid, user.email || '', nickname);
+      const newKey = await registerHardwareKey(user.uid, user.email || '', nickname, authenticatorType);
       
       // If user wants to store private key in hardware
       if (storePrivateKeyOption && privateKey) {
         try {
           await storePrivateKeyInHardware(newKey.id, privateKey);
           newKey.storesPrivateKey = true;
-          setSuccess('Hardware key registered and private key stored securely! You can now log in without a passphrase.');
+          const authTypeLabel = authenticatorType === 'cross-platform' ? 'Hardware key' : 'Passkey';
+          setSuccess(`${authTypeLabel} registered and private key stored securely! You can now log in without a passphrase.`);
         } catch (storeError) {
           // Key registered but private key storage failed
-          setError('Hardware key registered, but failed to store private key. You will still need to enter your passphrase.');
+          const authTypeLabel = authenticatorType === 'cross-platform' ? 'Hardware key' : 'Passkey';
+          setError(`${authTypeLabel} registered, but failed to store private key. You will still need to enter your passphrase.`);
           console.error('Failed to store private key:', storeError);
         }
       } else {
-        setSuccess('Hardware security key registered successfully!');
+        const authTypeLabel = authenticatorType === 'cross-platform' ? 'Hardware security key' : 'Passkey';
+        setSuccess(`${authTypeLabel} registered successfully!`);
       }
       
       setRegisteredKeys([...registeredKeys, newKey]);
       setNicknameDialogOpen(false);
       setNewKeyNickname('');
       setStorePrivateKeyOption(false);
+      // Reset to default for next registration
+      setAuthenticatorType('cross-platform');
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to register hardware key';
+      const errorMessage = err instanceof Error ? err.message : 'Failed to register authentication method';
       setError(errorMessage);
     } finally {
       setRegistering(false);
@@ -142,7 +153,8 @@ const HardwareKeySetup: React.FC = () => {
       await removeHardwareKey(user.uid, credentialId);
       setRegisteredKeys(registeredKeys.filter(k => k.id !== credentialId));
       setSuccess('Hardware key removed successfully');
-    } catch (err) {
+    } catch (error) {
+      console.error('Failed to remove hardware key:', error);
       setError('Failed to remove hardware key');
     }
   };
@@ -162,7 +174,8 @@ const HardwareKeySetup: React.FC = () => {
       ));
       setEditingKey(null);
       setSuccess('Nickname updated successfully');
-    } catch (err) {
+    } catch (error) {
+      console.error('Failed to update nickname:', error);
       setError('Failed to update nickname');
     }
   };
@@ -345,16 +358,102 @@ const HardwareKeySetup: React.FC = () => {
 
       {/* Register New Key Dialog */}
       <Dialog open={nicknameDialogOpen} onClose={() => !registering && setNicknameDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Register Hardware Security Key</DialogTitle>
+        <DialogTitle>
+          <Box display="flex" alignItems="center" justifyContent="space-between">
+            <span>Register Authentication Method</span>
+            <IconButton 
+              onClick={() => setHelpDialogOpen(true)} 
+              size="small"
+              sx={{ ml: 1 }}
+              title="Learn about authentication options"
+            >
+              <HelpIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
         <DialogContent>
+          <FormControl component="fieldset" sx={{ mb: 3, width: '100%' }}>
+            <FormLabel component="legend" sx={{ mb: 1 }}>
+              <Typography variant="subtitle2">Choose Authentication Type</Typography>
+            </FormLabel>
+            <RadioGroup
+              value={authenticatorType}
+              onChange={(e) => setAuthenticatorType(e.target.value as 'cross-platform' | 'platform')}
+            >
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                <Box 
+                  sx={{ 
+                    p: 2, 
+                    border: '1px solid',
+                    borderColor: authenticatorType === 'cross-platform' ? 'primary.main' : 'divider',
+                    borderRadius: 1,
+                    bgcolor: authenticatorType === 'cross-platform' ? 'action.selected' : 'transparent',
+                    cursor: 'pointer',
+                  }}
+                  onClick={() => setAuthenticatorType('cross-platform')}
+                >
+                  <FormControlLabel
+                    value="cross-platform"
+                    control={<Radio />}
+                    label={
+                      <Box>
+                        <Box display="flex" alignItems="center" gap={1} mb={0.5}>
+                          <UsbIcon fontSize="small" />
+                          <Typography variant="body1" fontWeight="medium">
+                            Hardware Security Key
+                          </Typography>
+                          <Chip label="Secure" size="small" color="success" />
+                        </Box>
+                        <Typography variant="body2" color="text.secondary">
+                          Physical USB, NFC, or Bluetooth security key (e.g., YubiKey, Titan Key)
+                        </Typography>
+                      </Box>
+                    }
+                  />
+                </Box>
+                
+                <Box 
+                  sx={{ 
+                    p: 2, 
+                    border: '1px solid',
+                    borderColor: authenticatorType === 'platform' ? 'primary.main' : 'divider',
+                    borderRadius: 1,
+                    bgcolor: authenticatorType === 'platform' ? 'action.selected' : 'transparent',
+                    cursor: 'pointer',
+                  }}
+                  onClick={() => setAuthenticatorType('platform')}
+                >
+                  <FormControlLabel
+                    value="platform"
+                    control={<Radio />}
+                    label={
+                      <Box>
+                        <Box display="flex" alignItems="center" gap={1} mb={0.5}>
+                          <Fingerprint fontSize="small" />
+                          <Typography variant="body1" fontWeight="medium">
+                            Passkey (Platform Authenticator)
+                          </Typography>
+                          <Chip label="Modern" size="small" color="info" />
+                        </Box>
+                        <Typography variant="body2" color="text.secondary">
+                          Built-in fingerprint, face recognition, or device PIN
+                        </Typography>
+                      </Box>
+                    }
+                  />
+                </Box>
+              </Box>
+            </RadioGroup>
+          </FormControl>
+
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Give your security key a nickname to help you identify it later.
+            Give your {authenticatorType === 'cross-platform' ? 'security key' : 'passkey'} a nickname to help you identify it later.
           </Typography>
           <TextField
             autoFocus
             fullWidth
             label="Nickname (optional)"
-            placeholder="e.g., YubiKey 5C, Titan Key"
+            placeholder={authenticatorType === 'cross-platform' ? "e.g., YubiKey 5C, Titan Key" : "e.g., My Laptop, iPhone Fingerprint"}
             value={newKeyNickname}
             onChange={(e) => setNewKeyNickname(e.target.value)}
             disabled={registering}
@@ -369,7 +468,7 @@ const HardwareKeySetup: React.FC = () => {
               🔐 Maximum Security Option
             </Typography>
             <Typography variant="body2">
-              Store your encryption private key <strong>inside the hardware key</strong> instead of on our servers.
+              Store your encryption private key <strong>inside the {authenticatorType === 'cross-platform' ? 'hardware key' : 'passkey'}</strong> instead of on our servers.
             </Typography>
           </Alert>
           
@@ -384,7 +483,7 @@ const HardwareKeySetup: React.FC = () => {
             label={
               <Box>
                 <Typography variant="body2">
-                  <strong>Store my private key in the hardware key</strong>
+                  <strong>Store my private key in the {authenticatorType === 'cross-platform' ? 'hardware key' : 'passkey'}</strong>
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
                   {privateKey 
@@ -399,8 +498,8 @@ const HardwareKeySetup: React.FC = () => {
           {storePrivateKeyOption && (
             <Alert severity="warning" sx={{ mt: 2 }}>
               <Typography variant="body2">
-                <strong>Important:</strong> If you lose this key, you'll need a backup key or your passphrase to access your files.
-                Always register at least 2 hardware keys!
+                <strong>Important:</strong> If you lose this {authenticatorType === 'cross-platform' ? 'key' : 'device'}, you'll need a backup key or your passphrase to access your files.
+                Always register at least 2 authentication methods!
               </Typography>
             </Alert>
           )}
@@ -409,7 +508,10 @@ const HardwareKeySetup: React.FC = () => {
             <Box display="flex" alignItems="center" gap={2} mt={2}>
               <CircularProgress size={20} />
               <Typography variant="body2" color="text.secondary">
-                Please insert and touch your security key...
+                {authenticatorType === 'cross-platform' 
+                  ? 'Please insert and touch your security key...'
+                  : 'Please authenticate using your device (fingerprint, face, or PIN)...'
+                }
               </Typography>
             </Box>
           )}
@@ -449,6 +551,12 @@ const HardwareKeySetup: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Help Dialog */}
+      <AuthenticationMethodsHelp 
+        open={helpDialogOpen} 
+        onClose={() => setHelpDialogOpen(false)} 
+      />
     </Card>
   );
 };

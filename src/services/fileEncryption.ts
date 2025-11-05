@@ -146,6 +146,13 @@ export class FileEncryptionService {
     encryptedKey: string,
     userPrivateKey: string
   ): Promise<{ name: string; size: string }> {
+    console.log('decryptFileMetadata called with:', {
+      encryptedName,
+      encryptedSize,
+      encryptedKeyLength: encryptedKey?.length,
+      hasEncryptedKey: !!encryptedKey
+    });
+    
     // Get the file key first
     const keyData = hexToBytes(encryptedKey);
     

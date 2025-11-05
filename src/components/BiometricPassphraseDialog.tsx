@@ -188,6 +188,8 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
   };
 
   const handleKeyFileUpload = async () => {
+    console.log('handleKeyFileUpload called', { selectedKeyFile, keyFilePassphrase });
+    
     if (!selectedKeyFile) {
       setError('Please select a key file');
       return;
@@ -197,32 +199,39 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
       setLoading(true);
       setError(null);
 
+      console.log('Reading key file...');
       // Read the key file
       const fileContent = await selectedKeyFile.text();
+      console.log('File content length:', fileContent.length);
       let privateKeyHex: string;
 
       // Try to parse as JSON first (encrypted key file)
       try {
         const keyData = JSON.parse(fileContent);
+        console.log('Parsed as JSON:', keyData);
         
         // Check for encrypted key file format
         if (keyData.encryptedPrivateKey && keyData.keyType) {
-          if (keyData.keyType !== 'HPKE_X25519') {
-            throw new Error('Invalid or unsupported key file format');
+          if (!keyData.keyType.includes('ML-KEM-768') && !keyData.keyType.includes('Legacy')) {
+            throw new Error('Invalid or unsupported key file format. Only ML-KEM-768 keys are supported.');
           }
 
           if (!keyFilePassphrase.trim()) {
             setError('This is an encrypted key file. Please enter the passphrase.');
+            setLoading(false);
             return;
           }
 
           // Import decrypt function and decrypt the private key
+          console.log('Decrypting with passphrase...');
           const { decryptString } = await import('../crypto/quantumSafeCrypto');
           privateKeyHex = await decryptString(keyData.encryptedPrivateKey, keyFilePassphrase);
+          console.log('Decrypted successfully');
         }
         // Check for decrypted key file format
-        else if (keyData.privateKeyHex && keyData.keyType === 'HPKE_X25519_DECRYPTED') {
+        else if (keyData.privateKeyHex && (keyData.keyType.includes('DECRYPTED') || keyData.keyType.includes('ML-KEM-768') || keyData.keyType.includes('Legacy'))) {
           privateKeyHex = keyData.privateKeyHex;
+          console.log('Using decrypted key from file');
           // Validate it's a proper hex string
           if (!/^[a-fA-F0-9]{64}$/.test(privateKeyHex)) {
             throw new Error('Invalid private key format in decrypted key file');
@@ -232,23 +241,28 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
           throw new Error('Invalid key file structure');
         }
       } catch (jsonError) {
+        console.log('Not JSON, trying as plain text:', jsonError);
         // If JSON parsing fails, treat as plain text private key
         const trimmedContent = fileContent.trim();
         
         // Validate it looks like a hex private key (64 characters)
         if (/^[a-fA-F0-9]{64}$/.test(trimmedContent)) {
           privateKeyHex = trimmedContent;
+          console.log('Using plain text key');
         } else {
           throw new Error('Invalid file format. Please provide either an encrypted key file (JSON), a decrypted key file (JSON), or a plain text private key (64 hex characters).');
         }
       }
       
+      console.log('Calling onSubmit with key length:', privateKeyHex!.length);
       // Submit the decrypted private key
-      await onSubmit(privateKeyHex, rememberChoice, 'keyfile');
+      await onSubmit(privateKeyHex!, rememberChoice, 'keyfile');
+      console.log('onSubmit completed successfully');
       setSelectedKeyFile(null);
       setKeyFilePassphrase('');
       setRememberChoice(false);
     } catch (err) {
+      console.error('Key file error:', err);
       const errorMessage = err instanceof Error ? err.message : 'Key file processing failed';
       if (errorMessage.includes('decrypt') && keyFilePassphrase.trim()) {
         setError('Incorrect passphrase for encrypted key file. Please try again.');
@@ -538,7 +552,9 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
           <Button onClick={onClose} disabled={loading}>
             Cancel
           </Button>
+          {/* Show unlock button based on which tab is active */}
           {activeTab === 0 && (
+            // Passphrase tab
             <Button 
               onClick={handlePassphraseSubmit} 
               variant="contained" 
@@ -547,15 +563,23 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
               {loading ? 'Decrypting...' : 'Unlock'}
             </Button>
           )}
-          {((activeTab === 1 && !(biometricAvailable && hasBiometric)) || (activeTab === 2 && (biometricAvailable && hasBiometric))) && (
-            <Button 
-              onClick={handleKeyFileUpload} 
-              variant="contained" 
-              disabled={loading || !selectedKeyFile}
-            >
-              {loading ? 'Processing...' : 'Unlock with Key File'}
-            </Button>
-          )}
+          {(() => {
+            // Calculate the key file tab index
+            let keyFileTabIndex = 1;
+            if (biometricAvailable && hasBiometric) keyFileTabIndex++;
+            if (hardwareKeysWithStorage.length > 0) keyFileTabIndex++;
+            
+            // Show key file unlock button only on the key file tab
+            return activeTab === keyFileTabIndex && (
+              <Button 
+                onClick={handleKeyFileUpload} 
+                variant="contained" 
+                disabled={loading || !selectedKeyFile}
+              >
+                {loading ? 'Processing...' : 'Unlock with Key File'}
+              </Button>
+            );
+          })()}
         </Box>
       </DialogActions>
     </Dialog>

@@ -88,7 +88,6 @@ export class ChatService {
       userFolders: {
         [currentUserId]: null // Initialize with creator in root folder (each user can organize independently)
       },
-      parent: null, // Deprecated
       storagePath: '', // Not used for chats
       size: await encryptStringToMetadata('0', conversationKey), // Message count as encrypted metadata
       sharedWith: allParticipants,

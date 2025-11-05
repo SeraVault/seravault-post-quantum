@@ -100,15 +100,16 @@ service cloud.firestore {
         request.resource.data.userFavorites[request.auth.uid] is bool;
       
       // Allow users with access to update their own folder association in userFolders
+      // This handles updates where the entire userFolders object is sent
       allow update: if request.auth != null && 
         hasAccess(resource) &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['userFolders']) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['userFolders', 'lastModified']) &&
         request.resource.data.userFolders is map &&
-        // Only allow modification of the user's own folder association
-        (request.resource.data.userFolders.size() == resource.data.get('userFolders', {}).size() ||
-         request.resource.data.userFolders.size() == resource.data.get('userFolders', {}).size() + 1) &&
-        // Ensure user can only modify their own entry
-        request.auth.uid in request.resource.data.userFolders.keys();
+        // User must be updating their own folder entry
+        request.auth.uid in request.resource.data.userFolders.keys() &&
+        // All existing entries for other users must be preserved
+        // (Check that old userFolders, minus current user, equals new userFolders, minus current user)
+        resource.data.get('userFolders', {}).diff(request.resource.data.userFolders).affectedKeys().hasOnly([request.auth.uid]);
       
       // Allow users with access to update their own encrypted tags in userTags
       allow update: if request.auth != null && 
@@ -484,88 +485,6 @@ service cloud.firestore {
       // Delete access: sender can delete their own invitations
       allow delete: if request.auth != null && 
         request.auth.uid == resource.data.fromUserId;
-    }
-    
-    // Conversations - users can access conversations they are participants in
-    match /conversations/{conversationId} {
-      function isParticipant(conversationData) {
-        return request.auth.uid in conversationData.participants;
-      }
-      
-      // Read access: participants only
-      allow read: if request.auth != null && 
-        isParticipant(resource.data);
-      
-      // List access: allow querying conversations where user is a participant
-      // The query must filter by participants array
-      allow list: if request.auth != null;
-      
-      // Create access: user must be in participants list
-      allow create: if request.auth != null && 
-        isParticipant(request.resource.data) &&
-        request.resource.data.keys().hasAll(['participants', 'type', 'createdAt', 'encryptedKeys']) &&
-        request.resource.data.type in ['individual', 'group'] &&
-        request.resource.data.participants is list &&
-        request.resource.data.participants.size() >= 2 &&
-        request.auth.uid in request.resource.data.participants &&
-        request.resource.data.createdBy == request.auth.uid;
-      
-      // Update access: participants can update conversation
-      allow update: if request.auth != null && 
-        isParticipant(resource.data) &&
-        // Don't allow changing participants list (use separate operations for that)
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['participants', 'type', 'createdAt']);
-      
-      // Delete access: only group admins or conversation creator
-      allow delete: if request.auth != null && 
-        isParticipant(resource.data) &&
-        (resource.data.type == 'individual' || 
-         (resource.data.type == 'group' && request.auth.uid in resource.data.get('admins', [])));
-    }
-    
-    // Messages - now as subcollections under conversations
-    // Security inherited from parent conversation + message-level checks
-    match /conversations/{conversationId}/messages/{messageId} {
-      // Helper to check if user is a conversation participant
-      function isConversationParticipant() {
-        return request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
-      }
-      
-      // Read access: conversation participants only
-      allow read: if request.auth != null && 
-        isConversationParticipant();
-      
-      // List access: conversation participants can query messages in their conversations
-      allow list: if request.auth != null &&
-        isConversationParticipant();
-      
-      // Create access: sender must be conversation participant
-      allow create: if request.auth != null && 
-        request.resource.data.senderId == request.auth.uid &&
-        request.resource.data.keys().hasAll(['senderId', 'encryptedContent', 'timestamp', 'type']) &&
-        request.resource.data.type in ['text', 'file', 'system'] &&
-        isConversationParticipant();
-      
-      // Update access: sender can update their own messages, participants can update read receipts and reactions
-      allow update: if request.auth != null && 
-        isConversationParticipant() &&
-        (
-          // Sender can edit/delete their own message
-          (request.auth.uid == resource.data.senderId && 
-           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['encryptedContent', 'editedAt', 'deleted'])) ||
-          // Participants can update read receipts for themselves
-          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy']) &&
-           request.resource.data.readBy is map &&
-           request.auth.uid in request.resource.data.readBy.keys()) ||
-          // Participants can add/remove emoji reactions
-          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions']) &&
-           request.resource.data.reactions is map)
-        );
-      
-      // Delete access: sender can delete their own messages
-      allow delete: if request.auth != null && 
-        request.auth.uid == resource.data.senderId &&
-        isParticipant(resource.data);
     }
     
     // Deny all other access - explicit security

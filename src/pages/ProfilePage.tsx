@@ -6,8 +6,6 @@ import { usePassphrase } from '../auth/PassphraseContext';
 import { useThemeContext } from '../theme/ThemeContext';
 import { useProfileManagement } from '../hooks/useProfileManagement';
 import { useKeyGeneration } from '../hooks/useKeyGeneration';
-import { debugUserData, testCountFunction } from '../services/debugMigration';
-import { debugSharedFilesForUser } from '../utils/debugSharing';
 import AppLayout from '../components/AppLayout';
 import BiometricSetup from '../components/BiometricSetup';
 import HardwareKeySetup from '../components/HardwareKeySetup';
@@ -131,25 +129,6 @@ const ProfilePage: React.FC = () => {
     }
   };
 
-  // DEBUG: Temporary functions for testing
-  const handleDebugUserData = async () => {
-    if (user) {
-      await debugUserData(user.uid);
-    }
-  };
-
-  const handleTestCount = async () => {
-    if (user) {
-      await testCountFunction(user.uid);
-    }
-  };
-
-  const handleDebugSharedFiles = async () => {
-    if (user) {
-      await debugSharedFilesForUser(user.uid);
-    }
-  };
-
   if (loading) {
     return (
       <AppLayout>
@@ -238,39 +217,6 @@ const ProfilePage: React.FC = () => {
             onDownloadKey={() => handleDownloadKey(userProfile, setError)}
             onDownloadDecryptedKey={() => handleDownloadDecryptedKey(userProfile, privateKey, setError)}
           />
-        )}
-
-        {/* DEBUG: Temporary debugging section */}
-        {process.env.NODE_ENV === 'development' && (
-          <Paper elevation={2} sx={{ p: 3, mb: 3, bgcolor: 'warning.light', border: '2px dashed orange' }}>
-            <Typography variant="h6" gutterBottom>🔧 Debug Migration (Dev Only)</Typography>
-            <Typography variant="body2" sx={{ mb: 2 }}>
-              These buttons help debug the migration counting issue. Check browser console for output.
-            </Typography>
-            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-              <Button
-                variant="outlined"
-                onClick={handleDebugUserData}
-                color="warning"
-              >
-                Analyze All User Data
-              </Button>
-              <Button
-                variant="outlined"
-                onClick={handleTestCount}
-                color="warning"
-              >
-                Test Count Function
-              </Button>
-              <Button
-                variant="outlined"
-                onClick={handleDebugSharedFiles}
-                color="info"
-              >
-                Debug Shared Files
-              </Button>
-            </Box>
-          </Paper>
         )}
 
         {/* Device Capability Information */}

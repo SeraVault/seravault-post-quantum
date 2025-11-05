@@ -81,12 +81,13 @@ export async function getHardwareKeyCapabilities(): Promise<{
 }
 
 /**
- * Register a new hardware security key
+ * Register a new hardware security key or passkey
  */
 export async function registerHardwareKey(
   userId: string,
   userEmail: string,
-  nickname?: string
+  nickname?: string,
+  authenticatorType: 'cross-platform' | 'platform' = 'cross-platform'
 ): Promise<HardwareKeyCredential> {
   if (!await isHardwareKeySupported()) {
     throw new Error('Hardware security keys are not supported on this browser');
@@ -116,8 +117,8 @@ export async function registerHardwareKey(
           { alg: -8, type: 'public-key' },   // EdDSA
         ],
         authenticatorSelection: {
-          // Prefer external security keys (USB/NFC) over platform authenticators
-          authenticatorAttachment: 'cross-platform',
+          // Allow either cross-platform (USB keys) or platform (passkeys)
+          authenticatorAttachment: authenticatorType,
           userVerification: 'preferred',
           residentKey: 'preferred',
           requireResidentKey: false,
@@ -557,7 +558,7 @@ async function encryptWithHardwareKey(
     'raw',
     encryptionKey,
     { name: 'AES-GCM' },
-    false,
+    true, // Must be extractable for wrapKey to work
     ['encrypt']
   );
   
@@ -599,10 +600,25 @@ async function encryptWithHardwareKey(
   );
   
   // Combine everything and return as base64
-  const combined = new Uint8Array(iv.length + wrappedKey.byteLength + encryptedData.byteLength);
-  combined.set(iv, 0);
-  combined.set(new Uint8Array(wrappedKey), iv.length);
-  combined.set(new Uint8Array(encryptedData), iv.length + wrappedKey.byteLength);
+  // Format: [12-byte IV][4-byte wrapped key length][wrapped key][encrypted data]
+  const wrappedKeyArray = new Uint8Array(wrappedKey);
+  const wrappedKeyLength = new Uint8Array(4);
+  new DataView(wrappedKeyLength.buffer).setUint32(0, wrappedKeyArray.length, false);
+  
+  const combined = new Uint8Array(
+    iv.length + 
+    wrappedKeyLength.length + 
+    wrappedKeyArray.length + 
+    encryptedData.byteLength
+  );
+  let offset = 0;
+  combined.set(iv, offset);
+  offset += iv.length;
+  combined.set(wrappedKeyLength, offset);
+  offset += wrappedKeyLength.length;
+  combined.set(wrappedKeyArray, offset);
+  offset += wrappedKeyArray.length;
+  combined.set(new Uint8Array(encryptedData), offset);
   
   return arrayBufferToBase64(combined.buffer);
 }
@@ -617,9 +633,18 @@ async function decryptWithHardwareKey(
   const combined = new Uint8Array(base64ToArrayBuffer(encryptedData));
   
   // Extract components
-  const iv = combined.slice(0, 12);
-  const wrappedKey = combined.slice(12, 12 + 40); // Typical wrapped key size
-  const encrypted = combined.slice(12 + 40);
+  // Format: [12-byte IV][4-byte wrapped key length][wrapped key][encrypted data]
+  let offset = 0;
+  const iv = combined.slice(offset, offset + 12);
+  offset += 12;
+  
+  const wrappedKeyLength = new DataView(combined.buffer, offset, 4).getUint32(0, false);
+  offset += 4;
+  
+  const wrappedKey = combined.slice(offset, offset + wrappedKeyLength);
+  offset += wrappedKeyLength;
+  
+  const encrypted = combined.slice(offset);
   
   // Derive unwrap key from credential ID
   const credBytes = base64ToArrayBuffer(credentialId);

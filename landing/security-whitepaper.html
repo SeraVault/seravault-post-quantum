@@ -1,0 +1,1117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SeraVault Security Whitepaper - Technical Architecture & Cryptography</title>
+  <meta name="description" content="Technical documentation of SeraVault's post-quantum cryptographic architecture, security model, and implementation details.">
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .whitepaper {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: var(--spacing-3xl) var(--spacing-md);
+      color: var(--text-primary);
+    }
+    
+    .whitepaper-header {
+      text-align: center;
+      margin-bottom: var(--spacing-3xl);
+      padding-bottom: var(--spacing-xl);
+      border-bottom: 2px solid var(--border);
+    }
+    
+    .whitepaper-title {
+      font-size: 2.5rem;
+      font-weight: 800;
+      margin-bottom: var(--spacing-md);
+      letter-spacing: -0.02em;
+    }
+    
+    .whitepaper-subtitle {
+      font-size: 1.25rem;
+      color: var(--text-secondary);
+      margin-bottom: var(--spacing-lg);
+    }
+    
+    .whitepaper-meta {
+      display: flex;
+      justify-content: center;
+      gap: var(--spacing-xl);
+      flex-wrap: wrap;
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+    }
+    
+    .toc {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: var(--spacing-xl);
+      margin-bottom: var(--spacing-3xl);
+    }
+    
+    .toc h2 {
+      font-size: 1.25rem;
+      margin-bottom: var(--spacing-md);
+    }
+    
+    .toc ol {
+      margin-left: var(--spacing-lg);
+    }
+    
+    .toc li {
+      margin-bottom: var(--spacing-sm);
+    }
+    
+    .toc a {
+      color: var(--primary);
+      text-decoration: none;
+    }
+    
+    .toc a:hover {
+      text-decoration: underline;
+    }
+    
+    .section {
+      margin-bottom: var(--spacing-3xl);
+    }
+    
+    .section h2 {
+      font-size: 2rem;
+      font-weight: 800;
+      margin-bottom: var(--spacing-lg);
+      padding-top: var(--spacing-xl);
+      border-top: 1px solid var(--border);
+    }
+    
+    .section h3 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-top: var(--spacing-xl);
+      margin-bottom: var(--spacing-md);
+      color: var(--primary);
+    }
+    
+    .section h4 {
+      font-size: 1.125rem;
+      font-weight: 600;
+      margin-top: var(--spacing-lg);
+      margin-bottom: var(--spacing-sm);
+    }
+    
+    .section p {
+      line-height: 1.8;
+      margin-bottom: var(--spacing-md);
+      color: var(--text-primary);
+    }
+    
+    .code-block {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: var(--spacing-md);
+      margin: var(--spacing-lg) 0;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.875rem;
+      overflow-x: auto;
+    }
+    
+    .algorithm-box {
+      background: var(--bg-elevated);
+      border-left: 4px solid var(--primary);
+      padding: var(--spacing-lg);
+      margin: var(--spacing-lg) 0;
+      border-radius: var(--radius-md);
+    }
+    
+    .algorithm-box h4 {
+      margin-top: 0;
+      color: var(--primary);
+    }
+    
+    .warning-box {
+      background: rgba(255, 167, 38, 0.1);
+      border-left: 4px solid var(--warning);
+      padding: var(--spacing-lg);
+      margin: var(--spacing-lg) 0;
+      border-radius: var(--radius-md);
+    }
+    
+    .info-box {
+      background: rgba(2, 136, 209, 0.1);
+      border-left: 4px solid var(--info);
+      padding: var(--spacing-lg);
+      margin: var(--spacing-lg) 0;
+      border-radius: var(--radius-md);
+    }
+    
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: var(--spacing-lg) 0;
+      background: var(--bg-secondary);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+    
+    th, td {
+      padding: var(--spacing-md);
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    
+    th {
+      background: var(--bg-tertiary);
+      font-weight: 600;
+    }
+    
+    ul, ol {
+      margin-bottom: var(--spacing-md);
+      line-height: 1.8;
+    }
+    
+    li {
+      margin-bottom: var(--spacing-xs);
+    }
+    
+    code {
+      background: var(--bg-tertiary);
+      padding: 0.2em 0.4em;
+      border-radius: var(--radius-sm);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.875em;
+      color: var(--primary);
+    }
+    
+    .footer-nav {
+      margin-top: var(--spacing-3xl);
+      padding-top: var(--spacing-xl);
+      border-top: 2px solid var(--border);
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <nav class="navbar">
+    <div class="container">
+      <div class="nav-content">
+        <div class="logo">
+          <img src="seravault_logo.svg" alt="SeraVault" class="logo-image" height="32">
+        </div>
+        <div class="nav-links">
+          <a href="index.html">Home</a>
+          <a href="index.html#features">Features</a>
+          <a href="index.html#pricing">Pricing</a>
+          <a href="/app" class="btn btn-primary">Launch App</a>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <div class="whitepaper">
+    <header class="whitepaper-header">
+      <h1 class="whitepaper-title">SeraVault Security Whitepaper</h1>
+      <p class="whitepaper-subtitle">Technical Architecture & Post-Quantum Cryptographic Implementation</p>
+      <div class="whitepaper-meta">
+        <span><strong>Version:</strong> 1.0</span>
+        <span><strong>Date:</strong> November 2025</span>
+        <span><strong>Status:</strong> Production</span>
+      </div>
+    </header>
+
+    <nav class="toc">
+      <h2>Table of Contents</h2>
+      <ol>
+        <li><a href="#abstract">Abstract</a></li>
+        <li><a href="#threat-model">Threat Model</a></li>
+        <li><a href="#architecture">System Architecture</a></li>
+        <li><a href="#cryptography">Cryptographic Primitives</a></li>
+        <li><a href="#file-encryption">File Encryption Protocol</a></li>
+        <li><a href="#key-management">Key Management</a></li>
+        <li><a href="#sharing">Secure File Sharing</a></li>
+        <li><a href="#authentication">Authentication Methods</a></li>
+        <li><a href="#chat">Encrypted Messaging</a></li>
+        <li><a href="#implementation">Implementation Details</a></li>
+        <li><a href="#security-analysis">Security Analysis</a></li>
+        <li><a href="#references">References</a></li>
+      </ol>
+    </nav>
+
+    <section id="abstract" class="section">
+      <h2>1. Abstract</h2>
+      <p>
+        SeraVault is a zero-knowledge, end-to-end encrypted file storage and messaging platform designed to resist 
+        attacks from both classical and quantum computers. The system employs ML-KEM-768 (NIST FIPS 203), a 
+        lattice-based key encapsulation mechanism standardized by NIST for post-quantum cryptography, combined with 
+        AES-256-GCM for symmetric encryption.
+      </p>
+      <p>
+        This whitepaper provides a comprehensive technical description of SeraVault's cryptographic architecture, 
+        security model, and implementation. We detail our zero-knowledge design, key management protocols, and 
+        post-quantum cryptographic primitives.
+      </p>
+      <div class="info-box">
+        <strong>Note:</strong> This is a living document. As cryptographic standards evolve and security research 
+        progresses, we will update our implementation and this documentation accordingly. The current version reflects 
+        the production system as of November 2025.
+      </div>
+    </section>
+
+    <section id="threat-model" class="section">
+      <h2>2. Threat Model</h2>
+      <h3>2.1 Adversary Capabilities</h3>
+      <p>SeraVault is designed to protect against the following adversaries:</p>
+      
+      <h4>2.1.1 Server Compromise</h4>
+      <p>
+        We assume the server infrastructure (Firebase) can be fully compromised. An attacker gaining complete access 
+        to our servers should not be able to decrypt user files or messages. This is achieved through client-side 
+        encryption where encryption keys never reach the server in plaintext form.
+      </p>
+
+      <h4>2.1.2 Network Adversary</h4>
+      <p>
+        We assume an adversary can intercept, modify, or inject network traffic between clients and servers. TLS 
+        provides transport-level security, but our application-layer encryption ensures that even TLS compromise 
+        does not expose plaintext data.
+      </p>
+
+      <h4>2.1.3 Quantum Adversary</h4>
+      <p>
+        We anticipate future adversaries with access to cryptographically-relevant quantum computers (CRQC). Traditional 
+        public-key cryptosystems like RSA and elliptic curve cryptography are vulnerable to Shor's algorithm. SeraVault 
+        uses ML-KEM-768, which is based on the hardness of lattice problems believed to be resistant to quantum attacks.
+      </p>
+
+      <h4>2.1.4 State-Level Adversary</h4>
+      <p>
+        We design against state-level actors with significant computational resources, the ability to compel service 
+        providers, and "Harvest Now, Decrypt Later" capabilities where encrypted data is stored for future decryption 
+        when quantum computers become available.
+      </p>
+
+      <h3>2.2 Trust Assumptions</h3>
+      <ul>
+        <li><strong>Client Device Security:</strong> We assume the user's device is not compromised. Client-side malware can always defeat encryption.</li>
+        <li><strong>Cryptographic Primitives:</strong> We trust NIST-standardized cryptographic algorithms (ML-KEM-768, AES-256-GCM).</li>
+        <li><strong>Random Number Generation:</strong> We rely on the browser's <code>crypto.getRandomValues()</code> for cryptographically secure random numbers.</li>
+        <li><strong>User Passphrase Strength:</strong> For passphrase-based authentication, we assume users choose sufficiently strong passphrases (minimum 12 characters).</li>
+      </ul>
+
+      <h3>2.3 Out of Scope</h3>
+      <p>The following threats are explicitly out of scope:</p>
+      <ul>
+        <li>Side-channel attacks on client hardware</li>
+        <li>Physical access to unlocked client devices</li>
+        <li>Coercion or social engineering of users</li>
+        <li>Malicious browser extensions or compromised browsers</li>
+        <li>Metadata analysis (file access patterns, upload times, file sizes are visible to servers)</li>
+      </ul>
+    </section>
+
+    <section id="architecture" class="section">
+      <h2>3. System Architecture</h2>
+      <h3>3.1 Zero-Knowledge Design</h3>
+      <p>
+        SeraVault implements a true zero-knowledge architecture where the server has no access to:
+      </p>
+      <ul>
+        <li>Plaintext file contents</li>
+        <li>Encryption keys (except in encrypted form)</li>
+        <li>File names, folder structures, or other metadata</li>
+        <li>Message contents in the encrypted chat system</li>
+      </ul>
+      
+      <p>
+        All encryption and decryption operations occur client-side in the user's browser or application. The server 
+        stores only encrypted data and acts as a dumb storage and synchronization layer.
+      </p>
+
+      <h3>3.2 Component Overview</h3>
+      
+      <h4>3.2.1 Client Application</h4>
+      <ul>
+        <li>React-based web application running entirely in the browser</li>
+        <li>Implements all cryptographic operations using Web Crypto API and WebAssembly</li>
+        <li>Manages user keys and authentication</li>
+        <li>Handles file encryption/decryption, metadata encryption, and secure sharing</li>
+      </ul>
+
+      <h4>3.2.2 Firebase Backend</h4>
+      <ul>
+        <li><strong>Firestore:</strong> Stores encrypted file metadata, user profiles, sharing permissions</li>
+        <li><strong>Firebase Storage:</strong> Stores encrypted file blobs</li>
+        <li><strong>Firebase Authentication:</strong> Handles user authentication (email/password, not used for encryption keys)</li>
+        <li><strong>Cloud Functions:</strong> Minimal server-side logic for notifications and cleanup (no access to plaintext data)</li>
+      </ul>
+
+      <h3>3.3 Data Flow</h3>
+      
+      <div class="algorithm-box">
+        <h4>File Upload Flow</h4>
+        <ol>
+          <li>User selects file in browser</li>
+          <li>Client generates random 256-bit symmetric key (File Key)</li>
+          <li>Client encrypts file content with AES-256-GCM using File Key</li>
+          <li>Client encrypts file metadata (name, size, type) with user's Shared Secret</li>
+          <li>Client encapsulates File Key for user's public key using ML-KEM-768</li>
+          <li>Client uploads encrypted blob to Firebase Storage</li>
+          <li>Client writes encrypted metadata and encapsulated key to Firestore</li>
+        </ol>
+      </div>
+
+      <div class="algorithm-box">
+        <h4>File Download Flow</h4>
+        <ol>
+          <li>Client retrieves encrypted metadata from Firestore</li>
+          <li>Client decrypts metadata using user's Shared Secret</li>
+          <li>Client decapsulates File Key using ML-KEM-768 with user's private key</li>
+          <li>Client downloads encrypted blob from Firebase Storage</li>
+          <li>Client decrypts file content with AES-256-GCM using File Key</li>
+          <li>Client presents plaintext file to user</li>
+        </ol>
+      </div>
+    </section>
+
+    <section id="cryptography" class="section">
+      <h2>4. Cryptographic Primitives</h2>
+      
+      <h3>4.1 ML-KEM-768 (NIST FIPS 203)</h3>
+      <p>
+        <strong>Module-Lattice-Based Key-Encapsulation Mechanism</strong> is our primary post-quantum cryptographic 
+        primitive, standardized by NIST in August 2024 as FIPS 203.
+      </p>
+
+      <h4>Parameters</h4>
+      <table>
+        <tr>
+          <th>Parameter</th>
+          <th>Value</th>
+        </tr>
+        <tr>
+          <td>Security Level</td>
+          <td>NIST Level 3 (equivalent to AES-192)</td>
+        </tr>
+        <tr>
+          <td>Public Key Size</td>
+          <td>1,184 bytes</td>
+        </tr>
+        <tr>
+          <td>Private Key Size</td>
+          <td>2,400 bytes</td>
+        </tr>
+        <tr>
+          <td>Ciphertext Size</td>
+          <td>1,088 bytes</td>
+        </tr>
+        <tr>
+          <td>Shared Secret Size</td>
+          <td>32 bytes</td>
+        </tr>
+      </table>
+
+      <h4>Why ML-KEM-768?</h4>
+      <ul>
+        <li><strong>NIST Standardized:</strong> First post-quantum algorithm finalized by NIST</li>
+        <li><strong>Conservative Security:</strong> Level 3 provides strong security margin</li>
+        <li><strong>Performance:</strong> Fast key generation and encapsulation/decapsulation</li>
+        <li><strong>Quantum Resistance:</strong> Based on Learning With Errors (LWE) over module lattices, believed secure against quantum attacks</li>
+      </ul>
+
+      <h3>4.2 AES-256-GCM</h3>
+      <p>
+        <strong>Advanced Encryption Standard with 256-bit keys in Galois/Counter Mode</strong> provides authenticated 
+        encryption for file contents.
+      </p>
+
+      <h4>Properties</h4>
+      <ul>
+        <li><strong>Key Size:</strong> 256 bits</li>
+        <li><strong>Nonce Size:</strong> 96 bits (12 bytes), randomly generated per encryption</li>
+        <li><strong>Authentication Tag:</strong> 128 bits (16 bytes)</li>
+        <li><strong>Security:</strong> Provides both confidentiality and authenticity</li>
+        <li><strong>Quantum Resistance:</strong> Grover's algorithm reduces effective key size to 128 bits, still secure</li>
+      </ul>
+
+      <h3>4.3 BLAKE3</h3>
+      <p>
+        <strong>Cryptographic hash function</strong> used for key derivation and integrity verification.
+      </p>
+      <ul>
+        <li>Output: 256-bit hash</li>
+        <li>Usage: File integrity verification, key derivation in some contexts</li>
+        <li>Properties: Faster than SHA-256, parallelizable</li>
+      </ul>
+
+      <h3>4.4 PBKDF2</h3>
+      <p>
+        <strong>Password-Based Key Derivation Function 2</strong> for deriving encryption keys from user passphrases.
+      </p>
+      <ul>
+        <li><strong>Hash:</strong> SHA-256</li>
+        <li><strong>Iterations:</strong> 100,000</li>
+        <li><strong>Salt:</strong> 256-bit random value, unique per user</li>
+        <li><strong>Output:</strong> 256-bit key</li>
+      </ul>
+
+      <div class="warning-box">
+        <strong>Note on PBKDF2:</strong> While PBKDF2 is acceptable, modern alternatives like Argon2id provide better 
+        resistance to GPU/ASIC attacks. Future versions of SeraVault may migrate to Argon2id for passphrase-based 
+        key derivation.
+      </div>
+    </section>
+
+    <section id="file-encryption" class="section">
+      <h2>5. File Encryption Protocol</h2>
+      
+      <h3>5.1 Key Generation</h3>
+      <p>
+        When a user first creates their account and generates their encryption keys:
+      </p>
+
+      <div class="code-block">
+// Generate ML-KEM-768 keypair
+(publicKey, privateKey) = ML-KEM-768.KeyGen()
+
+// Derive encryption key from passphrase
+salt = CSPRNG(32 bytes)
+encryptionKey = PBKDF2-SHA256(passphrase, salt, 100000, 32 bytes)
+
+// Encrypt private key with passphrase-derived key
+iv = CSPRNG(12 bytes)
+encryptedPrivateKey = AES-256-GCM.Encrypt(encryptionKey, iv, privateKey)
+
+// Store encrypted private key in Firestore
+// Public key stored in Firestore (plaintext, it's public)
+      </div>
+
+      <h3>5.2 File Encryption</h3>
+      <p>
+        For each file uploaded:
+      </p>
+
+      <div class="code-block">
+// 1. Generate random file encryption key
+fileKey = CSPRNG(32 bytes)
+
+// 2. Encrypt file content
+nonce = CSPRNG(12 bytes)
+encryptedContent = AES-256-GCM.Encrypt(fileKey, nonce, fileContent)
+// Result includes 16-byte authentication tag
+
+// 3. Encapsulate file key for owner
+(ciphertext, sharedSecret) = ML-KEM-768.Encapsulate(ownerPublicKey)
+// Shared secret is used to encrypt the file key
+keyNonce = CSPRNG(12 bytes)
+encryptedFileKey = AES-256-GCM.Encrypt(sharedSecret, keyNonce, fileKey)
+
+// 4. Encrypt metadata
+metadata = {name, size, type, uploadDate}
+metadataNonce = CSPRNG(12 bytes)
+encryptedMetadata = AES-256-GCM.Encrypt(userSharedSecret, metadataNonce, metadata)
+      </div>
+
+      <h3>5.3 File Decryption</h3>
+
+      <div class="code-block">
+// 1. Decrypt private key using passphrase
+encryptionKey = PBKDF2-SHA256(passphrase, salt, 100000, 32 bytes)
+privateKey = AES-256-GCM.Decrypt(encryptionKey, iv, encryptedPrivateKey)
+
+// 2. Decapsulate to recover shared secret
+sharedSecret = ML-KEM-768.Decapsulate(privateKey, ciphertext)
+
+// 3. Decrypt file key
+fileKey = AES-256-GCM.Decrypt(sharedSecret, keyNonce, encryptedFileKey)
+
+// 4. Decrypt file content
+fileContent = AES-256-GCM.Decrypt(fileKey, nonce, encryptedContent)
+
+// 5. Decrypt metadata
+metadata = AES-256-GCM.Decrypt(userSharedSecret, metadataNonce, encryptedMetadata)
+      </div>
+
+      <h3>5.4 Metadata Encryption</h3>
+      <p>
+        Unlike many encrypted storage systems, SeraVault encrypts file metadata including:
+      </p>
+      <ul>
+        <li>File names</li>
+        <li>File sizes</li>
+        <li>MIME types</li>
+        <li>Folder paths</li>
+        <li>Upload timestamps</li>
+      </ul>
+
+      <p>
+        This prevents the server from building a profile of user activity patterns based on file names or types.
+      </p>
+
+      <div class="info-box">
+        <strong>Metadata Visibility:</strong> While content and names are encrypted, the server still knows:
+        <ul>
+          <li>Encrypted blob sizes (approximate file sizes)</li>
+          <li>Upload/modification timestamps</li>
+          <li>Number of files per user</li>
+          <li>Sharing relationships (user A shared something with user B)</li>
+        </ul>
+        This is inherent to any cloud storage system and cannot be fully eliminated without using techniques like 
+        ORAM (Oblivious RAM), which would severely impact performance.
+      </div>
+    </section>
+
+    <section id="key-management" class="section">
+      <h2>6. Key Management</h2>
+      
+      <h3>6.1 User Key Hierarchy</h3>
+      <p>
+        Each user has multiple keys serving different purposes:
+      </p>
+
+      <table>
+        <tr>
+          <th>Key Type</th>
+          <th>Purpose</th>
+          <th>Storage</th>
+        </tr>
+        <tr>
+          <td>ML-KEM-768 Public Key</td>
+          <td>File key encapsulation (others encrypt for you)</td>
+          <td>Firestore (plaintext)</td>
+        </tr>
+        <tr>
+          <td>ML-KEM-768 Private Key</td>
+          <td>File key decapsulation</td>
+          <td>Firestore (encrypted with passphrase-derived key)</td>
+        </tr>
+        <tr>
+          <td>Shared Secret</td>
+          <td>Metadata encryption</td>
+          <td>Derived from ML-KEM-768 key pair</td>
+        </tr>
+        <tr>
+          <td>Passphrase-Derived Key</td>
+          <td>Encrypts private key</td>
+          <td>Derived on-demand, never stored</td>
+        </tr>
+      </table>
+
+      <h3>6.2 Key Storage Locations</h3>
+
+      <h4>6.2.1 Standard Mode</h4>
+      <p>
+        In standard mode, the encrypted private key is stored in Firestore and loaded when the user logs in:
+      </p>
+      <ul>
+        <li>User enters passphrase</li>
+        <li>Passphrase derives encryption key via PBKDF2</li>
+        <li>Encrypted private key downloaded from Firestore</li>
+        <li>Private key decrypted and held in browser memory</li>
+        <li>Private key discarded on logout</li>
+      </ul>
+
+      <h4>6.2.2 Paranoid Mode (Hardware Key Storage)</h4>
+      <p>
+        For users requiring maximum security, private keys can be stored exclusively on a hardware security key 
+        (YubiKey) using FIDO2/CTAP2:
+      </p>
+      <ul>
+        <li>Private key never touches any server</li>
+        <li>Private key never exists in browser memory (except transiently during operations)</li>
+        <li>YubiKey must be physically present for all decryption operations</li>
+        <li>Requires YubiKey 5 series with HMAC-secret extension</li>
+      </ul>
+
+      <div class="warning-box">
+        <strong>Paranoid Mode Trade-off:</strong> This provides maximum security but means losing the hardware key 
+        results in permanent data loss. Users should maintain multiple YubiKeys with duplicated keys or use key file 
+        backups.
+      </div>
+
+      <h4>6.2.3 Key File Backup</h4>
+      <p>
+        Users can export their private key encrypted with a separate passphrase:
+      </p>
+      <ul>
+        <li>User generates strong backup passphrase</li>
+        <li>Private key re-encrypted with backup passphrase-derived key</li>
+        <li>Encrypted key file downloaded by user</li>
+        <li>User stores key file securely offline</li>
+        <li>Can be used to recover access if primary authentication method is lost</li>
+      </ul>
+
+      <h3>6.3 Key Rotation</h3>
+      <p>
+        SeraVault supports key rotation to maintain forward secrecy:
+      </p>
+
+      <div class="algorithm-box">
+        <h4>Key Rotation Process</h4>
+        <ol>
+          <li>User generates new ML-KEM-768 keypair</li>
+          <li>For each file owned by user:
+            <ul>
+              <li>Decrypt file key using old private key</li>
+              <li>Re-encapsulate file key using new public key</li>
+              <li>Update Firestore with new encapsulated key</li>
+            </ul>
+          </li>
+          <li>For each shared file:
+            <ul>
+              <li>Notify sharing partners of key change</li>
+              <li>Re-encapsulate shared keys with new public key</li>
+            </ul>
+          </li>
+          <li>Old private key securely erased</li>
+          <li>New public key published</li>
+        </ol>
+      </div>
+
+      <div class="info-box">
+        <strong>Performance Consideration:</strong> Key rotation for users with thousands of files can be time-consuming. 
+        The operation is performed incrementally in the background.
+      </div>
+    </section>
+
+    <section id="sharing" class="section">
+      <h2>7. Secure File Sharing</h2>
+      
+      <h3>7.1 Sharing Model</h3>
+      <p>
+        SeraVault implements per-recipient key encapsulation for file sharing:
+      </p>
+
+      <div class="code-block">
+// File owner shares file with recipient
+// 1. Owner retrieves recipient's public key from Firestore
+recipientPublicKey = Firestore.getPublicKey(recipientUserId)
+
+// 2. Owner decrypts file key for themselves
+ownerSharedSecret = ML-KEM-768.Decapsulate(ownerPrivateKey, ownerCiphertext)
+fileKey = AES-256-GCM.Decrypt(ownerSharedSecret, keyNonce, encryptedFileKey)
+
+// 3. Owner encapsulates file key for recipient
+(recipientCiphertext, recipientSharedSecret) = ML-KEM-768.Encapsulate(recipientPublicKey)
+recipientKeyNonce = CSPRNG(12 bytes)
+recipientEncryptedFileKey = AES-256-GCM.Encrypt(recipientSharedSecret, recipientKeyNonce, fileKey)
+
+// 4. Store recipient's encapsulated key in Firestore
+Firestore.grantAccess(fileId, recipientUserId, recipientCiphertext, recipientEncryptedFileKey)
+      </div>
+
+      <h3>7.2 Sharing Properties</h3>
+      <ul>
+        <li><strong>Per-Recipient Keys:</strong> Each recipient gets their own encapsulated copy of the file key</li>
+        <li><strong>No Re-encryption:</strong> File content is not re-encrypted, only the file key is re-encapsulated</li>
+        <li><strong>Instant Revocation:</strong> Owner can revoke access by deleting recipient's encapsulated key</li>
+        <li><strong>Forward Secrecy:</strong> Revoking access prevents future access, but recipient may have cached plaintext</li>
+        <li><strong>Post-Quantum:</strong> Sharing uses ML-KEM-768, resistant to quantum attacks</li>
+      </ul>
+
+      <h3>7.3 Permission Model</h3>
+      <table>
+        <tr>
+          <th>Permission</th>
+          <th>Description</th>
+        </tr>
+        <tr>
+          <td>Owner</td>
+          <td>Full control: read, modify, delete, share, revoke</td>
+        </tr>
+        <tr>
+          <td>View</td>
+          <td>Can decrypt and view file, cannot modify or share</td>
+        </tr>
+      </table>
+
+      <p>
+        Currently, SeraVault implements a simple owner/view permission model. Shared users can view files but cannot 
+        modify them or share with others.
+      </p>
+
+      <h3>7.4 Group Sharing</h3>
+      <p>
+        For sharing with multiple users, the owner can create a "group share":
+      </p>
+      <ul>
+        <li>Owner selects multiple recipients</li>
+        <li>System encapsulates file key for each recipient individually</li>
+        <li>All recipients get simultaneous access</li>
+        <li>Owner can revoke individual users without affecting others</li>
+      </ul>
+
+      <div class="info-box">
+        <strong>Storage Cost:</strong> Each shared file requires storing one encapsulated key per recipient (~1 KB). 
+        For large-scale sharing, this is negligible compared to the file content itself. Only the file owner's storage 
+        quota is consumed, regardless of how many people it's shared with.
+      </div>
+    </section>
+
+    <section id="authentication" class="section">
+      <h2>8. Authentication Methods</h2>
+      
+      <h3>8.1 Multi-Factor Authentication</h3>
+      <p>
+        SeraVault separates account authentication from encryption key access:
+      </p>
+      <ul>
+        <li><strong>Account Authentication:</strong> Proves you are the account owner (Firebase Auth)</li>
+        <li><strong>Key Access:</strong> Proves you can access the encryption keys (passphrase, biometric, hardware key)</li>
+      </ul>
+
+      <h3>8.2 Passphrase-Based Authentication</h3>
+      <p>
+        The default authentication method:
+      </p>
+      <ul>
+        <li>User creates strong passphrase (minimum 12 characters enforced)</li>
+        <li>Passphrase used to derive key via PBKDF2 (100,000 iterations)</li>
+        <li>Derived key encrypts the user's ML-KEM-768 private key</li>
+        <li>Passphrase never sent to server</li>
+        <li>Encrypted private key stored in Firestore</li>
+      </ul>
+
+      <h3>8.3 Biometric Authentication</h3>
+      <p>
+        Uses WebAuthn with platform authenticators:
+      </p>
+      <ul>
+        <li>Leverages device biometric sensors (fingerprint, Face ID)</li>
+        <li>Private key encrypted with credential derived from WebAuthn</li>
+        <li>Private key stored in browser's IndexedDB, encrypted</li>
+        <li>Biometric data never leaves device</li>
+        <li>Requires WebAuthn support in browser</li>
+      </ul>
+
+      <h3>8.4 Hardware Key Authentication (YubiKey)</h3>
+      <p>
+        Uses FIDO2/CTAP2 for hardware-backed authentication:
+      </p>
+      <ul>
+        <li>Standard Mode: YubiKey used for WebAuthn authentication, keys encrypted and stored as usual</li>
+        <li>Paranoid Mode: Private keys stored exclusively on YubiKey, never on servers</li>
+        <li>Supports YubiKey 5 series with HMAC-secret extension</li>
+        <li>Requires physical key presence for all operations in Paranoid Mode</li>
+      </ul>
+
+      <h3>8.5 Passkey (Platform Authenticator)</h3>
+      <p>
+        Modern passwordless authentication using WebAuthn:
+      </p>
+      <ul>
+        <li>Stored in device's secure enclave (TPM, Secure Enclave)</li>
+        <li>Synced across user's devices via platform (iCloud Keychain, Google Password Manager)</li>
+        <li>Combines security and convenience</li>
+        <li>Phishing-resistant authentication</li>
+      </ul>
+    </section>
+
+    <section id="chat" class="section">
+      <h2>9. Encrypted Messaging</h2>
+      
+      <h3>9.1 Chat Architecture</h3>
+      <p>
+        SeraVault includes end-to-end encrypted messaging using the same cryptographic primitives as file encryption:
+      </p>
+
+      <h3>9.2 Conversation Key Exchange</h3>
+
+      <div class="code-block">
+// Creating a conversation
+// 1. Initiator generates random conversation key
+conversationKey = CSPRNG(32 bytes)
+
+// 2. For each participant (including initiator):
+(ciphertext_i, sharedSecret_i) = ML-KEM-768.Encapsulate(participant_i_PublicKey)
+nonce_i = CSPRNG(12 bytes)
+encryptedConversationKey_i = AES-256-GCM.Encrypt(sharedSecret_i, nonce_i, conversationKey)
+
+// 3. Store encrypted conversation keys in Firestore
+// Each participant can decrypt using their private key
+      </div>
+
+      <h3>9.3 Message Encryption</h3>
+
+      <div class="code-block">
+// Sending a message
+// 1. Sender decrypts conversation key
+sharedSecret = ML-KEM-768.Decapsulate(senderPrivateKey, senderCiphertext)
+conversationKey = AES-256-GCM.Decrypt(sharedSecret, nonce, encryptedConversationKey)
+
+// 2. Encrypt message
+messageNonce = CSPRNG(12 bytes)
+encryptedMessage = AES-256-GCM.Encrypt(conversationKey, messageNonce, messageContent)
+
+// 3. Upload to Firestore
+Firestore.addMessage(conversationId, encryptedMessage, messageNonce, timestamp)
+      </div>
+
+      <h3>9.4 Chat Properties</h3>
+      <ul>
+        <li><strong>End-to-End Encrypted:</strong> Server cannot read message contents</li>
+        <li><strong>Post-Quantum Secure:</strong> Uses ML-KEM-768 for key exchange</li>
+        <li><strong>Group Chat:</strong> Supports multi-participant conversations</li>
+        <li><strong>Persistent:</strong> Messages stored encrypted in Firestore</li>
+        <li><strong>Invite-Only:</strong> Must be contacts to initiate conversations (prevents spam)</li>
+      </ul>
+
+      <div class="info-box">
+        <strong>Metadata Visibility:</strong> The server knows:
+        <ul>
+          <li>Who is in which conversations</li>
+          <li>Message timestamps</li>
+          <li>Approximate message lengths</li>
+        </ul>
+        This is similar to Signal's server-side metadata visibility.
+      </div>
+
+      <h3>9.5 Future Improvements</h3>
+      <p>
+        Potential enhancements for future versions:
+      </p>
+      <ul>
+        <li><strong>Perfect Forward Secrecy:</strong> Implement Double Ratchet algorithm</li>
+        <li><strong>Deniability:</strong> Cryptographic deniability for messages</li>
+        <li><strong>Disappearing Messages:</strong> Automatic message deletion</li>
+        <li><strong>Sealed Sender:</strong> Hide sender identity from server</li>
+      </ul>
+    </section>
+
+    <section id="implementation" class="section">
+      <h2>10. Implementation Details</h2>
+      
+      <h3>10.1 Technology Stack</h3>
+      <table>
+        <tr>
+          <th>Component</th>
+          <th>Technology</th>
+        </tr>
+        <tr>
+          <td>Frontend</td>
+          <td>React + TypeScript</td>
+        </tr>
+        <tr>
+          <td>Crypto Library</td>
+          <td>Web Crypto API + ml-kem (WebAssembly)</td>
+        </tr>
+        <tr>
+          <td>Backend</td>
+          <td>Firebase (Firestore, Storage, Auth, Functions)</td>
+        </tr>
+        <tr>
+          <td>Authentication</td>
+          <td>WebAuthn, FIDO2, Firebase Auth</td>
+        </tr>
+      </table>
+
+      <h3>10.2 ML-KEM-768 Implementation</h3>
+      <p>
+        We use the <code>ml-kem</code> JavaScript library, which provides:
+      </p>
+      <ul>
+        <li>Pure JavaScript implementation for compatibility</li>
+        <li>WebAssembly version for performance</li>
+        <li>Compliance with NIST FIPS 203</li>
+        <li>Constant-time operations to prevent timing attacks</li>
+      </ul>
+
+      <h3>10.3 Random Number Generation</h3>
+      <p>
+        All cryptographic randomness uses <code>crypto.getRandomValues()</code>:
+      </p>
+      <div class="code-block">
+function generateRandomBytes(length: number): Uint8Array {
+  const array = new Uint8Array(length);
+  crypto.getRandomValues(array);
+  return array;
+}
+      </div>
+
+      <h3>10.4 Secure Memory Handling</h3>
+      <p>
+        JavaScript does not provide explicit memory control, but we follow best practices:
+      </p>
+      <ul>
+        <li>Sensitive data stored in <code>Uint8Array</code> (not strings)</li>
+        <li>Explicit zeroing of arrays when no longer needed</li>
+        <li>Private keys held in memory only during active sessions</li>
+        <li>No sensitive data in localStorage (only encrypted data in IndexedDB)</li>
+      </ul>
+
+      <div class="code-block">
+function secureWipe(array: Uint8Array): void {
+  array.fill(0);
+}
+      </div>
+
+      <h3>10.5 Error Handling</h3>
+      <p>
+        Cryptographic errors are handled carefully to prevent information leakage:
+      </p>
+      <ul>
+        <li>Authentication tag verification failures treated identically</li>
+        <li>Generic error messages to users (no details about which step failed)</li>
+        <li>Detailed errors logged only client-side for debugging</li>
+      </ul>
+    </section>
+
+    <section id="security-analysis" class="section">
+      <h2>11. Security Analysis</h2>
+      
+      <h3>11.1 Threat Analysis</h3>
+
+      <h4>11.1.1 Server Compromise</h4>
+      <p><strong>Threat:</strong> Attacker gains full access to Firebase infrastructure.</p>
+      <p><strong>Impact:</strong> Low. Attacker obtains encrypted files, encrypted private keys, public keys, encrypted metadata.</p>
+      <p><strong>Mitigation:</strong> Without user passphrases or hardware keys, attacker cannot decrypt. Zero-knowledge architecture limits damage to encrypted data collection.</p>
+
+      <h4>11.1.2 Passive Network Eavesdropping</h4>
+      <p><strong>Threat:</strong> Attacker intercepts network traffic.</p>
+      <p><strong>Impact:</strong> Low. TLS protects transport, but even TLS compromise exposes only encrypted data.</p>
+      <p><strong>Mitigation:</strong> Application-layer encryption ensures plaintext never transmitted. Metadata encrypted.</p>
+
+      <h4>11.1.3 Quantum Computer Attack</h4>
+      <p><strong>Threat:</strong> Future quantum computer attempts to break encryption.</p>
+      <p><strong>Impact:</strong> Low for ML-KEM-768 protected data. Symmetric encryption (AES-256) security reduced but still strong.</p>
+      <p><strong>Mitigation:</strong> ML-KEM-768 based on lattice problems resistant to known quantum algorithms. AES-256 provides 128-bit security against quantum attacks (Grover's algorithm), sufficient for most use cases.</p>
+
+      <h4>11.1.4 Weak Passphrase</h4>
+      <p><strong>Threat:</strong> User chooses weak passphrase, attacker performs offline brute-force.</p>
+      <p><strong>Impact:</strong> High if successful. Attacker decrypts private key and gains access to all files.</p>
+      <p><strong>Mitigation:</strong> 
+        <ul>
+          <li>Minimum 12-character passphrase requirement</li>
+          <li>PBKDF2 with 100,000 iterations slows brute-force</li>
+          <li>Encourage hardware key usage for high-value accounts</li>
+          <li>User education on passphrase strength</li>
+        </ul>
+      </p>
+
+      <h4>11.1.5 Phishing</h4>
+      <p><strong>Threat:</strong> User tricked into entering passphrase on malicious site.</p>
+      <p><strong>Impact:</strong> High. Attacker obtains passphrase and can decrypt private key.</p>
+      <p><strong>Mitigation:</strong> 
+        <ul>
+          <li>WebAuthn provides phishing resistance (domain binding)</li>
+          <li>Encourage use of hardware keys or passkeys</li>
+          <li>User education</li>
+          <li>HTTPS with valid certificate required</li>
+        </ul>
+      </p>
+
+      <h3>11.2 Cryptographic Strength</h3>
+
+      <table>
+        <tr>
+          <th>Primitive</th>
+          <th>Classical Security</th>
+          <th>Quantum Security</th>
+        </tr>
+        <tr>
+          <td>ML-KEM-768</td>
+          <td>192 bits</td>
+          <td>192 bits (NIST Level 3)</td>
+        </tr>
+        <tr>
+          <td>AES-256-GCM</td>
+          <td>256 bits</td>
+          <td>128 bits (Grover)</td>
+        </tr>
+        <tr>
+          <td>BLAKE3</td>
+          <td>256 bits</td>
+          <td>128 bits (Grover)</td>
+        </tr>
+        <tr>
+          <td>PBKDF2 (100k iterations)</td>
+          <td>Depends on passphrase</td>
+          <td>Depends on passphrase</td>
+        </tr>
+      </table>
+
+      <h3>11.3 Known Limitations</h3>
+      <ol>
+        <li><strong>Metadata Leakage:</strong> File sizes, timestamps, sharing relationships visible to server</li>
+        <li><strong>Forward Secrecy:</strong> Chat does not implement perfect forward secrecy (no ratcheting)</li>
+        <li><strong>Passphrase Strength:</strong> System security limited by user-chosen passphrase strength</li>
+        <li><strong>Browser Security:</strong> Relies on browser sandboxing and Web Crypto API implementation</li>
+        <li><strong>No Deniability:</strong> Encrypted messages provide authentication but not deniability</li>
+        <li><strong>Traffic Analysis:</strong> Activity patterns (uploads, downloads, logins) observable by server</li>
+      </ol>
+
+      <h3>11.4 Audit and Verification</h3>
+      <p>
+        SeraVault is open source, allowing independent security audits:
+      </p>
+      <ul>
+        <li>Source code available on GitHub</li>
+        <li>Cryptographic implementation can be verified</li>
+        <li>Third-party security audits encouraged</li>
+        <li>Bug bounty program for responsible disclosure</li>
+      </ul>
+    </section>
+
+    <section id="references" class="section">
+      <h2>12. References</h2>
+      
+      <ol>
+        <li>
+          <strong>NIST FIPS 203:</strong> Module-Lattice-Based Key-Encapsulation Mechanism Standard.
+          <a href="https://csrc.nist.gov/pubs/fips/203/final" target="_blank">https://csrc.nist.gov/pubs/fips/203/final</a>
+        </li>
+        <li>
+          <strong>NIST Post-Quantum Cryptography:</strong> Selected Algorithms 2024.
+          <a href="https://csrc.nist.gov/projects/post-quantum-cryptography" target="_blank">https://csrc.nist.gov/projects/post-quantum-cryptography</a>
+        </li>
+        <li>
+          <strong>AES-GCM:</strong> Recommendation for Block Cipher Modes of Operation: Galois/Counter Mode (GCM) and GMAC.
+          NIST SP 800-38D.
+        </li>
+        <li>
+          <strong>BLAKE3:</strong> Official specification and implementation.
+          <a href="https://github.com/BLAKE3-team/BLAKE3-specs" target="_blank">https://github.com/BLAKE3-team/BLAKE3-specs</a>
+        </li>
+        <li>
+          <strong>WebAuthn:</strong> Web Authentication: An API for accessing Public Key Credentials Level 2.
+          W3C Recommendation.
+        </li>
+        <li>
+          <strong>PBKDF2:</strong> PKCS #5: Password-Based Cryptography Specification Version 2.0. RFC 2898.
+        </li>
+        <li>
+          <strong>Web Crypto API:</strong> W3C Recommendation.
+          <a href="https://www.w3.org/TR/WebCryptoAPI/" target="_blank">https://www.w3.org/TR/WebCryptoAPI/</a>
+        </li>
+        <li>
+          <strong>Grover's Algorithm:</strong> A fast quantum mechanical algorithm for database search. L.K. Grover, 1996.
+        </li>
+        <li>
+          <strong>Shor's Algorithm:</strong> Polynomial-Time Algorithms for Prime Factorization and Discrete Logarithms on a Quantum Computer. P.W. Shor, 1997.
+        </li>
+        <li>
+          <strong>Learning With Errors:</strong> On lattices, learning with errors, random linear codes, and cryptography. O. Regev, 2005.
+        </li>
+      </ol>
+    </section>
+
+    <div class="footer-nav">
+      <p><strong>Document Version 1.0</strong> | November 2025</p>
+      <p>For questions or security reports, contact: <a href="mailto:security@seravault.com">security@seravault.com</a></p>
+      <p><a href="index.html">← Back to SeraVault Home</a></p>
+    </div>
+  </div>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-bottom">
+        <p>&copy; 2025 SeraVault. Open source security for everyone.</p>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

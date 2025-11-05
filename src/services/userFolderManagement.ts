@@ -1,4 +1,5 @@
 import { updateFile, type FileData } from '../files';
+import { backendService } from '../backend/BackendService';
 
 /**
  * Get the folder ID for a specific user for a given file
@@ -21,20 +22,31 @@ export const getUserFolderForFile = (file: FileData, userId: string): string | n
 /**
  * Set the folder association for a specific user for a given file
  */
-export const setUserFolderForFile = async (fileId: string, userId: string, folderId: string | null): Promise<void> => {
-  const updatePath = `userFolders.${userId}`;
-  const updateData = {
-    [updatePath]: folderId
+export const setUserFolderForFile = async (fileId: string, userId: string, folderId: string | null, currentFile?: FileData): Promise<void> => {
+  // If currentFile is not provided, fetch it
+  let fileData = currentFile;
+  if (!fileData) {
+    const fetchedFile = await backendService.files.get(fileId);
+    if (!fetchedFile) {
+      throw new Error(`File ${fileId} not found`);
+    }
+    fileData = fetchedFile as FileData;
+  }
+  
+  // Build the complete userFolders object with the update
+  const userFolders = {
+    ...(fileData.userFolders || {}),
+    [userId]: folderId
   };
   
-  await updateFile(fileId, updateData);
+  await updateFile(fileId, { userFolders });
 };
 
 /**
  * Move a file to a different folder for a specific user
  */
-export const moveFileForUser = async (fileId: string, userId: string, targetFolderId: string | null): Promise<void> => {
-  await setUserFolderForFile(fileId, userId, targetFolderId);
+export const moveFileForUser = async (fileId: string, userId: string, targetFolderId: string | null, currentFile?: FileData): Promise<void> => {
+  await setUserFolderForFile(fileId, userId, targetFolderId, currentFile);
 };
 
 /**
@@ -64,22 +76,34 @@ export const initializeUserFoldersForFile = async (file: FileData): Promise<void
  * Add folder association for a newly shared user
  */
 export const addUserFolderAssociation = async (fileId: string, userId: string, defaultFolderId: string | null = null): Promise<void> => {
-  const updatePath = `userFolders.${userId}`;
-  const updateData = {
-    [updatePath]: defaultFolderId
+  // Fetch current file
+  const currentFile = await backendService.files.get(fileId);
+  if (!currentFile) {
+    throw new Error(`File ${fileId} not found`);
+  }
+  
+  // Build the complete userFolders object with the new user
+  const userFolders = {
+    ...(currentFile.userFolders || {}),
+    [userId]: defaultFolderId
   };
   
-  await updateFile(fileId, updateData);
+  await updateFile(fileId, { userFolders });
 };
 
 /**
  * Remove folder association when user access is revoked
  */
 export const removeUserFolderAssociation = async (fileId: string, userId: string): Promise<void> => {
-  const updatePath = `userFolders.${userId}`;
-  const updateData = {
-    [updatePath]: null // Set to null instead of deleting to maintain structure
-  };
+  // Fetch current file
+  const currentFile = await backendService.files.get(fileId);
+  if (!currentFile) {
+    throw new Error(`File ${fileId} not found`);
+  }
   
-  await updateFile(fileId, updateData);
+  // Build the complete userFolders object without the user
+  const userFolders = { ...(currentFile.userFolders || {}) };
+  delete userFolders[userId];
+  
+  await updateFile(fileId, { userFolders });
 };
