@@ -28,6 +28,7 @@ interface MobileActionMenuProps {
   onClose: () => void;
   itemName: string;
   itemType: 'file' | 'folder';
+  hideCopy?: boolean; // Hide copy option (e.g., for chat files)
   onOpen?: () => void;
   onDownload?: () => void;
   onRename: () => void;
@@ -43,6 +44,7 @@ const MobileActionMenu: React.FC<MobileActionMenuProps> = ({
   onClose,
   itemName,
   itemType,
+  hideCopy = false,
   onOpen,
   onDownload,
   onRename,
@@ -123,12 +125,14 @@ const MobileActionMenu: React.FC<MobileActionMenuProps> = ({
             <ListItemText primary={t('contextMenu.cut')} />
           </ListItemButton>
           
-          <ListItemButton onClick={onCopy} sx={{ borderRadius: 1, mb: 1 }}>
-            <ListItemIcon>
-              <ContentCopy />
-            </ListItemIcon>
-            <ListItemText primary={t('contextMenu.copy')} />
-          </ListItemButton>
+          {!hideCopy && (
+            <ListItemButton onClick={onCopy} sx={{ borderRadius: 1, mb: 1 }}>
+              <ListItemIcon>
+                <ContentCopy />
+              </ListItemIcon>
+              <ListItemText primary={t('contextMenu.copy')} />
+            </ListItemButton>
+          )}
           
           {onShare && itemType === 'file' && (
             <ListItemButton onClick={onShare} sx={{ borderRadius: 1, mb: 1 }}>

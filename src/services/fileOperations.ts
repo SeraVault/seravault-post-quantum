@@ -39,6 +39,28 @@ export class FileOperationsService {
       throw new Error('Cannot copy file: no access to file key');
     }
 
+    // Check if this is a chat file - they don't have storage content
+    const isChatFile = (originalFile as any).fileType === 'chat' || !originalFile.storagePath;
+    
+    if (isChatFile) {
+      // For chat files, we can't create a duplicate conversation
+      // Instead, we just update the user's folder association for this chat
+      // This moves the chat to a different folder in their view without duplicating it
+      
+      // Check if user is a participant in this chat
+      const participants = (originalFile as any).participants || [];
+      if (!participants.includes(currentUserId)) {
+        throw new Error('Cannot copy chat: you are not a participant in this conversation');
+      }
+      
+      // Use the user folder management to move the chat to the new folder for this user only
+      const { moveFileForUser } = await import('./userFolderManagement');
+      await moveFileForUser(originalFile.id!, currentUserId, newParentFolder, originalFile);
+      
+      // Return the same file ID since we didn't create a new file
+      return originalFile.id!;
+    }
+
     if (preserveSharing && originalFile.sharedWith.length > 1) {
       // PRESERVE ORIGINAL ENCRYPTION - don't generate new keys!
       // This maintains sharing without breaking encryption

@@ -14,6 +14,7 @@ export interface ContextMenuProps {
   onManageTags?: () => void;
   onDelete: () => void;
   itemType: 'file' | 'folder';
+  hideCopy?: boolean; // Hide copy option (e.g., for chat files)
 }
 
 const ContextMenu: React.FC<ContextMenuProps> = ({
@@ -28,6 +29,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
   onManageTags,
   onDelete,
   itemType,
+  hideCopy = false,
 }) => {
   return (
     <Menu
@@ -45,10 +47,12 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
         <ContentCut sx={{ mr: 1 }} />
         Cut
       </MenuItem>
-      <MenuItem onClick={onCopy}>
-        <ContentCopy sx={{ mr: 1 }} />
-        Copy
-      </MenuItem>
+      {!hideCopy && (
+        <MenuItem onClick={onCopy}>
+          <ContentCopy sx={{ mr: 1 }} />
+          Copy
+        </MenuItem>
+      )}
       
       {onShare && itemType === 'file' && <Divider />}
       {onShare && itemType === 'file' && (

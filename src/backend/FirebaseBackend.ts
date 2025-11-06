@@ -237,17 +237,22 @@ export class FirebaseBackend implements BackendInterface {
       // Debounce the callback to wait for both subscriptions to update
       // This prevents race conditions where owned and shared fire separately
       callbackTimeout = setTimeout(() => {
-        const mergedFiles = Array.from(allFiles.values());
+        // Filter files by user's folder association
+        // Files can be in a folder via either 'parent' (legacy/owned) or 'userFolders[userId]' (per-user)
+        const mergedFiles = Array.from(allFiles.values()).filter((file) => {
+          const userFolder = file.userFolders?.[userId];
+          const fileFolder = userFolder !== undefined ? userFolder : file.parent;
+          return fileFolder === folderId;
+        });
+        
         const chatCount = mergedFiles.filter((f: any) => f.fileType === 'chat').length;
         console.log(`📡 Real-time subscription (${source}): ${mergedFiles.length} total files in folder ${folderId || 'root'} (${chatCount} chats) | owned=${ownedReady}, shared=${sharedReady}`);
         callback(mergedFiles);
       }, 50); // 50ms debounce
     };
 
-    // Subscribe to owned files
-    const ownedQuery = folderId
-      ? query(collection(db, 'files'), where('owner', '==', userId), where('parent', '==', folderId))
-      : query(collection(db, 'files'), where('owner', '==', userId), where('parent', '==', null));
+    // Subscribe to ALL owned files (we'll filter by folder client-side)
+    const ownedQuery = query(collection(db, 'files'), where('owner', '==', userId));
 
     ownedUnsubscribe = onSnapshot(ownedQuery, (querySnapshot) => {
       console.log(`🔵 Owned files snapshot: ${querySnapshot.size} docs, ${querySnapshot.docChanges().length} changes`);
@@ -268,10 +273,8 @@ export class FirebaseBackend implements BackendInterface {
       console.warn('Error in owned files subscription:', error);
     });
 
-    // Subscribe to shared files (different from owned)
-    const sharedQuery = folderId
-      ? query(collection(db, 'files'), where('sharedWith', 'array-contains', userId), where('parent', '==', folderId))
-      : query(collection(db, 'files'), where('sharedWith', 'array-contains', userId), where('parent', '==', null));
+    // Subscribe to ALL shared files (we'll filter by folder client-side)
+    const sharedQuery = query(collection(db, 'files'), where('sharedWith', 'array-contains', userId));
 
     sharedUnsubscribe = onSnapshot(sharedQuery, (querySnapshot) => {
       console.log(`🟢 Shared files snapshot: ${querySnapshot.size} docs, ${querySnapshot.docChanges().length} changes`);

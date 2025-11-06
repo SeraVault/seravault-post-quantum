@@ -868,11 +868,18 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
 
     // Collect all selected items for bulk copy
     const itemsToCopy: Array<{ type: 'file' | 'folder', item: FileData | FolderData }> = [];
+    let skippedChatCount = 0;
     
-    // Add selected files
+    // Add selected files (excluding chat files)
     Array.from(selectedFiles).forEach(fileId => {
       const file = files.find(f => f.id === fileId);
       if (file) {
+        // Skip chat files - they can't be copied, only moved
+        const isChatFile = (file as any).fileType === 'chat';
+        if (isChatFile) {
+          skippedChatCount++;
+          return;
+        }
         itemsToCopy.push({ type: 'file', item: file });
       }
     });
@@ -888,6 +895,13 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
     if (itemsToCopy.length > 0) {
       copyItems(itemsToCopy);
       clearAllSelections();
+      
+      // Notify user if any chats were skipped
+      if (skippedChatCount > 0) {
+        console.warn(`Skipped ${skippedChatCount} chat conversation(s) - use cut/paste to move chats instead`);
+      }
+    } else if (skippedChatCount > 0) {
+      console.warn('Cannot copy chat conversations - use cut/paste to move them instead');
     }
   };
 
@@ -1595,6 +1609,16 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
             const { moveFileForUser } = await import('../services/userFolderManagement');
             await moveFileForUser(file.id!, user!.uid, currentFolder, file);
           } else if (item.operation === 'copy') {
+            // Check if this is a chat file
+            const isChatFile = (file as any).fileType === 'chat';
+            
+            if (isChatFile) {
+              // Chat files can't be copied, only moved
+              // Skip this item with a warning
+              console.warn('Cannot copy chat conversation - use cut/paste to move it instead');
+              continue;
+            }
+            
             // For single items, show dialog; for multiple items, copy without dialog
             if (clipboardItems.length === 1) {
               setItemToCopy({ item: file, type: 'file' });
@@ -2068,7 +2092,15 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
                 variant="contained"
                 size="small"
                 onClick={bulkCopy}
-                disabled={selectedFolders.size === 0 && selectedFiles.size === 0}
+                disabled={
+                  (selectedFolders.size === 0 && selectedFiles.size === 0) ||
+                  // Disable if all selected files are chats (can't be copied)
+                  (selectedFolders.size === 0 && 
+                   Array.from(selectedFiles).every(fileId => {
+                     const file = files.find(f => f.id === fileId);
+                     return file && (file as any).fileType === 'chat';
+                   }))
+                }
                 startIcon={<ContentCopy />}
                 sx={{
                   backgroundColor: 'secondary.main',
@@ -2188,6 +2220,7 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
           mouseX={contextMenu?.mouseX ?? 0}
           mouseY={contextMenu?.mouseY ?? 0}
           itemType={contextMenu?.type ?? 'file'}
+          hideCopy={contextMenu?.type === 'file' && (contextMenu.item as any)?.fileType === 'chat'}
           onClose={() => setContextMenu(null)}
           onShare={() => {
             if (contextMenu?.item) {
@@ -2246,6 +2279,7 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
               : '[Encrypted]'
           }
           itemType={mobileActionMenu.type}
+          hideCopy={mobileActionMenu.type === 'file' && (mobileActionMenu.item as any)?.fileType === 'chat'}
           onOpen={mobileActionMenu.type === 'file' && mobileActionMenu.item ? () => {
             handleFormFileClick(mobileActionMenu.item as FileData);
             setMobileActionMenu({ open: false, item: null, type: 'file' });

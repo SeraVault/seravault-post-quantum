@@ -38,6 +38,11 @@ export const ClipboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const copyItem = (type: 'file' | 'folder', data: FileData | FolderData) => {
+    // Check if this is a chat file - chat files can't be copied, only moved
+    if (type === 'file' && (data as any).fileType === 'chat') {
+      console.warn('Cannot copy chat conversation - use cut/paste to move it instead');
+      return;
+    }
     setClipboardState({ items: [{ type, item: data, operation: 'copy' }], operation: 'copy' });
   };
 
