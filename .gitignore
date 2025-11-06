@@ -54,6 +54,16 @@ jspm_packages/
 .env.development.local
 .env.test.local
 .env.production.local
+.env.*.local
+
+# Service account keys and credentials
+*service-account*.json
+serviceAccountKey.json
+*.pem
+*.p12
+*.key
+.gcloud/
+google-cloud-sdk/
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache
@@ -68,6 +78,7 @@ dist
 
 # Vite build output
 dist
+dist-landing
 dist-ssr
 *.local
 

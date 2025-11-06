@@ -25,7 +25,13 @@ echo "📄 Processing HTML files..."
 for file in landing/*.html; do
   filename=$(basename "$file")
   sed "s|{{VITE_APP_URL}}|${VITE_APP_URL}|g" "$file" | \
-  sed "s|{{VITE_LANDING_URL}}|${VITE_LANDING_URL}|g" > "dist-landing/$filename"
+  sed "s|{{VITE_LANDING_URL}}|${VITE_LANDING_URL}|g" | \
+  sed "s|{{VITE_FIREBASE_API_KEY}}|${VITE_FIREBASE_API_KEY}|g" | \
+  sed "s|{{VITE_FIREBASE_AUTH_DOMAIN}}|${VITE_FIREBASE_AUTH_DOMAIN}|g" | \
+  sed "s|{{VITE_FIREBASE_PROJECT_ID}}|${VITE_FIREBASE_PROJECT_ID}|g" | \
+  sed "s|{{VITE_FIREBASE_STORAGE_BUCKET}}|${VITE_FIREBASE_STORAGE_BUCKET}|g" | \
+  sed "s|{{VITE_FIREBASE_MESSAGING_SENDER_ID}}|${VITE_FIREBASE_MESSAGING_SENDER_ID}|g" | \
+  sed "s|{{VITE_FIREBASE_APP_ID}}|${VITE_FIREBASE_APP_ID}|g" > "dist-landing/$filename"
   echo "  ✅ Processed $filename"
 done
 

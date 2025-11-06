@@ -400,7 +400,7 @@ body {
 }
 
 /* Mobile responsiveness */
-@media (max-width: 968px) {
+@media (max-width: 768px) {
   .hero-layout {
     grid-template-columns: 1fr;
     gap: var(--spacing-xl);
@@ -1371,6 +1371,105 @@ body {
   }
 }
 
+/* Newsletter Section */
+.newsletter-section {
+  padding: var(--spacing-4xl) 0;
+  background: linear-gradient(135deg, rgba(66, 165, 245, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+  border-top: 1px solid var(--border-color);
+}
+
+.newsletter-content {
+  text-align: center;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.newsletter-subtitle {
+  font-size: 1.125rem;
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-2xl);
+}
+
+.newsletter-form {
+  margin-top: var(--spacing-xl);
+}
+
+.form-group {
+  display: flex;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  align-items: stretch;
+}
+
+.newsletter-input {
+  flex: 1;
+  padding: 0.875rem 1.5rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-family: var(--font-family);
+  transition: all 0.3s ease;
+}
+
+.newsletter-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 0 4px rgba(0, 240, 120, 0.1);
+}
+
+.newsletter-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.newsletter-btn {
+  white-space: nowrap;
+  padding: 0.875rem 1.75rem;
+  font-size: 1rem;
+  min-width: 160px;
+  position: relative;
+}
+
+.newsletter-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.spinner {
+  animation: spin 1s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.form-message {
+  padding: var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-size: 0.9rem;
+  text-align: center;
+  display: none;
+  margin-top: var(--spacing-md);
+}
+
+.form-message.success {
+  display: block;
+  background: rgba(0, 240, 120, 0.15);
+  color: var(--primary);
+  border: 1px solid rgba(0, 240, 120, 0.4);
+}
+
+.form-message.error {
+  display: block;
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
 @media (max-width: 480px) {
   .hero-title {
     font-size: 2rem;
@@ -1384,4 +1483,13 @@ body {
     padding: 0.75rem 1.5rem;
     font-size: 0.875rem;
   }
+  
+  .form-group {
+    flex-direction: column;
+  }
+  
+  .newsletter-btn {
+    width: 100%;
+  }
 }
+
