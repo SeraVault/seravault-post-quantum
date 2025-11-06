@@ -43,6 +43,7 @@ import { useTranslation } from 'react-i18next';
 import type { FileData } from '../files';
 import { getUserProfile, updateUserProfile, type UserProfile } from '../firestore';
 import PrintSecurityWarningDialog from './PrintSecurityWarningDialog';
+import { detectFileType, type FileTypeInfo } from '../utils/fileTypeDetection';
 
 // Set up PDF.js worker
 if (typeof window !== 'undefined') {
@@ -101,16 +102,32 @@ const FileViewer: React.FC<FileViewerProps> = ({
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
   const [printWarningOpen, setPrintWarningOpen] = useState(false);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [detectedFileType, setDetectedFileType] = useState<FileTypeInfo | null>(null);
 
   const dialogRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  // Get file info
+  // Get file info - use detected type if available, fall back to extension
   const fileName = typeof file?.name === 'string' ? file.name : '';
   const fileExtension = fileName.split('.').pop()?.toLowerCase() || '';
-  const mimeType = getMimeType(fileExtension);
-  const fileType = getFileType(fileExtension);
+  const mimeType = detectedFileType?.mimeType || getMimeType(fileExtension);
+  const fileType = detectedFileType?.type || getFileType(fileExtension);
+  const fileDescription = detectedFileType?.description || `${fileExtension.toUpperCase()} File`;
+
+  // Detect file type from content when available
+  useEffect(() => {
+    if (fileContent && file) {
+      try {
+        const detectedType = detectFileType(fileContent, fileName);
+        setDetectedFileType(detectedType);
+        console.log('🔍 Detected file type:', detectedType);
+      } catch (error) {
+        console.error('Error detecting file type:', error);
+        setDetectedFileType(null);
+      }
+    }
+  }, [fileContent, file, fileName]);
 
   // Load user profile for print warning preference
   useEffect(() => {
@@ -484,8 +501,13 @@ const FileViewer: React.FC<FileViewerProps> = ({
               {t('fileViewer.file')}: {fileName}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              {t('fileViewer.type')}: {fileExtension.toUpperCase()}
+              {t('fileViewer.type')}: {detectedFileType?.description || fileExtension.toUpperCase()}
             </Typography>
+            {detectedFileType && detectedFileType.extension !== `.${fileExtension}` && (
+              <Typography variant="caption" color="warning.main">
+                ⚠️ File extension (.{fileExtension}) doesn't match actual content ({detectedFileType.description})
+              </Typography>
+            )}
             {onDownload && (
               <Button
                 variant="contained"
@@ -696,6 +718,22 @@ const FileViewer: React.FC<FileViewerProps> = ({
       }}>
         {file && (
           <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap', alignItems: 'center' }}>
+            {detectedFileType && (
+              <Box>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  File Type
+                </Typography>
+                <Typography variant="body2">
+                  {detectedFileType.description}
+                  {detectedFileType.extension !== `.${fileExtension}` && (
+                    <Typography component="span" variant="caption" color="warning.main" sx={{ ml: 1 }}>
+                      ⚠️ Mismatch
+                    </Typography>
+                  )}
+                </Typography>
+              </Box>
+            )}
+            
             {file.createdAt && (
               <Box>
                 <Typography variant="caption" color="text.secondary" display="block">

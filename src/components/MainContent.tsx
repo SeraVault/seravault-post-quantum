@@ -73,6 +73,7 @@ import FormInstanceFiller from './FormInstanceFiller';
 import FormBuilder from './FormBuilder';
 import CreationFAB from './CreationFAB';
 import FileViewer from './FileViewer';
+import ChatViewer from './ChatViewer';
 import TagManagementDialog from './TagManagementDialog';
 
 interface MainContentProps {
@@ -267,6 +268,10 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
   const [selectedFile, setSelectedFile] = useState<FileData | null>(null);
   const [fileContent, setFileContent] = useState<ArrayBuffer | null>(null);
   const [fileContentLoading, setFileContentLoading] = useState(false);
+  
+  // Chat viewer state
+  const [chatViewerOpen, setChatViewerOpen] = useState(false);
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
 
   // Get folders for current directory from shared hook
   const folders = getFoldersByParent(currentFolder);
@@ -1329,9 +1334,10 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
 
     // Check if this is a chat file
     const isChat = 'fileType' in fileInfo && (fileInfo as any).fileType === 'chat';
-    if (isChat) {
-      // Navigate to chat page with the conversation selected
-      navigate('/chat', { state: { selectedConversationId: fileInfo.id } });
+    if (isChat && fileInfo.id) {
+      // Open chat viewer modal
+      setSelectedConversationId(fileInfo.id);
+      setChatViewerOpen(true);
       return;
     }
 
@@ -1437,6 +1443,24 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
     setFileViewerOpen(false);
     setSelectedFile(null);
     setFileContent(null);
+  };
+  
+  const handleCloseChatViewer = () => {
+    setChatViewerOpen(false);
+    setSelectedConversationId(null);
+  };
+  
+  const handleShareChat = () => {
+    if (!selectedConversationId) return;
+    
+    // Find the conversation file to share
+    const conversationFile = files.find(f => f.id === selectedConversationId);
+    if (conversationFile) {
+      setFileToShare(conversationFile);
+      setFolderToShare(null);
+      setShareItemType('file');
+      setShareDialogOpen(true);
+    }
   };
 
   const handleEditForm = async () => {
@@ -2378,6 +2402,16 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
             }
           }}
         />
+        
+        {/* Chat Viewer for chat conversations */}
+        {selectedConversationId && (
+          <ChatViewer
+            open={chatViewerOpen}
+            conversationId={selectedConversationId}
+            onClose={handleCloseChatViewer}
+            onShare={handleShareChat}
+          />
+        )}
 
         {/* FormInstanceFiller for both new and existing forms */}
         {formFillerOpen && (

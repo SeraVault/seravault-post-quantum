@@ -136,7 +136,24 @@ const HardwareKeySetup: React.FC = () => {
       // Reset to default for next registration
       setAuthenticatorType('cross-platform');
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to register authentication method';
+      let errorMessage = err instanceof Error ? err.message : 'Failed to register authentication method';
+      
+      // Add helpful context for common WebAuthn errors
+      if (errorMessage.includes('NotAllowedError') || errorMessage.includes('cancelled')) {
+        errorMessage = 'Registration cancelled. Please try again and touch your security key when prompted.';
+      } else if (errorMessage.includes('InvalidStateError') || errorMessage.includes('already registered')) {
+        errorMessage = 'This security key is already registered. Use a different key or remove the existing one first.';
+      } else if (errorMessage.includes('NotSupportedError')) {
+        errorMessage = 'Your browser or device doesn\'t support this type of authentication method.';
+      }
+      
+      // Add environment info for debugging
+      import('../utils/hardwareKeyAuth').then(({ getEnvironmentDescription }) => {
+        const env = getEnvironmentDescription();
+        console.error('[HardwareKey] Registration failed in environment:', env);
+        console.error('[HardwareKey] Error:', err);
+      });
+      
       setError(errorMessage);
     } finally {
       setRegistering(false);

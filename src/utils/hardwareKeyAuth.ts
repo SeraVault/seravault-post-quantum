@@ -81,6 +81,39 @@ export async function getHardwareKeyCapabilities(): Promise<{
 }
 
 /**
+ * Get the Relying Party (RP) ID for WebAuthn
+ * This must be the current hostname or a registrable domain suffix
+ */
+function getRelyingPartyId(): string {
+  const hostname = window.location.hostname;
+  
+  // For localhost, use 'localhost'
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return 'localhost';
+  }
+  
+  // For Firebase hosting (seravault-8c764-app.web.app), use the full hostname
+  // Note: You could also use a parent domain like 'web.app' but that requires
+  // domain ownership verification
+  return hostname;
+}
+
+/**
+ * Get a user-friendly description of the current RP ID environment
+ */
+export function getEnvironmentDescription(): string {
+  const hostname = window.location.hostname;
+  
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return 'Local Development';
+  } else if (hostname.includes('web.app') || hostname.includes('firebaseapp.com')) {
+    return 'Production (Firebase Hosting)';
+  }
+  
+  return hostname;
+}
+
+/**
  * Register a new hardware security key or passkey
  */
 export async function registerHardwareKey(
@@ -93,6 +126,9 @@ export async function registerHardwareKey(
     throw new Error('Hardware security keys are not supported on this browser');
   }
 
+  const rpId = getRelyingPartyId();
+  console.log('[HardwareKey] Registering key with RP ID:', rpId, 'Environment:', getEnvironmentDescription());
+
   // Generate challenge
   const challenge = new Uint8Array(32);
   crypto.getRandomValues(challenge);
@@ -104,7 +140,7 @@ export async function registerHardwareKey(
         challenge,
         rp: {
           name: 'SeraVault',
-          id: window.location.hostname,
+          id: rpId,
         },
         user: {
           id: new TextEncoder().encode(userId),
@@ -198,6 +234,11 @@ export async function authenticateWithHardwareKey(
     throw new Error('No hardware keys registered for this account');
   }
 
+  const rpId = getRelyingPartyId();
+  const environment = getEnvironmentDescription();
+  console.log('[HardwareKey] Authenticating with RP ID:', rpId, 'Environment:', environment);
+  console.log('[HardwareKey] Registered keys:', registeredKeys.length, 'keys available');
+
   // Generate challenge
   const challenge = new Uint8Array(32);
   crypto.getRandomValues(challenge);
@@ -207,6 +248,7 @@ export async function authenticateWithHardwareKey(
     const credential = await navigator.credentials.get({
       publicKey: {
         challenge,
+        rpId: rpId,  // Explicitly set RP ID to match registration
         allowCredentials: registeredKeys.map(key => ({
           id: base64ToArrayBuffer(key.id),
           type: 'public-key',

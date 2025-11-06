@@ -51,88 +51,57 @@ const ChatPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   
-  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [messageInput, setMessageInput] = useState('');
-  const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [participantNames, setParticipantNames] = useState<Record<string, string>>({});
-  
-  // New conversation dialog
-  const [newChatDialogOpen, setNewChatDialogOpen] = useState(false);
-  const [newChatType, setNewChatType] = useState<'individual' | 'group'>('individual');
-  const [selectedContacts, setSelectedContacts] = useState<string[]>([]);
-  const [groupName, setGroupName] = useState('');
-  const [groupDescription, setGroupDescription] = useState('');
   
   // Menu state
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   
-  // Handle navigation from file manager
+  // Handle navigation from file manager - conversation should be passed via state
   useEffect(() => {
-    const state = location.state as { selectedConversationId?: string; openNewChatDialog?: boolean } | null;
+    const state = location.state as { conversationId?: string } | null;
     
-    // Handle opening a specific conversation
-    if (state?.selectedConversationId && conversations.length > 0) {
-      const convo = conversations.find(c => c.id === state.selectedConversationId);
-      if (convo) {
-        setSelectedConversation(convo);
-        // Clear the state to prevent re-selecting on refresh
-        navigate('/chat', { replace: true, state: {} });
-      }
-    }
-    
-    // Handle opening the new chat dialog
-    if (state?.openNewChatDialog) {
-      setNewChatDialogOpen(true);
-      // Clear the state to prevent re-opening on refresh
-      navigate('/chat', { replace: true, state: {} });
-    }
-  }, [location.state, conversations, navigate]);
-  
-  // Load conversations on mount
-  useEffect(() => {
-    if (!user || !privateKey) return;
-    
-    const unsubscribe = ChatService.subscribeToConversations(user.uid, (convos) => {
-      setConversations(convos);
-      
-      // Extract all unique participant IDs
-      const allParticipantIds = new Set<string>();
-      convos.forEach(convo => {
-        convo.participants.forEach(id => {
-          if (id !== user.uid) {
-            allParticipantIds.add(id);
-          }
-        });
+    if (state?.conversationId && user && privateKey) {
+      // Load the specific conversation
+      ChatService.getConversation(state.conversationId).then(convo => {
+        if (convo) {
+          setSelectedConversation(convo);
+          
+          // Load participant names
+          const fetchNames = async () => {
+            const { getUserProfile } = await import('../firestore');
+            const names: Record<string, string> = {};
+            
+            for (const participantId of convo.participants) {
+              if (participantId !== user.uid) {
+                try {
+                  const profile = await getUserProfile(participantId);
+                  if (profile) {
+                    names[participantId] = profile.displayName || profile.email || 'Unknown User';
+                  }
+                } catch (error) {
+                  console.error('Error fetching participant profile:', error);
+                  names[participantId] = 'Unknown User';
+                }
+              }
+            }
+            
+            setParticipantNames(names);
+          };
+          
+          fetchNames();
+        }
+      }).catch(error => {
+        console.error('Failed to load conversation:', error);
       });
       
-      // Fetch display names for all participants
-      const fetchNames = async () => {
-        const { getUserProfile } = await import('../firestore');
-        const names: Record<string, string> = {};
-        
-        for (const participantId of allParticipantIds) {
-          try {
-            const profile = await getUserProfile(participantId);
-            if (profile) {
-              names[participantId] = profile.displayName || profile.email || 'Unknown User';
-            }
-          } catch (error) {
-            console.error('Error fetching participant profile:', error);
-            names[participantId] = 'Unknown User';
-          }
-        }
-        
-        setParticipantNames(names);
-      };
-      
-      fetchNames();
-    });
-    
-    return () => unsubscribe();
-  }, [user, privateKey]);
+      // Clear the state
+      navigate('/chat', { replace: true, state: {} });
+    }
+  }, [location.state, user, privateKey, navigate]);
   
   // Load messages when conversation is selected
   useEffect(() => {

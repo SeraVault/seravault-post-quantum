@@ -330,6 +330,22 @@ export class ChatService {
   }
   
   /**
+   * Get a single conversation by ID
+   */
+  static async getConversation(conversationId: string): Promise<Conversation | null> {
+    const conversationDoc = await getDoc(doc(db, 'files', conversationId));
+    
+    if (!conversationDoc.exists()) {
+      return null;
+    }
+    
+    return {
+      id: conversationDoc.id,
+      ...conversationDoc.data()
+    } as Conversation;
+  }
+  
+  /**
    * Subscribe to real-time conversations
    */
   static subscribeToConversations(
