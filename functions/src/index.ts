@@ -26,12 +26,14 @@ interface NotificationData {
   recipientId: string;
   senderId: string;
   senderDisplayName?: string;
-  type: 'file_shared' | 'file_modified' | 'file_unshared' | 'contact_request' | 'contact_accepted' | 'file_share_request';
+  type: 'file_shared' | 'file_modified' | 'file_unshared' | 'contact_request' | 'contact_accepted' | 'file_share_request' | 'chat_message';
   title: string;
   message: string;
   fileId?: string;
   fileName?: string;
   contactRequestId?: string;
+  conversationId?: string;
+  messageId?: string;
   isRead: boolean;
   createdAt: FieldValue;
   metadata?: {[key: string]: any};
@@ -528,6 +530,126 @@ export const onUserInvitationCreated = onDocumentCreated(
       
     } catch (error) {
       console.error('Error logging invitation creation:', error);
+    }
+  }
+);
+
+/**
+ * Firestore Trigger: Chat message notifications
+ * Sends notifications to participants when new messages are added
+ * - Only notifies users who don't have the chat open
+ * - Removes previous unread notifications from the same conversation to avoid overwhelming
+ */
+export const onChatMessageCreated = onDocumentCreated(
+  "files/{chatId}/messages/{messageId}",
+  async (event) => {
+    try {
+      const messageData = event.data?.data();
+      const chatId = event.params.chatId;
+      const messageId = event.params.messageId;
+      
+      if (!messageData) return;
+      
+      const senderId = messageData.senderId;
+      const senderName = messageData.senderName || 'Someone';
+      
+      // Get the chat document to find all participants
+      const chatDoc = await db.collection('files').doc(chatId).get();
+      if (!chatDoc.exists) {
+        console.log(`⚠️ Chat ${chatId} not found`);
+        return;
+      }
+      
+      const chatData = chatDoc.data();
+      if (!chatData || chatData.fileType !== 'chat') {
+        console.log(`⚠️ Document ${chatId} is not a chat`);
+        return;
+      }
+      
+      const participants: string[] = chatData.participants || [];
+      const chatType = chatData.type || 'individual';
+      
+      // Get active chat sessions to check who has the chat open
+      // Simplified query to avoid index requirement - get all sessions and filter by time in code
+      const activeSessionsSnapshot = await db.collection('activeChatSessions')
+        .where('chatId', '==', chatId)
+        .get();
+      
+      // Filter sessions to only those active within last 5 minutes
+      const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+      const usersWithChatOpen = new Set<string>();
+      
+      activeSessionsSnapshot.docs.forEach(doc => {
+        const sessionData = doc.data();
+        const sessionTimestamp = sessionData.timestamp?.toDate?.()?.getTime() || 0;
+        if (sessionTimestamp > fiveMinutesAgo) {
+          usersWithChatOpen.add(sessionData.userId);
+        }
+      });
+      
+      console.log(`💬 New message in chat ${chatId} from ${senderName}`);
+      console.log(`👥 Participants: ${participants.length}, Active: ${usersWithChatOpen.size}`);
+      
+      // Notify each participant (except the sender and those with chat open)
+      for (const participantId of participants) {
+        // Skip the sender
+        if (participantId === senderId) continue;
+        
+        // Skip if user has chat open
+        if (usersWithChatOpen.has(participantId)) {
+          console.log(`⏭️ Skipping notification for ${participantId} - chat is open`);
+          continue;
+        }
+        
+        // Remove previous unread chat notifications from this conversation
+        const previousNotifications = await db.collection('notifications')
+          .where('recipientId', '==', participantId)
+          .where('conversationId', '==', chatId)
+          .where('type', '==', 'chat_message')
+          .where('isRead', '==', false)
+          .get();
+        
+        // Delete previous notifications
+        const batch = db.batch();
+        previousNotifications.docs.forEach(doc => {
+          batch.delete(doc.ref);
+        });
+        
+        if (!previousNotifications.empty) {
+          await batch.commit();
+          console.log(`🗑️ Removed ${previousNotifications.size} previous notifications for ${participantId}`);
+        }
+        
+        // Create new notification
+        const notificationTitle = chatType === 'group' 
+          ? `New message in group chat`
+          : `New message from ${senderName}`;
+        
+        const notificationMessage = chatType === 'group'
+          ? `${senderName} sent a message`
+          : `Click to view message`;
+        
+        await createNotification({
+          recipientId: participantId,
+          senderId: senderId,
+          senderDisplayName: senderName,
+          type: 'chat_message',
+          title: notificationTitle,
+          message: notificationMessage,
+          conversationId: chatId,
+          messageId: messageId,
+          isRead: false,
+          metadata: {
+            chatType: chatType,
+            timestamp: new Date().toISOString()
+          }
+        });
+        
+        console.log(`✅ Chat notification created for ${participantId}`);
+      }
+      
+    } catch (error) {
+      console.error('❌ Error creating chat notification:', error);
     }
   }
 );

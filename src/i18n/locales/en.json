@@ -42,7 +42,8 @@
     "quickAccess": "Quick Access",
     "favorites": "Favorites",
     "recent": "Recent",
-    "allFiles": "All Files"
+    "allFiles": "All Files",
+    "help": "Help"
   },
   "auth": {
     "signIn": "Sign In",
@@ -343,5 +344,8 @@
     "volume": "Volume",
     "mute": "Mute",
     "unmute": "Unmute"
+  },
+  "help": {
+    "title": "Help & Guide"
   }
 }

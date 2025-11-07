@@ -510,6 +510,20 @@ service cloud.firestore {
       // No updates or deletes allowed
       allow update, delete: if false;
     }
+
+    // Active Chat Sessions - Track which chats users have open to prevent notifications
+    match /activeChatSessions/{sessionId} {
+      // Users can only manage their own sessions
+      allow create, update: if request.auth != null && 
+        request.resource.data.userId == request.auth.uid;
+      
+      // Users can delete their own sessions
+      allow delete: if request.auth != null && 
+        resource.data.userId == request.auth.uid;
+      
+      // Cloud Functions can read all sessions to determine who has chats open
+      allow read: if request.auth != null;
+    }
     
     // Deny all other access - explicit security
     match /{document=**} {

@@ -262,6 +262,18 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
     }
   }, [searchParams, setSearchParams]);
 
+  // Handle URL query params for opening chat from notifications
+  useEffect(() => {
+    const chatId = searchParams.get('chat');
+    if (chatId) {
+      // Open chat viewer with the specified conversation
+      setSelectedConversationId(chatId);
+      setChatViewerOpen(true);
+      // Remove the query param
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
   // Expose methods to parent component via ref
   useImperativeHandle(ref, () => ({}));
   const [selectedFormFile, setSelectedFormFile] = useState<FileData | null>(null);

@@ -24,6 +24,7 @@ import {
   PersonAdd,
   Person,
   Security,
+  Chat,
 } from '@mui/icons-material';
 import { useAuth } from '../auth/AuthContext';
 import { NotificationService, type Notification } from '../services/notificationService';
@@ -104,14 +105,21 @@ const NotificationBell: React.FC<NotificationBellProps> = ({ className }) => {
       console.log('📍 Notification details:', {
         type: notification.type,
         fileId: notification.fileId,
-        fileName: notification.fileName
+        fileName: notification.fileName,
+        conversationId: notification.conversationId
       });
       
       // Close the menu BEFORE navigating
       handleClose();
       
+      // Handle chat message notifications
+      if (notification.type === 'chat_message' && notification.conversationId) {
+        console.log(`💬 Opening chat: ${notification.conversationId}`);
+        // Open chat modal via URL parameter
+        navigate(`/?chat=${notification.conversationId}`);
+      }
       // Navigate to file if fileId exists
-      if (notification.fileId) {
+      else if (notification.fileId) {
         console.log(`🔗 Navigating to file: ${notification.fileId}`);
         // Navigate to home page with file parameter
         navigate(`/?file=${notification.fileId}`);
@@ -151,6 +159,8 @@ const NotificationBell: React.FC<NotificationBellProps> = ({ className }) => {
         return <Person fontSize="small" color="success" />;
       case 'file_share_request':
         return <Security fontSize="small" color="warning" />;
+      case 'chat_message':
+        return <Chat fontSize="small" color="primary" />;
       default:
         return <Notifications fontSize="small" />;
     }

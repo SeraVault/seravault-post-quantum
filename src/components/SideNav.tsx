@@ -22,7 +22,6 @@ import {
   AccessTime,
   CloudSync,
   Security,
-  Info,
   ChevronLeft,
   ChevronRight,
   People,
@@ -30,6 +29,7 @@ import {
   ExpandMore,
   ExpandLess,
   Settings,
+  HelpOutline,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import FolderTree from './FolderTree';
@@ -90,7 +90,6 @@ const SideNav: React.FC<SideNavProps> = ({
     const routeMap: { [key: string]: () => Promise<unknown> } = {
       '/profile': () => import('../pages/ProfilePage'),
       '/contacts': () => import('../pages/ContactsPage'),
-      '/chat': () => import('../pages/ChatPage'),
       '/templates': () => import('../pages/FormTemplatesPage'),
       '/cleanup': () => import('../pages/CleanupPage'),
       '/security': () => import('../pages/SecurityPage'),
@@ -506,8 +505,8 @@ const SideNav: React.FC<SideNavProps> = ({
         )}
 
         <ListItemButton
-          onClick={() => handleNavigateAndClose('/security')}
-          onMouseEnter={() => handlePreloadRoute('/security')}
+          onClick={() => handleNavigateAndClose('/help')}
+          onMouseEnter={() => handlePreloadRoute('/help')}
           sx={{
             borderRadius: 1,
             mx: 1,
@@ -517,14 +516,14 @@ const SideNav: React.FC<SideNavProps> = ({
               backgroundColor: 'action.hover',
             }
           }}
-          title={collapsed && !isMobile ? t('navigation.about', 'About') : undefined}
+          title={collapsed && !isMobile ? t('navigation.help', 'Help') : undefined}
         >
           <ListItemIcon sx={{ minWidth: collapsed && !isMobile ? 'auto' : 32 }}>
-            <Info fontSize="small" />
+            <HelpOutline fontSize="small" />
           </ListItemIcon>
           {(!collapsed || isMobile) && (
             <ListItemText 
-              primary={t('navigation.about', 'About') } 
+              primary={t('navigation.help', 'Help') } 
               primaryTypographyProps={{ fontSize: '14px' }}
             />
           )}

@@ -16,7 +16,7 @@ export interface Notification {
   recipientId: string; // User ID who receives the notification
   senderId: string; // User ID who triggered the notification
   senderDisplayName?: string; // Cached sender display name for performance
-  type: 'file_shared' | 'file_modified' | 'file_unshared' | 'contact_request' | 'contact_accepted' | 'file_share_request';
+  type: 'file_shared' | 'file_modified' | 'file_unshared' | 'contact_request' | 'contact_accepted' | 'file_share_request' | 'chat_message';
   title: string; // Short notification title
   message: string; // Detailed notification message
   fileId?: string; // Related file ID (if applicable)
@@ -24,6 +24,8 @@ export interface Notification {
   folderId?: string; // Related folder ID (if applicable)
   folderName?: string; // Cached folder name for performance
   contactRequestId?: string; // Related contact request ID (if applicable)
+  conversationId?: string; // Related chat conversation ID (if applicable)
+  messageId?: string; // Related message ID (if applicable)
   isRead: boolean;
   createdAt: FieldValue;
   readAt?: FieldValue;

@@ -115,22 +115,46 @@ const ChatViewer: React.FC<ChatViewerProps> = ({
 
   // Subscribe to messages
   useEffect(() => {
-    if (!conversationId || !user || !privateKey || !conversation) return;
+    if (!conversationId || !user || !privateKey) return;
 
-    const unsubscribe = ChatService.subscribeToMessages(
-      conversationId,
-      user.uid,
-      privateKey,
-      (msgs) => {
-        setMessages(msgs);
-      }
-    );
+    let refreshInterval: NodeJS.Timeout;
 
-    // Mark conversation as read
-    ChatService.markConversationAsRead(conversationId, user.uid);
+    const setupChat = async () => {
+      const unsubscribe = ChatService.subscribeToMessages(
+        conversationId,
+        user.uid,
+        privateKey,
+        (msgs) => {
+          setMessages(msgs);
+        }
+      );
 
-    return () => unsubscribe();
-  }, [conversationId, user, privateKey, conversation]);
+      // Mark as read when opening
+      await ChatService.markConversationAsRead(conversationId, user.uid);
+
+      // Track active chat session to prevent notifications
+      const { ActiveChatSessionService } = await import('../services/activeChatSession');
+      await ActiveChatSessionService.setActiveChatSession(user.uid, conversationId);
+
+      // Refresh session every 3 minutes to keep it active
+      refreshInterval = setInterval(async () => {
+        await ActiveChatSessionService.refreshActiveChatSession();
+      }, 3 * 60 * 1000);
+
+      return () => {
+        unsubscribe();
+        clearInterval(refreshInterval);
+        // Clear active session when chat is closed
+        ActiveChatSessionService.clearActiveChatSession();
+      };
+    };
+
+    const cleanup = setupChat();
+
+    return () => {
+      cleanup.then(cleanupFn => cleanupFn?.());
+    };
+  }, [conversationId, user, privateKey]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {

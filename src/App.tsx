@@ -23,8 +23,8 @@ const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const CleanupPage = lazy(() => import('./pages/CleanupPage'));
 const SecurityPage = lazy(() => import('./pages/SecurityPage'));
 const ContactsPage = lazy(() => import('./pages/ContactsPage'));
-const ChatPage = lazy(() => import('./pages/ChatPage'));
 const FormTemplatesPage = lazy(() => import('./pages/FormTemplatesPage'));
+const HelpPage = lazy(() => import('./pages/HelpPage'));
 
 // Suspense fallback component for page transitions
 const PageLoadingFallback: React.FC = () => {
@@ -139,10 +139,10 @@ const App: React.FC = () => {
                       </Route>
                       <Route path="/profile" element={<ProfilePage />} />
                       <Route path="/contacts" element={<ContactsPage />} />
-                      <Route path="/chat" element={<ChatPage />} />
                       <Route path="/templates" element={<FormTemplatesPage />} />
                       <Route path="/cleanup" element={<CleanupPage />} />
                       <Route path="/security" element={<SecurityPage />} />
+                      <Route path="/help" element={<HelpPage />} />
                     </Route>
                   </Route>
                 </Routes>
