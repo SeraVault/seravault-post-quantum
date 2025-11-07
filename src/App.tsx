@@ -1,27 +1,55 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import './i18n'; // Initialize i18n
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
-import ProfilePage from './pages/ProfilePage';
-import CleanupPage from './pages/CleanupPage';
-import SecurityPage from './pages/SecurityPage';
-import ContactsPage from './pages/ContactsPage';
-import ChatPage from './pages/ChatPage';
-import FormTemplatesPage from './pages/FormTemplatesPage';
 import ProtectedRoute from './auth/ProtectedRoute';
 import ProfileCheck from './auth/ProfileCheck';
 import TermsEnforcement from './components/TermsEnforcement';
+import PersistentLayout from './components/PersistentLayout';
 import { useAuth } from './auth/AuthContext';
 import { usePassphrase } from './auth/PassphraseContext';
-import { CircularProgress, Typography, useTheme, Dialog, DialogContent } from '@mui/material';
+import { CircularProgress, Typography, useTheme, Dialog, DialogContent, Box } from '@mui/material';
 import { ClipboardProvider } from './context/ClipboardContext';
 import { LoadingProvider, useGlobalLoading } from './context/LoadingContext';
 import { RecentsProvider } from './context/RecentsContext';
 import { MetadataProvider } from './context/MetadataContext';
 // Import migration utility to make it available in console
 import './utils/migrateFormTags';
+
+// Lazy load pages that aren't immediately needed
+const ProfilePage = lazy(() => import('./pages/ProfilePage'));
+const CleanupPage = lazy(() => import('./pages/CleanupPage'));
+const SecurityPage = lazy(() => import('./pages/SecurityPage'));
+const ContactsPage = lazy(() => import('./pages/ContactsPage'));
+const ChatPage = lazy(() => import('./pages/ChatPage'));
+const FormTemplatesPage = lazy(() => import('./pages/FormTemplatesPage'));
+
+// Suspense fallback component for page transitions
+const PageLoadingFallback: React.FC = () => {
+  const theme = useTheme();
+  return (
+    <Box
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        gap: 2,
+      }}
+    >
+      <CircularProgress 
+        sx={{ color: theme.palette.primary.main }} 
+        size={40} 
+      />
+      <Typography variant="body2" color="text.secondary">
+        Loading...
+      </Typography>
+    </Box>
+  );
+};
 
 // Global Loading Component
 const GlobalLoadingSpinner: React.FC = () => {
@@ -98,21 +126,27 @@ const App: React.FC = () => {
           <MetadataProvider>
             <TermsEnforcement>
               <GlobalLoadingSpinner />
-              <Routes>
-                <Route path="/login" element={<LoginPage />} />
-                <Route path="/signup" element={<SignupPage />} />
-                <Route element={<ProtectedRoute />}>
-                  <Route element={<ProfileCheck />}>
-                    <Route path="/" element={<HomePage />} />
+              <Suspense fallback={<PageLoadingFallback />}>
+                <Routes>
+                  <Route path="/login" element={<LoginPage />} />
+                  <Route path="/signup" element={<SignupPage />} />
+                  
+                  {/* All authenticated routes use PersistentLayout */}
+                  <Route element={<ProtectedRoute />}>
+                    <Route element={<PersistentLayout />}>
+                      <Route element={<ProfileCheck />}>
+                        <Route path="/" element={<HomePage />} />
+                      </Route>
+                      <Route path="/profile" element={<ProfilePage />} />
+                      <Route path="/contacts" element={<ContactsPage />} />
+                      <Route path="/chat" element={<ChatPage />} />
+                      <Route path="/templates" element={<FormTemplatesPage />} />
+                      <Route path="/cleanup" element={<CleanupPage />} />
+                      <Route path="/security" element={<SecurityPage />} />
+                    </Route>
                   </Route>
-                  <Route path="/profile" element={<ProfilePage />} />
-                  <Route path="/contacts" element={<ContactsPage />} />
-                  <Route path="/chat" element={<ChatPage />} />
-                  <Route path="/templates" element={<FormTemplatesPage />} />
-                  <Route path="/cleanup" element={<CleanupPage />} />
-                  <Route path="/security" element={<SecurityPage />} />
-                </Route>
-              </Routes>
+                </Routes>
+              </Suspense>
             </TermsEnforcement>
           </MetadataProvider>
         </RecentsProvider>

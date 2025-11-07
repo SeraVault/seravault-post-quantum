@@ -30,16 +30,13 @@ import {
   ExpandMore,
   ExpandLess,
   Settings,
-  Chat as ChatIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import FolderTree from './FolderTree';
-import TagFilter from './TagFilter';
 import { useFolders } from '../hooks/useFolders';
 import { useRecents } from '../context/RecentsContext';
 import { useSimpleStorageUsage } from '../hooks/useSimpleStorageUsage';
 import { updateFolder } from '../firestore';
-import { updateFile } from '../files';
 
 interface SideNavProps {
   drawerWidth: number;
@@ -50,14 +47,7 @@ interface SideNavProps {
   setCurrentFolder: (folderId: string | null) => void;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
-  // Tag filtering props
-  files?: any[];
-  userId?: string;
-  userPrivateKey?: string;
-  selectedTags?: string[];
-  onTagSelectionChange?: (tags: string[]) => void;
-  matchAllTags?: boolean;
-  onMatchModeChange?: (matchAll: boolean) => void;
+  userId?: string; // Used in handleMoveItem
 }
 
 const SideNav: React.FC<SideNavProps> = ({
@@ -65,18 +55,10 @@ const SideNav: React.FC<SideNavProps> = ({
   mobileOpen,
   desktopOpen = true,
   handleDrawerToggle,
-  currentFolder: _, // Unused but required by interface
   setCurrentFolder,
   collapsed = false,
   onToggleCollapse,
-  // Tag filtering props
-  files = [],
   userId,
-  userPrivateKey,
-  selectedTags = [],
-  onTagSelectionChange,
-  matchAllTags = false,
-  onMatchModeChange,
 }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -99,6 +81,26 @@ const SideNav: React.FC<SideNavProps> = ({
     navigate(path);
     if (isMobile) {
       handleDrawerToggle();
+    }
+  };
+
+  // Helper function to preload route on hover
+  const handlePreloadRoute = (path: string) => {
+    // Preload the route by creating a prefetch link
+    const routeMap: { [key: string]: () => Promise<unknown> } = {
+      '/profile': () => import('../pages/ProfilePage'),
+      '/contacts': () => import('../pages/ContactsPage'),
+      '/chat': () => import('../pages/ChatPage'),
+      '/templates': () => import('../pages/FormTemplatesPage'),
+      '/cleanup': () => import('../pages/CleanupPage'),
+      '/security': () => import('../pages/SecurityPage'),
+    };
+    
+    const preloadFn = routeMap[path];
+    if (preloadFn) {
+      preloadFn().catch(() => {
+        // Silently fail - will load on click if preload fails
+      });
     }
   };
 
@@ -130,6 +132,8 @@ const SideNav: React.FC<SideNavProps> = ({
 
   // Handle moving items (files or folders) to different folders
   const handleMoveItem = async (itemId: string, itemType: 'file' | 'folder', targetFolderId: string | null) => {
+    if (!userId) return;
+    
     try {
       console.log('🔄 SideNav handleMoveItem called:', { itemId, itemType, targetFolderId });
       
@@ -138,8 +142,10 @@ const SideNav: React.FC<SideNavProps> = ({
         await updateFolder(itemId, { parent: targetFolderId });
         console.log('✅ Folder moved successfully');
       } else if (itemType === 'file') {
-        console.log('📄 Updating file parent...');
-        await updateFile(itemId, { parent: targetFolderId });
+        console.log('📄 Moving file for user...');
+        // Use per-user folder management instead of updating parent directly
+        const { moveFileForUser } = await import('../services/userFolderManagement');
+        await moveFileForUser(itemId, userId, targetFolderId);
         console.log('✅ File moved successfully');
       } else {
         console.warn('❌ Unknown item type:', itemType);
@@ -419,6 +425,7 @@ const SideNav: React.FC<SideNavProps> = ({
         
         <ListItemButton
           onClick={() => handleNavigateAndClose('/contacts')}
+          onMouseEnter={() => handlePreloadRoute('/contacts')}
           sx={{
             borderRadius: 1,
             mx: 1,
@@ -436,30 +443,6 @@ const SideNav: React.FC<SideNavProps> = ({
           {(!collapsed || isMobile) && (
             <ListItemText 
               primary={t('navigation.contacts', 'Contacts')} 
-              primaryTypographyProps={{ fontSize: '14px' }}
-            />
-          )}
-        </ListItemButton>
-        
-        <ListItemButton
-          onClick={() => handleNavigateAndClose('/chat')}
-          sx={{
-            borderRadius: 1,
-            mx: 1,
-            mb: 0.5,
-            justifyContent: collapsed && !isMobile ? 'center' : 'flex-start',
-            '&:hover': {
-              backgroundColor: 'action.hover',
-            }
-          }}
-          title={collapsed && !isMobile ? t('navigation.chat', 'Chat') : undefined}
-        >
-          <ListItemIcon sx={{ minWidth: collapsed && !isMobile ? 'auto' : 32 }}>
-            <ChatIcon fontSize="small" />
-          </ListItemIcon>
-          {(!collapsed || isMobile) && (
-            <ListItemText 
-              primary={t('navigation.chat', 'Chat')} 
               primaryTypographyProps={{ fontSize: '14px' }}
             />
           )}
@@ -499,6 +482,7 @@ const SideNav: React.FC<SideNavProps> = ({
             <List component="div" disablePadding>
               <ListItemButton
                 onClick={() => handleNavigateAndClose('/templates')}
+                onMouseEnter={() => handlePreloadRoute('/templates')}
                 sx={{
                   borderRadius: 1,
                   mx: 1,
@@ -523,6 +507,7 @@ const SideNav: React.FC<SideNavProps> = ({
 
         <ListItemButton
           onClick={() => handleNavigateAndClose('/security')}
+          onMouseEnter={() => handlePreloadRoute('/security')}
           sx={{
             borderRadius: 1,
             mx: 1,
@@ -546,21 +531,6 @@ const SideNav: React.FC<SideNavProps> = ({
         </ListItemButton>
 
       </List>
-      
-      {/* Tag Filter */}
-      {(!collapsed || isMobile) && userId && userPrivateKey && onTagSelectionChange && (
-        <Box sx={{ px: 2, py: 1, borderTop: 1, borderColor: 'divider' }}>
-          <TagFilter
-            files={files}
-            userId={userId}
-            userPrivateKey={userPrivateKey}
-            selectedTags={selectedTags}
-            onTagSelectionChange={onTagSelectionChange}
-            matchAllTags={matchAllTags}
-            onMatchModeChange={onMatchModeChange || (() => {})}
-          />
-        </Box>
-      )}
       
       {/* Storage Info */}
       {(!collapsed || isMobile) && (

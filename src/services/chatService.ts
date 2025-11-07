@@ -90,14 +90,14 @@ export class ChatService {
       },
       storagePath: '', // Not used for chats
       size: await encryptStringToMetadata('0', conversationKey), // Message count as encrypted metadata
-      sharedWith: allParticipants,
+      sharedWith: [...allParticipants], // Create a new array, not a reference
       encryptedKeys,
       createdAt: serverTimestamp(),
       lastModified: serverTimestamp(),
       
       // Chat-specific fields
       type,
-      participants: allParticipants,
+      participants: [...allParticipants], // Create a new array, not a reference
       createdBy: currentUserId,
       lastMessageAt: serverTimestamp(),
     };
@@ -203,7 +203,8 @@ export class ChatService {
     
     // Update conversation's last message timestamp
     await updateDoc(conversationRef, {
-      lastMessageAt: serverTimestamp()
+      lastMessageAt: serverTimestamp(),
+      lastModified: serverTimestamp()
     });
     
     return messageRef.id;

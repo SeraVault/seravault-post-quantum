@@ -12,6 +12,8 @@ import {
   MoreVert as MoreVertIcon,
   Done as DoneIcon,
   DoneAll as DoneAllIcon,
+  AttachFile as AttachFileIcon,
+  Download as DownloadIcon,
 } from '@mui/icons-material';
 import type { ChatMessage } from '../types/chat';
 import { format } from 'date-fns';
@@ -22,13 +24,15 @@ interface ChatMessageListProps {
   currentUserId: string;
   conversationId?: string;
   participantNames?: Record<string, string>; // Optional: map of userId -> displayName
+  onFileClick?: (message: ChatMessage) => void; // Callback for when a file attachment is clicked
 }
 
 const ChatMessageList: React.FC<ChatMessageListProps> = ({ 
   messages, 
   currentUserId,
   conversationId,
-  participantNames = {}
+  participantNames = {},
+  onFileClick
 }) => {
   const [menuAnchor, setMenuAnchor] = React.useState<null | HTMLElement>(null);
   const [selectedMessage, setSelectedMessage] = React.useState<ChatMessage | null>(null);
@@ -88,6 +92,32 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({
     // Check if all participants except sender have read
     return Object.keys(message.readBy).length > 1;
   };
+
+  const handleDownloadFile = async (message: ChatMessage) => {
+    if (!message.fileMetadata) return;
+
+    try {
+      // Import necessary services
+      const { getFile } = await import('../storage');
+      
+      // Download the encrypted file
+      const encryptedData = await getFile(message.fileMetadata.storagePath);
+      
+      // Create blob and download
+      const blob = new Blob([encryptedData], { type: message.fileMetadata.mimeType || 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = message.fileMetadata.fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to download file:', error);
+      alert('Failed to download file. Please try again.');
+    }
+  };
   
   return (
     <Box
@@ -145,6 +175,44 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({
                 </Typography>
               )}
               
+              {/* File attachment display */}
+              {message.type === 'file' && message.fileMetadata && (
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    p: 1,
+                    bgcolor: isOwn ? 'rgba(255,255,255,0.1)' : 'action.hover',
+                    borderRadius: 1,
+                    mb: 1,
+                    cursor: 'pointer',
+                    '&:hover': {
+                      bgcolor: isOwn ? 'rgba(255,255,255,0.15)' : 'action.selected',
+                    },
+                  }}
+                  onClick={() => {
+                    if (onFileClick) {
+                      onFileClick(message);
+                    } else {
+                      // Fallback to download if no callback provided
+                      handleDownloadFile(message);
+                    }
+                  }}
+                >
+                  <AttachFileIcon fontSize="small" />
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography variant="body2" noWrap>
+                      {message.fileMetadata.fileName}
+                    </Typography>
+                    <Typography variant="caption" sx={{ opacity: 0.7 }}>
+                      {(message.fileMetadata.fileSize / 1024).toFixed(1)} KB
+                    </Typography>
+                  </Box>
+                  <DownloadIcon fontSize="small" sx={{ opacity: 0.7 }} />
+                </Box>
+              )}
+              
               <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                 {content}
               </Typography>
@@ -200,13 +268,13 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({
         open={Boolean(menuAnchor)}
         onClose={() => setMenuAnchor(null)}
       >
-        <MenuItem onClick={() => setMenuAnchor(null)}>Copy</MenuItem>
-        {selectedMessage?.senderId === currentUserId && (
-          <>
-            <MenuItem onClick={() => setMenuAnchor(null)}>Edit</MenuItem>
-            <MenuItem onClick={() => setMenuAnchor(null)}>Delete</MenuItem>
-          </>
-        )}
+        {[
+          <MenuItem key="copy" onClick={() => setMenuAnchor(null)}>Copy</MenuItem>,
+          ...(selectedMessage?.senderId === currentUserId ? [
+            <MenuItem key="edit" onClick={() => setMenuAnchor(null)}>Edit</MenuItem>,
+            <MenuItem key="delete" onClick={() => setMenuAnchor(null)}>Delete</MenuItem>
+          ] : [])
+        ]}
       </Menu>
     </Box>
   );

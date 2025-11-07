@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   List,
   ListItem,
@@ -11,10 +11,14 @@ import {
   Box,
   Typography,
   CircularProgress,
+  Tabs,
+  Tab,
 } from '@mui/material';
-import { Person as PersonIcon } from '@mui/icons-material';
+import { Person as PersonIcon, Group as GroupIcon } from '@mui/icons-material';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../firebase';
+import { getUserGroups } from '../firestore';
+import { hexToBytes } from '../crypto/quantumSafeCrypto';
 
 interface Contact {
   id: string;
@@ -23,26 +27,35 @@ interface Contact {
   publicKey?: string;
 }
 
+interface GroupItem {
+  id: string;
+  name: string;
+  memberCount: number;
+  memberIds: string[];
+}
+
 interface ContactSelectorProps {
   selectedContacts: string[];
   onSelectionChange: (contacts: string[]) => void;
   currentUserId: string;
+  privateKey?: string; // Needed to decrypt group names
+  includeGroups?: boolean; // Whether to show groups tab
 }
 
 const ContactSelector: React.FC<ContactSelectorProps> = ({
   selectedContacts,
   onSelectionChange,
   currentUserId,
+  privateKey,
+  includeGroups = true,
 }) => {
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const [groups, setGroups] = useState<GroupItem[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
+  const [currentTab, setCurrentTab] = useState<'contacts' | 'groups'>('contacts');
   
-  useEffect(() => {
-    loadContacts();
-  }, [currentUserId]);
-  
-  const loadContacts = async () => {
+  const loadContacts = useCallback(async () => {
     setLoading(true);
     try {
       // Query where user is either userId1 or userId2
@@ -93,7 +106,52 @@ const ContactSelector: React.FC<ContactSelectorProps> = ({
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentUserId]);
+  
+  const loadGroups = useCallback(async () => {
+    if (!privateKey) return;
+    
+    try {
+      // Convert private key string to Uint8Array
+      const privateKeyBytes = hexToBytes(privateKey);
+      
+      // Use getUserGroups which properly handles encrypted groups
+      const userGroups = await getUserGroups(currentUserId, privateKeyBytes);
+      
+      const loadedGroups: GroupItem[] = userGroups.map(group => {
+        let groupName = 'Group';
+        let memberIds: string[] = [];
+        
+        // Get group name (already decrypted by getUserGroups)
+        if (typeof group.name === 'string') {
+          groupName = group.name;
+        }
+        
+        // Get member IDs
+        if (Array.isArray(group.members)) {
+          memberIds = group.members;
+        }
+        
+        return {
+          id: group.id || '',
+          name: groupName,
+          memberCount: memberIds.length,
+          memberIds,
+        };
+      });
+      
+      setGroups(loadedGroups);
+    } catch (error) {
+      console.error('Failed to load groups:', error);
+    }
+  }, [currentUserId, privateKey]);
+  
+  useEffect(() => {
+    loadContacts();
+    if (includeGroups && privateKey) {
+      loadGroups();
+    }
+  }, [loadContacts, loadGroups, includeGroups, privateKey]);
   
   const handleToggle = (contactId: string) => {
     const currentIndex = selectedContacts.indexOf(contactId);
@@ -113,6 +171,10 @@ const ContactSelector: React.FC<ContactSelectorProps> = ({
     contact.email.toLowerCase().includes(searchTerm.toLowerCase())
   );
   
+  const filteredGroups = groups.filter(group =>
+    group.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+  
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
@@ -123,43 +185,86 @@ const ContactSelector: React.FC<ContactSelectorProps> = ({
   
   return (
     <Box>
+      {includeGroups && (
+        <Tabs
+          value={currentTab}
+          onChange={(_, newValue) => setCurrentTab(newValue)}
+          sx={{ mb: 2 }}
+        >
+          <Tab label="Contacts" value="contacts" />
+          <Tab label="Groups" value="groups" />
+        </Tabs>
+      )}
+      
       <TextField
         fullWidth
         size="small"
-        placeholder="Search contacts..."
+        placeholder={currentTab === 'contacts' ? "Search contacts..." : "Search groups..."}
         value={searchTerm}
         onChange={(e) => setSearchTerm(e.target.value)}
         sx={{ mb: 2 }}
       />
       
-      {filteredContacts.length === 0 ? (
-        <Typography color="text.secondary" align="center" sx={{ py: 3 }}>
-          No contacts found. Add contacts first to start chatting.
-        </Typography>
+      {currentTab === 'contacts' ? (
+        filteredContacts.length === 0 ? (
+          <Typography color="text.secondary" align="center" sx={{ py: 3 }}>
+            No contacts found. Add contacts first to start chatting.
+          </Typography>
+        ) : (
+          <List sx={{ maxHeight: 400, overflow: 'auto' }}>
+            {filteredContacts.map((contact) => (
+              <ListItem key={contact.id} disablePadding>
+                <ListItemButton onClick={() => handleToggle(contact.id)} dense>
+                  <Checkbox
+                    edge="start"
+                    checked={selectedContacts.indexOf(contact.id) !== -1}
+                    tabIndex={-1}
+                    disableRipple
+                  />
+                  <ListItemAvatar>
+                    <Avatar>
+                      <PersonIcon />
+                    </Avatar>
+                  </ListItemAvatar>
+                  <ListItemText
+                    primary={contact.displayName}
+                    secondary={contact.email}
+                  />
+                </ListItemButton>
+              </ListItem>
+            ))}
+          </List>
+        )
       ) : (
-        <List sx={{ maxHeight: 400, overflow: 'auto' }}>
-          {filteredContacts.map((contact) => (
-            <ListItem key={contact.id} disablePadding>
-              <ListItemButton onClick={() => handleToggle(contact.id)} dense>
-                <Checkbox
-                  edge="start"
-                  checked={selectedContacts.indexOf(contact.id) !== -1}
-                  tabIndex={-1}
-                  disableRipple
-                />
-                <ListItemAvatar>
-                  <Avatar>
-                    <PersonIcon />
-                  </Avatar>
-                </ListItemAvatar>
-                <ListItemText
-                  primary={contact.displayName}
-                  secondary={contact.email}
-                />
-              </ListItemButton>
-            </ListItem>
-          ))}
-        </List>
+        filteredGroups.length === 0 ? (
+          <Typography color="text.secondary" align="center" sx={{ py: 3 }}>
+            No groups found. Create a group first to start chatting.
+          </Typography>
+        ) : (
+          <List sx={{ maxHeight: 400, overflow: 'auto' }}>
+            {filteredGroups.map((group) => (
+              <ListItem key={group.id} disablePadding>
+                <ListItemButton onClick={() => handleToggle(group.id)} dense>
+                  <Checkbox
+                    edge="start"
+                    checked={selectedContacts.indexOf(group.id) !== -1}
+                    tabIndex={-1}
+                    disableRipple
+                  />
+                  <ListItemAvatar>
+                    <Avatar>
+                      <GroupIcon />
+                    </Avatar>
+                  </ListItemAvatar>
+                  <ListItemText
+                    primary={group.name}
+                    secondary={`${group.memberCount} members`}
+                  />
+                </ListItemButton>
+              </ListItem>
+            ))}
+          </List>
+        )
       )}
     </Box>
   );

@@ -29,6 +29,7 @@
     "deploy:quick": "./deploy.sh -s",
     "deploy:landing": "npm run build:landing && firebase deploy --only hosting:landing",
     "deploy:app": "npm run build:deploy && firebase deploy --only hosting:app",
+    "deploy:app-only": "firebase deploy --only hosting:app",
     "deploy:both": "npm run build:landing && npm run build:deploy && firebase deploy --only hosting"
   },
   "dependencies": {

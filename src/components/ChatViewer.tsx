@@ -26,6 +26,7 @@ import {
   Share as ShareIcon,
   Print as PrintIcon,
   Download as DownloadIcon,
+  AttachFile as AttachFileIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../auth/AuthContext';
@@ -33,7 +34,9 @@ import { usePassphrase } from '../auth/PassphraseContext';
 import { ChatService } from '../services/chatService';
 import type { Conversation, ChatMessage } from '../types/chat';
 import ChatMessageList from './ChatMessageList';
+import FileViewer from './FileViewer';
 import { getUserProfile } from '../firestore';
+import type { FileData } from '../files';
 
 interface ChatViewerProps {
   open: boolean;
@@ -61,6 +64,15 @@ const ChatViewer: React.FC<ChatViewerProps> = ({
   const [participantNames, setParticipantNames] = useState<Record<string, string>>({});
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [loading, setLoading] = useState(false);
+  const [attachedFile, setAttachedFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // File viewer state
+  const [fileViewerOpen, setFileViewerOpen] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<FileData | null>(null);
+  const [selectedFileContent, setSelectedFileContent] = useState<ArrayBuffer | null>(null);
+  const [loadingFile, setLoadingFile] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -125,8 +137,92 @@ const ChatViewer: React.FC<ChatViewerProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setAttachedFile(file);
+    }
+  };
+
+  const handleAttachClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleRemoveAttachment = () => {
+    setAttachedFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleSendFileMessage = async (file: File) => {
+    if (!conversationId || !user || !privateKey) return;
+
+    setUploading(true);
+    try {
+      // Import the necessary services
+      const { FileEncryptionService } = await import('../services/fileEncryption');
+      const { uploadFileData } = await import('../storage');
+
+      // Read file data
+      const fileBuffer = await file.arrayBuffer();
+      const fileData = new Uint8Array(fileBuffer);
+
+      // Get conversation to find participants
+      const participants = conversation?.participants || [];
+
+      // Encrypt file for all participants
+      const encryptionResult = await FileEncryptionService.encryptFileForUsers(
+        fileData,
+        file.name,
+        file.size,
+        participants,
+        user.uid,
+        null // No folder for chat attachments
+      );
+
+      // Upload encrypted file to storage
+      await uploadFileData(encryptionResult.storagePath, encryptionResult.encryptedContent.buffer as ArrayBuffer);
+
+      // Send message with file metadata including encryption keys
+      const fileMetadata: ChatMessage['fileMetadata'] = {
+        fileName: file.name,
+        fileSize: file.size,
+        mimeType: file.type,
+        storagePath: encryptionResult.storagePath,
+        encryptedKeys: encryptionResult.encryptedKeys,
+      };
+
+      await ChatService.sendMessage(
+        conversationId,
+        user.uid,
+        privateKey,
+        `Shared a file: ${file.name}`,
+        'file',
+        fileMetadata
+      );
+
+      // Clear attachment
+      handleRemoveAttachment();
+    } catch (error) {
+      console.error('Failed to send file:', error);
+      alert('Failed to send file. Please try again.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleSendMessage = async () => {
-    if (!messageInput.trim() || !conversationId || !user || !privateKey) return;
+    if (!conversationId || !user || !privateKey) return;
+
+    // If there's an attached file, send it
+    if (attachedFile) {
+      await handleSendFileMessage(attachedFile);
+      return;
+    }
+
+    // Otherwise send text message
+    if (!messageInput.trim()) return;
 
     setSending(true);
     try {
@@ -148,6 +244,63 @@ const ChatViewer: React.FC<ChatViewerProps> = ({
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
+    }
+  };
+
+  const handleFileClick = async (message: ChatMessage) => {
+    if (!message.fileMetadata || !user || !privateKey) return;
+
+    setLoadingFile(true);
+    try {
+      // Check if we have encryption keys
+      if (!message.fileMetadata.encryptedKeys || !message.fileMetadata.encryptedKeys[user.uid]) {
+        alert('You do not have access to decrypt this file.');
+        return;
+      }
+
+      // Import necessary services
+      const { getFile } = await import('../storage');
+      const { FileEncryptionService } = await import('../services/fileEncryption');
+      
+      // Download the encrypted file from storage
+      const encryptedData = await getFile(message.fileMetadata.storagePath);
+      
+      // Decrypt the file using the user's encrypted key
+      const decryptedContent = await FileEncryptionService.decryptFile(
+        new Uint8Array(encryptedData),
+        message.fileMetadata.encryptedKeys[user.uid],
+        privateKey
+      );
+      
+      // Convert timestamp to Date
+      const timestamp = message.timestamp instanceof Date 
+        ? message.timestamp 
+        : (message.timestamp as any).toDate 
+          ? (message.timestamp as any).toDate() 
+          : new Date();
+
+      // Create a minimal FileData object for the viewer
+      const fileData: FileData = {
+        id: message.id || '',
+        name: message.fileMetadata.fileName,
+        size: `${message.fileMetadata.fileSize} bytes`,
+        storagePath: message.fileMetadata.storagePath,
+        owner: message.senderId,
+        sharedWith: [],
+        encryptedKeys: message.fileMetadata.encryptedKeys,
+        parent: null,
+        createdAt: timestamp,
+        lastModified: timestamp,
+      };
+
+      setSelectedFile(fileData);
+      setSelectedFileContent(decryptedContent.buffer as ArrayBuffer);
+      setFileViewerOpen(true);
+    } catch (error) {
+      console.error('Failed to load file:', error);
+      alert('Failed to load file. Please try again.');
+    } finally {
+      setLoadingFile(false);
     }
   };
 
@@ -377,6 +530,8 @@ const ChatViewer: React.FC<ChatViewerProps> = ({
               messages={messages}
               currentUserId={user.uid}
               participantNames={participantNames}
+              conversationId={conversationId || undefined}
+              onFileClick={handleFileClick}
             />
             <div ref={messagesEndRef} />
           </Box>
@@ -400,42 +555,118 @@ const ChatViewer: React.FC<ChatViewerProps> = ({
       <DialogActions
         sx={{
           p: 2,
-          gap: 2,
+          flexDirection: 'column',
+          alignItems: 'stretch',
+          gap: 1,
         }}
       >
-        <TextField
-          fullWidth
-          multiline
-          maxRows={4}
-          placeholder={t('chat.typeMessage', 'Type a message...')}
-          value={messageInput}
-          onChange={(e) => setMessageInput(e.target.value)}
-          onKeyPress={handleKeyPress}
-          disabled={sending || !conversation}
-          sx={{
-            '& .MuiOutlinedInput-root': {
-              borderRadius: 3,
-            },
-          }}
-        />
-        <IconButton
-          color="primary"
-          onClick={handleSendMessage}
-          disabled={!messageInput.trim() || sending || !conversation}
-          sx={{
-            bgcolor: 'primary.main',
-            color: 'white',
-            '&:hover': {
-              bgcolor: 'primary.dark',
-            },
-            '&.Mui-disabled': {
-              bgcolor: 'action.disabledBackground',
-            },
-          }}
-        >
-          <SendIcon />
-        </IconButton>
+        {/* File preview */}
+        {attachedFile && (
+          <Box
+            sx={{
+              p: 2,
+              bgcolor: 'action.hover',
+              borderRadius: 2,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <AttachFileIcon fontSize="small" />
+              <Typography variant="body2" noWrap sx={{ maxWidth: 300 }}>
+                {attachedFile.name}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                ({(attachedFile.size / 1024).toFixed(1)} KB)
+              </Typography>
+            </Box>
+            <IconButton size="small" onClick={handleRemoveAttachment}>
+              <Close fontSize="small" />
+            </IconButton>
+          </Box>
+        )}
+
+        {/* Input row */}
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            onChange={handleFileSelect}
+            style={{ display: 'none' }}
+          />
+          <IconButton
+            color="primary"
+            onClick={handleAttachClick}
+            disabled={sending || uploading || !conversation || !!attachedFile}
+            size="small"
+          >
+            <AttachFileIcon />
+          </IconButton>
+          <TextField
+            fullWidth
+            multiline
+            maxRows={4}
+            placeholder={
+              attachedFile
+                ? t('chat.addCaption', 'Add a caption (optional)...')
+                : t('chat.typeMessage', 'Type a message...')
+            }
+            value={messageInput}
+            onChange={(e) => setMessageInput(e.target.value)}
+            onKeyPress={handleKeyPress}
+            disabled={sending || uploading || !conversation}
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                borderRadius: 3,
+              },
+            }}
+          />
+          <IconButton
+            color="primary"
+            onClick={handleSendMessage}
+            disabled={(!messageInput.trim() && !attachedFile) || sending || uploading || !conversation}
+            sx={{
+              bgcolor: 'primary.main',
+              color: 'white',
+              '&:hover': {
+                bgcolor: 'primary.dark',
+              },
+              '&.Mui-disabled': {
+                bgcolor: 'action.disabledBackground',
+              },
+            }}
+          >
+            <SendIcon />
+          </IconButton>
+        </Box>
       </DialogActions>
+
+      {/* File Viewer for attachments */}
+      <FileViewer
+        open={fileViewerOpen}
+        file={selectedFile}
+        fileContent={selectedFileContent}
+        loading={loadingFile}
+        onClose={() => {
+          setFileViewerOpen(false);
+          setSelectedFile(null);
+          setSelectedFileContent(null);
+        }}
+        onDownload={() => {
+          if (!selectedFile || !selectedFileContent) return;
+          const blob = new Blob([selectedFileContent]);
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = typeof selectedFile.name === 'string' ? selectedFile.name : 'file';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+        }}
+        userId={user.uid}
+      />
     </Dialog>
   );
 };

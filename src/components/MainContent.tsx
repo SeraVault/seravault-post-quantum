@@ -75,6 +75,7 @@ import CreationFAB from './CreationFAB';
 import FileViewer from './FileViewer';
 import ChatViewer from './ChatViewer';
 import TagManagementDialog from './TagManagementDialog';
+import ContactSelector from './ContactSelector';
 
 interface MainContentProps {
   currentFolder: string | null;
@@ -170,6 +171,10 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
   const [copyOptionsOpen, setCopyOptionsOpen] = useState(false);
   const [itemToCopy, setItemToCopy] = useState<{ item: FileData | FolderData; type: 'file' | 'folder' } | null>(null);
   const [preserveSharing, setPreserveSharing] = useState(false);
+  
+  // New chat dialog state
+  const [newChatDialogOpen, setNewChatDialogOpen] = useState(false);
+  const [selectedContacts, setSelectedContacts] = useState<string[]>([]);
 
 
   // Context menu and mobile action menu
@@ -1477,6 +1482,33 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
     }
   };
 
+  const handleCreateNewChat = async () => {
+    if (!user || !privateKey || selectedContacts.length === 0) return;
+
+    try {
+      const { ChatService } = await import('../services/chatService');
+      
+      // Create a new conversation
+      const conversationId = await ChatService.createConversation(
+        user.uid,
+        selectedContacts,
+        'individual', // For now, always create individual chats from FAB
+        privateKey
+      );
+
+      // Close the contact selector dialog
+      setNewChatDialogOpen(false);
+      setSelectedContacts([]);
+
+      // Open the new chat in ChatViewer
+      setSelectedConversationId(conversationId);
+      setChatViewerOpen(true);
+    } catch (error) {
+      console.error('Error creating chat:', error);
+      alert(`Failed to create chat: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
   const handleEditForm = async () => {
     if (!selectedFormFile || !user || !privateKey) return;
     
@@ -2354,10 +2386,13 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
           open={renameDialog.open}
           onClose={() => setRenameDialog({ open: false, item: null, type: 'file', currentName: '' })}
           onRename={async (newName: string) => {
-            if (renameDialog.item) {
+            if (renameDialog.item && user && privateKey) {
               try {
                 if (renameDialog.type === 'file') {
                   const fileData = renameDialog.item as FileData;
+
+                  // Invalidate cache BEFORE updating to ensure fresh decrypt
+                  metadataCache.invalidate(renameDialog.item.id!);
 
                   // Use the new per-user names service to set personalized name
                   const { setUserFileName } = await import('../services/userNamesManagement');
@@ -2369,12 +2404,21 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
                     fileData
                   );
 
-                  // Invalidate cache since filename changed
-                  metadataCache.invalidate(renameDialog.item.id!);
+                  // Update local state immediately with the new name
+                  setFiles(prevFiles => prevFiles.map(f => 
+                    f.id === renameDialog.item?.id 
+                      ? { ...f, name: newName }
+                      : f
+                  ));
+                  setFilteredFiles(prevFiles => prevFiles.map(f => 
+                    f.id === renameDialog.item?.id 
+                      ? { ...f, name: newName }
+                      : f
+                  ));
                 } else {
-                  await renameFolderWithEncryption(renameDialog.item.id!, newName, user?.uid || '');
                   // Invalidate cache since folder name changed
                   metadataCache.invalidate(renameDialog.item.id!);
+                  await renameFolderWithEncryption(renameDialog.item.id!, newName, user.uid);
                 }
                 setRenameDialog({ open: false, item: null, type: 'file', currentName: '' });
               } catch (error) {
@@ -2447,6 +2491,37 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
           />
         )}
 
+        {/* New Chat Dialog */}
+        <Dialog
+          open={newChatDialogOpen}
+          onClose={() => setNewChatDialogOpen(false)}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>New Chat</DialogTitle>
+          <DialogContent>
+            <ContactSelector
+              currentUserId={user?.uid || ''}
+              selectedContacts={selectedContacts}
+              onSelectionChange={setSelectedContacts}
+              privateKey={privateKey || undefined}
+              includeGroups={true}
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setNewChatDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              onClick={handleCreateNewChat}
+              disabled={selectedContacts.length === 0}
+            >
+              Start Chat
+            </Button>
+          </DialogActions>
+        </Dialog>
+
         {/* FormInstanceFiller for both new and existing forms */}
         {formFillerOpen && (
           <FormInstanceFiller
@@ -2510,7 +2585,7 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
               setFormBuilderOpen(true);
             }}
             onCreateChat={() => {
-              navigate('/chat', { state: { openNewChatDialog: true } });
+              setNewChatDialogOpen(true);
             }}
             onPaste={handlePaste}
             showPaste={!!clipboardItem}

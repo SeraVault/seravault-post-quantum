@@ -36,6 +36,7 @@ export interface ChatMessage {
     fileSize: number;
     mimeType: string;
     storagePath: string;
+    encryptedKeys?: { [uid: string]: string }; // Encryption keys for each participant
   };
   
   // Read receipts per user

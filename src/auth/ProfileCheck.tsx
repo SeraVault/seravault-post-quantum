@@ -1,13 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from './AuthContext';
 import { getUserProfile } from '../firestore';
-import { Navigate, Outlet } from 'react-router-dom';
+import { Navigate, Outlet, useOutletContext } from 'react-router-dom';
 import { Box, CircularProgress } from '@mui/material';
 
 const ProfileCheck: React.FC = () => {
   const { user } = useAuth();
   const [hasProfile, setHasProfile] = useState(false);
   const [loading, setLoading] = useState(true);
+  
+  // Get context from parent (PersistentLayout) to pass through to children
+  const context = useOutletContext();
 
   useEffect(() => {
     const checkProfile = async () => {
@@ -34,7 +37,8 @@ const ProfileCheck: React.FC = () => {
     return <Navigate to="/profile" />;
   }
 
-  return <Outlet />;
+  // Forward the context to child routes
+  return <Outlet context={context} />;
 };
 
 export default ProfileCheck;

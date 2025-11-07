@@ -1,12 +1,10 @@
 import React, { useEffect } from 'react';
 import { Box, Typography, CircularProgress, Button, TextField, Paper, FormControlLabel, Switch } from '@mui/material';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { usePassphrase } from '../auth/PassphraseContext';
 import { useThemeContext } from '../theme/ThemeContext';
 import { useProfileManagement } from '../hooks/useProfileManagement';
 import { useKeyGeneration } from '../hooks/useKeyGeneration';
-import AppLayout from '../components/AppLayout';
 import BiometricSetup from '../components/BiometricSetup';
 import HardwareKeySetup from '../components/HardwareKeySetup';
 import DeviceCapabilityInfo from '../components/DeviceCapabilityInfo';
@@ -20,7 +18,6 @@ const ProfilePage: React.FC = () => {
   const { user } = useAuth();
   const { setMode } = useThemeContext();
   const { privateKey, refreshPrivateKey } = usePassphrase();
-  const navigate = useNavigate();
   
   const {
     userProfile,
@@ -86,11 +83,6 @@ const ProfilePage: React.FC = () => {
     }, 100);
   };
 
-  // Handle folder navigation by redirecting to main documents page
-  const handleFolderNavigation = (folderId: string | null) => {
-    navigate(`/?folder=${folderId || ''}`);
-  };
-
   useEffect(() => {
     fetchProfile(user);
   }, [user, fetchProfile]);
@@ -131,36 +123,32 @@ const ProfilePage: React.FC = () => {
 
   if (loading) {
     return (
-      <AppLayout>
-        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
-          <CircularProgress />
-        </Box>
-      </AppLayout>
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+        <CircularProgress />
+      </Box>
     );
   }
 
   if (!userProfile || !userProfile.publicKey || (!userProfile.encryptedPrivateKey && !userProfile.legacyEncryptedPrivateKey)) {
     return (
-      <AppLayout currentFolder={null} setCurrentFolder={handleFolderNavigation}>
-        <KeyGenerationForm
-          userProfile={userProfile}
-          displayName={displayName}
-          passphrase={passphrase}
-          confirmPassphrase={confirmPassphrase}
-          error={error}
-          onDisplayNameChange={setDisplayName}
-          onPassphraseChange={setPassphrase}
-          onConfirmPassphraseChange={setConfirmPassphrase}
-          onGenerateKeys={(useHardwareStorage) => handleGenerateKeys(user, displayName, handleKeyGenerationSuccess, setError, setLoading, useHardwareStorage)}
-        />
-      </AppLayout>
+      <KeyGenerationForm
+        userProfile={userProfile}
+        displayName={displayName}
+        passphrase={passphrase}
+        confirmPassphrase={confirmPassphrase}
+        error={error}
+        onDisplayNameChange={setDisplayName}
+        onPassphraseChange={setPassphrase}
+        onConfirmPassphraseChange={setConfirmPassphrase}
+        onGenerateKeys={(useHardwareStorage) => handleGenerateKeys(user, displayName, handleKeyGenerationSuccess, setError, setLoading, useHardwareStorage)}
+      />
     );
   }
 
   const encryptionMethod = getEncryptionMethod(userProfile);
 
   return (
-    <AppLayout currentFolder={null} setCurrentFolder={handleFolderNavigation}>
+    <>
       <Box sx={{ maxWidth: 800, mx: 'auto' }}>
         <Typography variant="h4" gutterBottom>Profile</Typography>
         
@@ -251,7 +239,7 @@ const ProfilePage: React.FC = () => {
         )}
         userId={user?.uid || ''}
       />
-    </AppLayout>
+      </>
   );
 };
 

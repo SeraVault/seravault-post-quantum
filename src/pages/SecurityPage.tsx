@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   Box,
   Typography,
@@ -17,7 +17,6 @@ import {
   Card,
   CardContent,
 } from '@mui/material';
-import { useNavigate } from 'react-router-dom';
 import {
   ExpandMore,
   Security,
@@ -33,21 +32,11 @@ import {
   Key,
   Computer,
 } from '@mui/icons-material';
-import AppLayout from '../components/AppLayout';
 
 const SecurityPage: React.FC = () => {
-  const navigate = useNavigate();
-  const [currentFolder, setCurrentFolder] = useState<string | null>(null);
-
-  // Handle folder navigation by redirecting to main documents page
-  const handleFolderNavigation = (folderId: string | null) => {
-    navigate(`/?folder=${folderId || ''}`);
-  };
-
   return (
-    <AppLayout currentFolder={currentFolder} setCurrentFolder={handleFolderNavigation}>
-      <Container maxWidth="lg" sx={{ py: 4 }}>
-        {/* Header */}
+    <Container maxWidth="lg" sx={{ py: 4 }}>
+      {/* Header */}
         <Box sx={{ textAlign: 'center', mb: 6 }}>
           <Typography variant="h3" component="h1" gutterBottom sx={{ fontWeight: 'bold' }}>
             Post-Quantum Cryptography
@@ -410,7 +399,6 @@ const SecurityPage: React.FC = () => {
           </Typography>
         </Box>
       </Container>
-    </AppLayout>
   );
 };
 

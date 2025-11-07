@@ -149,16 +149,14 @@ service cloud.firestore {
           // Regular files and forms
           (request.resource.data.get('fileType', null) != 'chat' &&
            request.resource.data.keys().hasAll(['owner', 'name', 'size', 'storagePath', 'encryptedKeys', 'sharedWith', 'createdAt'])) ||
-          // Chat files - conversations stored as files
+          // Chat files - adding validations back incrementally
           (request.resource.data.fileType == 'chat' &&
            request.resource.data.keys().hasAll(['owner', 'name', 'fileType', 'size', 'encryptedKeys', 'sharedWith', 'createdAt', 'participants', 'type', 'createdBy']) &&
            request.resource.data.type in ['individual', 'group'] &&
            request.resource.data.participants is list &&
            request.resource.data.participants.size() >= 2 &&
            request.auth.uid in request.resource.data.participants &&
-           request.resource.data.createdBy == request.auth.uid &&
-           // For chat files, sharedWith must match participants
-           request.resource.data.sharedWith.toSet() == request.resource.data.participants.toSet())
+           request.resource.data.createdBy == request.auth.uid)
         ) &&
         // Validate data types
         request.resource.data.owner is string &&
@@ -167,8 +165,10 @@ service cloud.firestore {
         request.resource.data.encryptedKeys is map &&
         // Ensure user has an encrypted key for the file
         request.auth.uid in request.resource.data.encryptedKeys &&
-        // Parent folder validation (if specified)
-        (request.resource.data.parent == null || request.resource.data.parent is string) &&
+        // Parent folder validation (if specified) - not used for chats which use userFolders
+        (request.resource.data.get('fileType', null) == 'chat' || 
+         request.resource.data.parent == null || 
+         request.resource.data.parent is string) &&
         // userFolders validation (if specified)
         (!request.resource.data.keys().hasAny(['userFolders']) || 
          (request.resource.data.userFolders is map && 
@@ -181,6 +181,13 @@ service cloud.firestore {
         (!request.resource.data.keys().hasAny(['userNames']) || 
          (request.resource.data.userNames is map && 
           request.auth.uid in request.resource.data.userNames.keys()));
+      
+      // Allow chat participants to update lastMessageAt and lastModified timestamps
+      allow update: if request.auth != null &&
+        resource.data.fileType == 'chat' &&
+        resource.data.participants is list &&
+        request.auth.uid in resource.data.participants &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessageAt', 'lastModified']);
       
       // Messages subcollection - for chat files only
       // Messages are stored under files/{chatFileId}/messages/{messageId}

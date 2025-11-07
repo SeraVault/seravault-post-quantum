@@ -30,8 +30,6 @@ import {
   FilterList,
 } from '@mui/icons-material';
 import { useAuth } from '../auth/AuthContext';
-import { usePassphrase } from '../auth/PassphraseContext';
-import AppLayout from '../components/AppLayout';
 import FormTemplateEditor from '../components/FormTemplateEditor';
 import type { FormTemplate } from '../utils/formFiles';
 import { collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
@@ -39,7 +37,6 @@ import { db } from '../firebase';
 
 const FormTemplatesPage: React.FC = () => {
   const { user } = useAuth();
-  const { privateKey } = usePassphrase();
   const navigate = useNavigate();
   const [templates, setTemplates] = useState<FormTemplate[]>([]);
   const [filteredTemplates, setFilteredTemplates] = useState<FormTemplate[]>([]);
@@ -264,20 +261,9 @@ const FormTemplatesPage: React.FC = () => {
   };
 
   return (
-    <AppLayout 
-      currentFolder={null}
-      setCurrentFolder={() => {}}
-      files={[]}
-      userId={user?.uid}
-      userPrivateKey={privateKey || undefined}
-      selectedTags={[]}
-      onTagSelectionChange={() => {}}
-      matchAllTags={false}
-      onMatchModeChange={() => {}}
-    >
-      <Container maxWidth="xl" sx={{ py: 4 }}>
-        {/* Header */}
-        <Box sx={{ mb: 4 }}>
+    <Container maxWidth="xl" sx={{ py: 4 }}>
+      {/* Header */}
+      <Box sx={{ mb: 4 }}>
           <Typography variant="h4" component="h1" gutterBottom fontWeight={600}>
             Form Templates
           </Typography>
@@ -400,7 +386,6 @@ const FormTemplatesPage: React.FC = () => {
         </DialogActions>
       </Dialog>
     </Container>
-    </AppLayout>
   );
 };
 
