@@ -3,6 +3,7 @@ import { backendService, type User } from '../backend/BackendService';
 import { offlineFileCache } from '../services/offlineFileCache';
 import { metadataCache } from '../services/metadataCache';
 import { fileCacheService } from '../services/FileCacheService';
+import { FCMService } from '../services/fcmService';
 
 interface AuthContextType {
   user: User | null;
@@ -22,6 +23,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const logout = async () => {
     try {
+      // Unregister FCM token before logout
+      if (user?.uid) {
+        console.log('📵 Unregistering FCM token...');
+        await FCMService.unregister(user.uid).catch(err => {
+          console.warn('Failed to unregister FCM token:', err);
+        });
+      }
+      
       // Dispatch session timeout event to clear all sensitive data in components
       window.dispatchEvent(new CustomEvent('sessionTimeout', {
         detail: { reason: 'user_logout' }
@@ -54,9 +63,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   useEffect(() => {
-    const unsubscribe = backendService.auth.onAuthStateChanged((user) => {
+    const unsubscribe = backendService.auth.onAuthStateChanged(async (user) => {
       setUser(user);
       setLoading(false);
+      
+      // Initialize FCM when user logs in
+      if (user?.uid && FCMService.isSupported()) {
+        // Check if user has previously enabled notifications
+        const notificationsEnabled = localStorage.getItem(`notifications_${user.uid}`) !== 'false';
+        
+        if (notificationsEnabled) {
+          console.log('🔔 Initializing FCM for user...');
+          try {
+            await FCMService.initialize(user.uid);
+          } catch (error) {
+            console.error('Failed to initialize FCM:', error);
+          }
+        } else {
+          console.log('🔕 Notifications disabled by user preference');
+        }
+      }
     });
 
     return () => unsubscribe();

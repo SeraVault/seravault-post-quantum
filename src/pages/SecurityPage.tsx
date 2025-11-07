@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Box,
   Typography,
@@ -16,6 +16,8 @@ import {
   Divider,
   Card,
   CardContent,
+  Button,
+  Snackbar,
 } from '@mui/material';
 import {
   ExpandMore,
@@ -31,9 +33,37 @@ import {
   LockOutlined,
   Key,
   Computer,
+  Refresh,
 } from '@mui/icons-material';
+import { NotificationSettings } from '../components/NotificationSettings';
 
 const SecurityPage: React.FC = () => {
+  const [showSuccess, setShowSuccess] = useState(false);
+
+  const handleForceClearCache = async () => {
+    try {
+      // Unregister all service workers
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      for (const registration of registrations) {
+        await registration.unregister();
+      }
+
+      // Clear all caches
+      const cacheNames = await caches.keys();
+      await Promise.all(cacheNames.map(name => caches.delete(name)));
+
+      setShowSuccess(true);
+      
+      // Reload after showing success message
+      setTimeout(() => {
+        window.location.reload();
+      }, 2000);
+    } catch (error) {
+      console.error('Error clearing cache:', error);
+      alert('Error clearing cache. Please try manually clearing your browser data.');
+    }
+  };
+
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
       {/* Header */}
@@ -382,13 +412,52 @@ const SecurityPage: React.FC = () => {
 
           <Typography variant="h6" gutterBottom>Technical Standards Compliance:</Typography>
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-            <Chip label="RFC 9180 (HPKE)" color="primary" />
+            <Chip label="ML-KEM-768" color="primary" />
             <Chip label="NIST Post-Quantum" color="secondary" />
             <Chip label="FIPS 140-2" color="success" />
             <Chip label="Common Criteria" color="info" />
             <Chip label="NSA Suite B" color="warning" />
           </Box>
         </Paper>
+
+        {/* Notification Settings */}
+        <Box sx={{ mb: 4 }}>
+          <NotificationSettings />
+        </Box>
+
+        {/* Force Update Section */}
+        <Paper elevation={2} sx={{ p: 4, mb: 4 }}>
+          <Typography variant="h5" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+            <Refresh sx={{ mr: 2, color: 'primary.main' }} />
+            App Updates & Cache
+          </Typography>
+          <Typography variant="body2" color="text.secondary" paragraph>
+            If you're experiencing issues with the app not updating or features not working correctly,
+            use this button to force clear all cached data and reload the latest version.
+          </Typography>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            <strong>Warning:</strong> This will sign you out and reload the app. Make sure you have your passphrase saved.
+          </Alert>
+          <Button
+            variant="contained"
+            color="primary"
+            startIcon={<Refresh />}
+            onClick={handleForceClearCache}
+            size="large"
+          >
+            Force Clear Cache & Update
+          </Button>
+        </Paper>
+
+        <Snackbar
+          open={showSuccess}
+          autoHideDuration={2000}
+          anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        >
+          <Alert severity="success">
+            Cache cleared! Reloading...
+          </Alert>
+        </Snackbar>
 
         {/* Footer */}
         <Box sx={{ textAlign: 'center', mt: 6 }}>

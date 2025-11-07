@@ -44,8 +44,10 @@ const TopBar: React.FC<TopBarProps> = ({ handleDrawerToggle }) => {
           />
         </Box>
         {user ? (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <SecurityStatusIndicator />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 0.5, sm: 1 } }}>
+            <Box sx={{ display: { xs: 'none', sm: 'block' } }}>
+              <SecurityStatusIndicator />
+            </Box>
             <NotificationBell />
             <UserAvatar />
           </Box>

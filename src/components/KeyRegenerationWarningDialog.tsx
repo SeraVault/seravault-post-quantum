@@ -73,7 +73,7 @@ const KeyRegenerationWarningDialog: React.FC<KeyRegenerationWarningDialogProps> 
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, color: '#ff9800' }}>
           <Warning sx={{ fontSize: 32 }} />
           <Typography variant="h6" component="div">
-            Regenerate HPKE Keys - File Access Warning
+            Regenerate Encryption Keys - File Access Warning
           </Typography>
         </Box>
       </DialogTitle>
@@ -95,7 +95,7 @@ const KeyRegenerationWarningDialog: React.FC<KeyRegenerationWarningDialogProps> 
             {fileCount > 0 ? (
               <>
                 <Typography variant="body1" sx={{ mb: 2 }}>
-                  When you regenerate your HPKE keys, your existing files are encrypted with your old key. 
+                  When you regenerate your encryption keys, your existing files are encrypted with your old key. 
                   You have two options:
                 </Typography>
 
@@ -155,7 +155,7 @@ const KeyRegenerationWarningDialog: React.FC<KeyRegenerationWarningDialogProps> 
                     </ListItemIcon>
                     <ListItemText 
                       primary="Why does this happen?"
-                      secondary="Files are encrypted with AES keys, which are encrypted with your HPKE public key. New keys can't decrypt old AES keys."
+                      secondary="Files are encrypted with AES keys, which are encrypted with your quantum-safe public key. New keys can't decrypt old AES keys."
                     />
                   </ListItem>
                   
@@ -166,6 +166,16 @@ const KeyRegenerationWarningDialog: React.FC<KeyRegenerationWarningDialogProps> 
                     <ListItemText 
                       primary="Migration Process"
                       secondary="We decrypt your file keys with the old private key, then re-encrypt them with the new public key."
+                    />
+                  </ListItem>
+
+                  <ListItem>
+                    <ListItemIcon>
+                      <Warning sx={{ color: '#ff9800' }} />
+                    </ListItemIcon>
+                    <ListItemText 
+                      primary="Hardware Keys & Biometrics Will Be Removed"
+                      secondary="Any stored biometric authentication or hardware keys will be automatically cleared and must be re-registered with your new keys."
                     />
                   </ListItem>
                 </List>

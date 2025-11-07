@@ -3,9 +3,15 @@ import { useAuth } from './AuthContext';
 import { unlockPrivateKey } from '../services/keyManagement';
 import { usePrivateKeyStorage } from '../utils/secureStorage';
 import BiometricPassphraseDialog from '../components/BiometricPassphraseDialog';
+import { Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography, Box } from '@mui/material';
+import { Fingerprint } from '@mui/icons-material';
+import { useNavigate } from 'react-router-dom';
+import { isHardwareKeySupported, getRegisteredHardwareKeys } from '../utils/hardwareKeyAuth';
+import { getUserProfile } from '../firestore';
 
 interface PassphraseContextType {
   privateKey: string | null;
+  setPrivateKey: (key: string | null) => void;
   clearPrivateKey: () => void;
   hasStoredKey: boolean;
   loading: boolean;
@@ -15,6 +21,7 @@ interface PassphraseContextType {
 
 const PassphraseContext = createContext<PassphraseContextType>({
   privateKey: null,
+  setPrivateKey: () => {},
   clearPrivateKey: () => {},
   hasStoredKey: false,
   loading: false,
@@ -24,10 +31,12 @@ const PassphraseContext = createContext<PassphraseContextType>({
 
 const PassphraseProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [privateKey, setPrivateKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [passphraseDialogOpen, setPassphraseDialogOpen] = useState(false);
   const [userDismissed, setUserDismissed] = useState(false);
+  const [biometricPromptOpen, setBiometricPromptOpen] = useState(false);
   const {
     storePrivateKey,
     getStoredPrivateKey,
@@ -60,7 +69,22 @@ const PassphraseProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return;
         }
         
-        // If no stored key, show passphrase dialog
+        // Check if user has a profile with keys before showing unlock dialog
+        try {
+          const profile = await getUserProfile(user.uid);
+          if (!profile || !profile.publicKey || (!profile.encryptedPrivateKey && !profile.legacyEncryptedPrivateKey)) {
+            // User doesn't have keys yet (likely on profile creation page)
+            console.log('🔑 User has no keys yet, skipping unlock dialog');
+            setLoading(false);
+            return;
+          }
+        } catch (error) {
+          console.error('Error checking user profile:', error);
+          setLoading(false);
+          return;
+        }
+        
+        // If no stored key and user has keys, show passphrase dialog
         if (!userDismissed) {
           setLoading(false);
           setPassphraseDialogOpen(true);
@@ -70,7 +94,7 @@ const PassphraseProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     };
     checkPrivateKey();
-  }, [user, privateKey]);
+  }, [user, privateKey, clearAllUserKeys, getStoredPrivateKey, userDismissed]);
 
   // Simple refresh function that can be called directly
   const refreshPrivateKey = () => {
@@ -145,6 +169,20 @@ const PassphraseProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setLoading(false);
       setPassphraseDialogOpen(false);
       setUserDismissed(false);
+      
+      // Check if we should prompt for biometric setup (only for passphrase method)
+      if (method === 'passphrase') {
+        const biometricsSupported = await isHardwareKeySupported();
+        if (biometricsSupported) {
+          // Check if user already has biometric setup
+          const existingKeys = await getRegisteredHardwareKeys(user.uid);
+          if (existingKeys.length === 0) {
+            // Show biometric setup prompt
+            setBiometricPromptOpen(true);
+          }
+        }
+      }
+      
       // Metadata preloading is now handled by MetadataContext
     } catch (error) {
       console.error('Failed to unlock private key:', error);
@@ -166,6 +204,7 @@ const PassphraseProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   return (
     <PassphraseContext.Provider value={{ 
       privateKey, 
+      setPrivateKey,
       clearPrivateKey,
       hasStoredKey: hasStoredPrivateKey(),
       loading,
@@ -178,6 +217,39 @@ const PassphraseProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         onClose={handleDialogClose}
         onSubmit={handlePassphraseSubmit}
       />
+      
+      {/* Biometric Setup Prompt Dialog */}
+      <Dialog open={biometricPromptOpen} onClose={() => setBiometricPromptOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Fingerprint />
+            Enable Biometric Authentication?
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body1" gutterBottom>
+            Your device supports biometric authentication (fingerprint, Face ID, etc.).
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Would you like to enable biometric authentication for faster and more secure access to your encrypted files?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBiometricPromptOpen(false)}>
+            Maybe Later
+          </Button>
+          <Button 
+            variant="contained" 
+            onClick={() => {
+              setBiometricPromptOpen(false);
+              navigate('/profile#biometric');
+            }}
+            startIcon={<Fingerprint />}
+          >
+            Enable Now
+          </Button>
+        </DialogActions>
+      </Dialog>
     </PassphraseContext.Provider>
   );
 };

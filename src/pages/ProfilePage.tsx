@@ -1,15 +1,18 @@
-import React, { useEffect } from 'react';
-import { Box, Typography, CircularProgress, Button, TextField, Paper, FormControlLabel, Switch } from '@mui/material';
+import React, { useEffect, useState } from 'react';
+import { Box, Typography, CircularProgress, Button, TextField, Paper, FormControlLabel, Switch, Alert } from '@mui/material';
 import { useAuth } from '../auth/AuthContext';
 import { usePassphrase } from '../auth/PassphraseContext';
 import { useThemeContext } from '../theme/ThemeContext';
 import { useProfileManagement } from '../hooks/useProfileManagement';
 import { useKeyGeneration } from '../hooks/useKeyGeneration';
+import { type UserProfile } from '../firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { useNavigate } from 'react-router-dom';
 import BiometricSetup from '../components/BiometricSetup';
 import HardwareKeySetup from '../components/HardwareKeySetup';
 import DeviceCapabilityInfo from '../components/DeviceCapabilityInfo';
 import DecryptedKeyWarningDialog from '../components/DecryptedKeyWarningDialog';
-import KeyRegenerationWarningDialog from '../components/KeyRegenerationWarningDialog';
+import DeleteAccountDialog from '../components/DeleteAccountDialog';
 import KeyManagementSection from '../components/KeyManagementSection';
 import EncryptionStatusSection from '../components/EncryptionStatusSection';
 import KeyGenerationForm from '../components/KeyGenerationForm';
@@ -17,8 +20,8 @@ import KeyGenerationForm from '../components/KeyGenerationForm';
 const ProfilePage: React.FC = () => {
   const { user } = useAuth();
   const { setMode } = useThemeContext();
-  const { privateKey, refreshPrivateKey } = usePassphrase();
-  
+  const { privateKey } = usePassphrase();
+  const navigate = useNavigate();
   const {
     userProfile,
     loading,
@@ -39,87 +42,82 @@ const ProfilePage: React.FC = () => {
   const {
     passphrase,
     confirmPassphrase,
-    showKeyRegeneration,
     showDecryptedKeyWarning,
-    showRegenerationWarning,
-    migrationProgress,
     setPassphrase,
     setConfirmPassphrase,
-    setShowKeyRegeneration,
     setShowDecryptedKeyWarning,
-    setShowRegenerationWarning,
     handleGenerateKeys,
-    handleRegenerateKeys,
-    handleConfirmRegeneration,
-    handleCancelRegeneration,
     getEncryptionMethod,
     handleDownloadKey,
     handleDownloadDecryptedKey,
   } = useKeyGeneration();
-  
+
+  // Delete account state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletionProgress, setDeletionProgress] = useState<{
+    step: string;
+    current: number;
+    total: number;
+  } | null>(null);
+
   // Success handlers that update profile and refresh private key
-  const handleKeyGenerationSuccess = async (profile: any) => {
+  const handleKeyGenerationSuccess = (profile: UserProfile) => {
     setUserProfile(profile);
-    refreshPrivateKey(); // Refresh the private key context
-    
-    // Wait a moment for the refresh to complete, then verify
-    setTimeout(async () => {
-      try {
-        const currentPrivateKey = privateKey;
-        if (currentPrivateKey && profile.publicKey) {
-          const { verifyKeyPair } = await import('../services/keyManagement');
-          const isValid = await verifyKeyPair(currentPrivateKey, profile.publicKey);
-          if (isValid) {
-            console.log('✅ ProfilePage: Post-refresh key verification PASSED');
-          } else {
-            console.error('❌ ProfilePage: Post-refresh key verification FAILED');
-            console.error('❌ Context private key:', currentPrivateKey.substring(0, 16) + '...');
-            console.error('❌ Profile public key:', profile.publicKey.substring(0, 16) + '...');
-          }
-        }
-      } catch (error) {
-        console.error('❌ ProfilePage: Post-refresh verification error:', error);
-      }
-    }, 100);
+    // Key verification is already done in useKeyGeneration.handleConfirmRegeneration
+    // No need to verify again here
   };
 
   useEffect(() => {
     fetchProfile(user);
   }, [user, fetchProfile]);
+  
+  // Scroll to biometric section if navigated with hash
+  useEffect(() => {
+    if (window.location.hash === '#biometric') {
+      setTimeout(() => {
+        const element = document.getElementById('biometric');
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 300); // Small delay to ensure page is fully rendered
+    }
+  }, []);
 
   const handleConfirmDecryptedKeyDownload = async () => {
-    setShowDecryptedKeyWarning(false);
-    
-    if (!privateKey || !userProfile) return;
+    if (!userProfile) return;
+    await handleDownloadDecryptedKey(userProfile, privateKey, setError);
+  };
+
+  // Handle account deletion
+  const handleDeleteAccount = async () => {
+    if (!user) return;
 
     try {
-      const encryptionMethod = getEncryptionMethod(userProfile);
-      const keyData = {
-        version: "1.0",
-        keyType: encryptionMethod === 'ML-KEM768' ? "ML-KEM-768_DECRYPTED" : "Legacy_DECRYPTED",
-        displayName: userProfile.displayName,
-        email: userProfile.email,
-        publicKey: userProfile.publicKey,
-        privateKeyHex: privateKey,
-        warning: "THIS FILE CONTAINS YOUR PRIVATE KEY IN PLAIN TEXT - KEEP SECURE!",
-        exportedAt: new Date().toISOString()
-      };
-
-      const blob = new Blob([JSON.stringify(keyData, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      const keyTypeForFilename = encryptionMethod === 'ML-KEM768' ? 'mlkem768' : 'legacy';
-      link.download = `${userProfile.displayName.replace(/[^a-zA-Z0-9]/g, '_')}_${keyTypeForFilename}_private_key_DECRYPTED.json`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      // Call the Cloud Function to delete the account
+      const functions = getFunctions();
+      const deleteAccount = httpsCallable(functions, 'deleteUserAccount');
+      
+      setDeletionProgress({
+        step: 'Deleting your account...',
+        current: 1,
+        total: 1
+      });
+      
+      const result = await deleteAccount();
+      
+      console.log('Account deletion result:', result.data);
+      
+      // Account deleted successfully, redirect to login
+      navigate('/login');
     } catch (error) {
-      console.error('Error downloading decrypted key:', error);
-      setError('Failed to download decrypted key file');
+      console.error('Failed to delete account:', error);
+      setError(error instanceof Error ? error.message : 'Failed to delete account');
+      setDeleteDialogOpen(false);
+      setDeletionProgress(null);
     }
   };
+
+  // Account deletion handler
 
   if (loading) {
     return (
@@ -151,7 +149,7 @@ const ProfilePage: React.FC = () => {
     <>
       <Box sx={{ maxWidth: 800, mx: 'auto' }}>
         <Typography variant="h4" gutterBottom>Profile</Typography>
-        
+
         {/* Profile Information */}
         <Paper elevation={2} sx={{ p: 3, mb: 3 }}>
           <Typography variant="h6" gutterBottom>Account Information</Typography>
@@ -183,19 +181,7 @@ const ProfilePage: React.FC = () => {
           )}
         </Paper>
 
-        {/* Encryption Status and Upgrade */}
-        <EncryptionStatusSection
-          encryptionMethod={encryptionMethod}
-          showKeyRegeneration={showKeyRegeneration}
-          passphrase={passphrase}
-          confirmPassphrase={confirmPassphrase}
-          migrationProgress={migrationProgress}
-          onSetShowKeyRegeneration={setShowKeyRegeneration}
-          onSetPassphrase={setPassphrase}
-          onSetConfirmPassphrase={setConfirmPassphrase}
-          onRegenerateKeys={handleRegenerateKeys}
-          onCancelRegeneration={handleCancelRegeneration}
-        />
+        <EncryptionStatusSection encryptionMethod={encryptionMethod} />
 
         {/* Key Management */}
         {(encryptionMethod === 'ML-KEM768' || encryptionMethod === 'HPKE') && (
@@ -211,10 +197,29 @@ const ProfilePage: React.FC = () => {
         <DeviceCapabilityInfo />
 
         {/* Biometric Authentication Setup */}
-        <BiometricSetup />
+        <Box id="biometric">
+          <BiometricSetup />
+        </Box>
 
         {/* Hardware Security Keys */}
         <HardwareKeySetup />
+
+        {/* Danger Zone - Delete Account */}
+        <Paper elevation={2} sx={{ p: 3, mb: 3, border: '2px solid', borderColor: 'error.main' }}>
+          <Typography variant="h6" gutterBottom color="error">
+            Danger Zone
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Once you delete your account, there is no going back. All your data will be permanently deleted.
+          </Typography>
+          <Button 
+            variant="outlined" 
+            color="error"
+            onClick={() => setDeleteDialogOpen(true)}
+          >
+            Delete My Account
+          </Button>
+        </Paper>
 
       </Box>
       
@@ -223,22 +228,19 @@ const ProfilePage: React.FC = () => {
         onClose={() => setShowDecryptedKeyWarning(false)}
         onConfirm={handleConfirmDecryptedKeyDownload}
       />
-      
-      <KeyRegenerationWarningDialog
-        open={showRegenerationWarning}
-        onClose={() => setShowRegenerationWarning(false)}
-        onConfirm={(migrateFiles) => handleConfirmRegeneration(
-          migrateFiles,
-          user,
-          displayName,
-          theme,
-          privateKey,
-          handleKeyGenerationSuccess,
-          setError,
-          setLoading
-        )}
-        userId={user?.uid || ''}
+
+      <DeleteAccountDialog
+        open={deleteDialogOpen}
+        userEmail={userProfile?.email || ''}
+        onClose={() => {
+          setDeleteDialogOpen(false);
+          setDeletionProgress(null);
+        }}
+        onConfirm={handleDeleteAccount}
+        progress={deletionProgress}
       />
+      
+      {/* KeyRegenerationWarningDialog hidden */}
       </>
   );
 };

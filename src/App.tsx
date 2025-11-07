@@ -15,6 +15,7 @@ import { ClipboardProvider } from './context/ClipboardContext';
 import { LoadingProvider, useGlobalLoading } from './context/LoadingContext';
 import { RecentsProvider } from './context/RecentsContext';
 import { MetadataProvider } from './context/MetadataContext';
+import { UpdatePrompt } from './components/UpdatePrompt';
 // Import migration utility to make it available in console
 import './utils/migrateFormTags';
 
@@ -125,6 +126,7 @@ const App: React.FC = () => {
         <RecentsProvider>
           <MetadataProvider>
             <TermsEnforcement>
+              <UpdatePrompt />
               <GlobalLoadingSpinner />
               <Suspense fallback={<PageLoadingFallback />}>
                 <Routes>

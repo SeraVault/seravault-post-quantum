@@ -23,7 +23,7 @@ export interface EncryptedKeyPair {
 }
 
 /**
- * Generate a new HPKE key pair and encrypt the private key with PBKDF2
+ * Generate a new ML-KEM-768 (quantum-safe) key pair and encrypt the private key with PBKDF2
  */
 export async function generateAndEncryptKeyPair(passphrase: string): Promise<EncryptedKeyPair> {
   console.log('🔒 Generating new quantum-safe ML-KEM-768 key pair...');

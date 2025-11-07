@@ -97,7 +97,7 @@ export async function countUserFiles(userId: string): Promise<number> {
 }
 
 /**
- * Migrate all user's files and folders from old HPKE key to new HPKE key
+ * Migrate all user's files and folders from old ML-KEM-768 key to new ML-KEM-768 key
  */
 export async function migrateUserFiles(
   userId: string,
@@ -195,12 +195,13 @@ export async function migrateUserFiles(
         // Re-encrypt the AES key with the new public key
         const newEncryptedData = await encryptData(aesKey, newPublicKeyBytes);
         
-        // Combine encapsulated key + ciphertext for storage
+        // Store as: IV + encapsulated_key + ciphertext (same format as original encryption)
         const newKeyData = new Uint8Array(
-          newEncryptedData.encapsulatedKey.length + newEncryptedData.ciphertext.length
+          newEncryptedData.iv.length + newEncryptedData.encapsulatedKey.length + newEncryptedData.ciphertext.length
         );
-        newKeyData.set(newEncryptedData.encapsulatedKey, 0);
-        newKeyData.set(newEncryptedData.ciphertext, newEncryptedData.encapsulatedKey.length);
+        newKeyData.set(newEncryptedData.iv, 0);
+        newKeyData.set(newEncryptedData.encapsulatedKey, newEncryptedData.iv.length);
+        newKeyData.set(newEncryptedData.ciphertext, newEncryptedData.iv.length + newEncryptedData.encapsulatedKey.length);
 
         // Update the document
         const updatedEncryptedKeys = {

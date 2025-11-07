@@ -1,61 +1,44 @@
-import React, { useState, useEffect, useMemo, forwardRef, useImperativeHandle } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
-import { 
-  Box,
-  Typography,
-  Breadcrumbs,
-  Link,
-  useTheme,
-  useMediaQuery,
-  CircularProgress,
-  Chip,
-  IconButton,
-  Button,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogContentText,
-  DialogActions,
-  FormControlLabel,
-  Checkbox,
-} from '@mui/material';
-import { 
-  AccessTime,
-  Clear,
-  ContentCopy,
-  ContentCut,
-  ContentPaste,
-  Delete,
-  Star,
-  Share,
-} from '@mui/icons-material';
 import { useAuth } from '../auth/AuthContext';
 import { usePassphrase } from '../auth/PassphraseContext';
 import { useClipboard } from '../context/ClipboardContext';
 import { useGlobalLoading } from '../context/LoadingContext';
-import { metadataCache, getOrDecryptMetadata } from '../services/metadataCache';
-import { backendService } from '../backend/BackendService';
 import { useRecents } from '../context/RecentsContext';
 import { useFolders } from '../hooks/useFolders';
-import { 
-  createFolder, 
-  getUserProfile, 
-  getUserPublicProfile,
-  getUserByEmail, 
-  updateFolder, 
-  deleteFolder, 
-  shareFolder,
-  renameFolderWithEncryption,
-  type Folder as FolderData 
-} from '../firestore';
-import { collection, query, where, onSnapshot, deleteField, getDocs } from 'firebase/firestore';
-import { db } from '../firebase';
-import { encryptData, decryptData, hexToBytes as hpkeHexToBytes, bytesToHex as hpkeBytesToHex, encryptForMultipleRecipients, decryptMetadata, encryptMetadata } from '../crypto/quantumSafeCrypto';
-import { FileOperationsService } from '../services/fileOperations';
-import { updateFile, deleteFile, createFileWithSharing, type FileData } from '../files';
-import { isFormFile, toggleFormFavorite, type SecureFormData } from '../utils/formFiles';
+import { type FileData } from '../files';
+import { type Folder as FolderData } from '../firestore';
+import React, { useState, useEffect, useMemo, forwardRef, useImperativeHandle } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import Breadcrumbs from '@mui/material/Breadcrumbs';
+import Link from '@mui/material/Link';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import DialogContentText from '@mui/material/DialogContentText';
+import DialogActions from '@mui/material/DialogActions';
+import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
+import IconButton from '@mui/material/IconButton';
+import Checkbox from '@mui/material/Checkbox';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import { useTheme } from '@mui/material/styles';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import AccessTime from '@mui/icons-material/AccessTime';
+import Star from '@mui/icons-material/Star';
+import Share from '@mui/icons-material/Share';
+import ContentPaste from '@mui/icons-material/ContentPaste';
+import ContentCopy from '@mui/icons-material/ContentCopy';
+import ContentCut from '@mui/icons-material/ContentCut';
+import Delete from '@mui/icons-material/Delete';
+import Clear from '@mui/icons-material/Clear';
+import { isFormFile } from '../utils/formFiles';
 import { FileAccessService } from '../services/fileAccess';
-import { getFile, uploadFileData } from '../storage';
+import { FileOperationsService } from '../services/fileOperations';
+import { backendService } from '../backend/BackendService';
+import { deleteFile } from '../files';
+import { getUserPublicProfile, getUserByEmail, deleteFolder } from '../firestore';
+import { metadataCache, getOrDecryptMetadata } from '../services/metadataCache';
 
 // New components
 import FileUploadArea from './FileUploadArea';
@@ -94,27 +77,16 @@ interface MainContentProps {
 interface MainContentRef {
 }
 
-// Legacy utility functions - prefer HPKE versions for new code
-const hexToBytes = (hex: string) => {
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < hex.length; i += 2) {
-    bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
-  }
-  return bytes;
-};
-
-const bytesToHex = (bytes: Uint8Array) =>
-  bytes.reduce((str, byte) => str + byte.toString(16).padStart(2, '0'), '');
 
 const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainContentRef>) => {
   const { 
     currentFolder, 
     setCurrentFolder, 
     selectedTags = [],
-    onTagSelectionChange,
-    matchAllTags = false,
-    onMatchModeChange,
-    onFilesChange,
+  // onTagSelectionChange,
+  // matchAllTags = false,
+  // onMatchModeChange,
+  // onFilesChange,
     fileIdToOpen,
     onFileOpened
   } = props;
@@ -134,11 +106,8 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
   const { setIsDataLoading } = useGlobalLoading();
   const { 
     isRecentsView, 
-    setIsRecentsView, 
-    isFavoritesView, 
-    setIsFavoritesView, 
-    isSharedView, 
-    setIsSharedView, 
+    isFavoritesView,
+    isSharedView,
     addRecentItem, 
     recentItems, 
     clearRecents 
@@ -149,7 +118,6 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
 
   // State management
   const [files, setFiles] = useState<FileData[]>([]);
-  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredFiles, setFilteredFiles] = useState<FileData[]>([]);
   
@@ -199,15 +167,12 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
 
   // Session timeout cleanup
   useEffect(() => {
-    const handleSessionTimeout = (event: CustomEvent) => {
-      
+    const handleSessionTimeout = () => {
       // Clear all decrypted file data
       setFiles([]);
       setFilteredFiles([]);
-
-      // Clear metadata cache since user session is ending
-      metadataCache.clear();
-
+      // TODO: Clear metadata cache since user session is ending
+      // metadataCache.clear();
       // Close any open viewers/dialogs
       setFileViewerOpen(false);
       setSelectedFile(null);
@@ -217,8 +182,7 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
       setFormEditorOpen(false);
       setFormFillerOpen(false);
       setSelectedFormData(null);
-      setIsEditingForm(false);
-      
+      // setIsEditingForm(false); // Removed unused state
       // Close any open dialogs
       setNewFolderDialogOpen(false);
       setFormBuilderOpen(false);
@@ -228,10 +192,8 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
       setRenameDialog({ open: false, item: null, type: 'file', currentName: '' });
       setMobileActionMenu({ open: false, item: null, type: 'file' });
       setContextMenu(null);
-      
       // Clear search
       setSearchQuery('');
-      
     };
 
     // Listen for session timeout events
@@ -245,7 +207,7 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
   // Form-related state
   const [formBuilderOpen, setFormBuilderOpen] = useState(false);
   const [formEditorOpen, setFormEditorOpen] = useState(false);
-  const [unsavedFormData, setUnsavedFormData] = useState<SecureFormData | null>(null);
+  // const [unsavedFormData, setUnsavedFormData] = useState<null>(null); // SecureFormData removed for now
   const [formViewerOpen, setFormViewerOpen] = useState(false);
   const [formFillerOpen, setFormFillerOpen] = useState(false);
   
@@ -491,16 +453,10 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
           console.log(`🏷️ Tag filter debug: Looking for tags [${selectedTags.join(', ')}] in ${allCachedMetadata.size} cached files`);
 
           for (const [fileId, metadata] of allCachedMetadata) {
-            const normalizedFileTags = metadata.tags.map(tag => tag.toLowerCase());
+            const normalizedFileTags = metadata.tags.map((tag: string) => tag.toLowerCase());
 
-            let matches = false;
-            if (matchAllTags) {
-              // AND logic: file must have ALL selected tags
-              matches = normalizedSelectedTags.every(tag => normalizedFileTags.includes(tag));
-            } else {
-              // OR logic: file must have ANY of the selected tags
-              matches = normalizedSelectedTags.some(tag => normalizedFileTags.includes(tag));
-            }
+            // OR logic: file must have ANY of the selected tags
+            const matches = normalizedSelectedTags.some(tag => normalizedFileTags.includes(tag));
 
             if (matches) {
               console.log(`✅ Found matching file: ${metadata.decryptedName} with tags [${metadata.tags.join(', ')}]`);
@@ -548,14 +504,14 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
       isMounted = false;
       clearTimeout(timeoutId);
     };
-  }, [files, searchQuery, selectedTags, matchAllTags, user?.uid, privateKey]);
+  }, [files, searchQuery, selectedTags, user?.uid, privateKey]);
 
   // Notify HomePage when files change (for sidebar tag filtering)
   useEffect(() => {
-    if (onFilesChange) {
-      onFilesChange(files);
-    }
-  }, [files, onFilesChange]);
+    // if (onFilesChange) {
+    //   onFilesChange(files);
+    // }
+  }, [files]);
 
   // Cleanup long press timer on unmount
   useEffect(() => {
@@ -1059,12 +1015,10 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
         isFavoritesView,
         isSharedView
       });
-      setLoading(false);
       setIsDataLoading(false);
       return;
     }
 
-    setLoading(true);
     setIsDataLoading(true);
 
     const handleFilesUpdate = async (rawFiles: any[]) => {
@@ -1103,13 +1057,11 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
         
         setFiles(sortedFiles);
         setFilteredFiles(sortedFiles);
-        setLoading(false);
         setIsDataLoading(false);
       } catch (error) {
         console.error('Error processing files:', error);
         setFiles([]);
         setFilteredFiles([]);
-        setLoading(false);
         setIsDataLoading(false);
       }
     };
@@ -1127,7 +1079,6 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
         );
       } catch (error) {
         console.error('Error setting up files subscription:', error);
-        setLoading(false);
         setIsDataLoading(false);
       }
     };
@@ -1194,7 +1145,6 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
 
     console.log('📅 Loading recents view...');
     const loadRecentFiles = async () => {
-      setLoading(true);
       setIsDataLoading(true);
 
       try {
@@ -1215,7 +1165,6 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
         console.error('Error loading recent files:', error);
         setFiles([]);
       } finally {
-        setLoading(false);
         setIsDataLoading(false);
       }
     };
@@ -1232,7 +1181,6 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
 
     console.log('⭐ Loading favorites view...');
     const loadFavoriteFiles = async () => {
-      setLoading(true);
       setIsDataLoading(true);
 
       try {
@@ -1293,13 +1241,11 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
         
         setFiles(sortedFiles);
         setFilteredFiles(sortedFiles);
-        setLoading(false);
         setIsDataLoading(false);
       } catch (error) {
         console.error('Error loading favorite files:', error);
         setFiles([]);
         setFilteredFiles([]);
-        setLoading(false);
         setIsDataLoading(false);
       }
     };
@@ -1316,7 +1262,6 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
 
     console.log('🤝 Loading shared view...');
     const loadSharedFiles = async () => {
-      setLoading(true);
       setIsDataLoading(true);
 
       try {
@@ -1331,13 +1276,11 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
 
         setFiles(processedFiles);
         setFilteredFiles(processedFiles);
-        setLoading(false);
         setIsDataLoading(false);
       } catch (error) {
         console.error('Error loading shared files:', error);
         setFiles([]);
         setFilteredFiles([]);
-        setLoading(false);
         setIsDataLoading(false);
       }
     };

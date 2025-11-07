@@ -203,11 +203,18 @@ const FileTable: React.FC<FileTableProps> = ({
   // Helper function to get file date (lastModified or createdAt)
   const getFileDate = (file: FileData): Date | null => {
     if (file.lastModified) {
-      return typeof file.lastModified === 'string' 
-        ? new Date(file.lastModified) 
-        : file.lastModified instanceof Date 
-          ? file.lastModified 
-          : null;
+      // Firebase Timestamp handling
+      if (typeof file.lastModified === 'object' && 'toDate' in file.lastModified) {
+        return (file.lastModified as any).toDate();
+      }
+      // Date object
+      if (file.lastModified instanceof Date) {
+        return file.lastModified;
+      }
+      // String
+      if (typeof file.lastModified === 'string') {
+        return new Date(file.lastModified);
+      }
     }
     
     // Fall back to createdAt if lastModified is not available

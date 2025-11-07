@@ -36,6 +36,19 @@ service cloud.firestore {
       match /hardwareKeys/{keyDoc} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }
+      
+      // FCM tokens for push notifications - user can manage their own tokens
+      match /fcmTokens/{tokenId} {
+        allow create: if request.auth != null && 
+          request.auth.uid == userId &&
+          request.resource.data.keys().hasAll(['token', 'createdAt']);
+        
+        allow read, update, delete: if request.auth != null && 
+          request.auth.uid == userId;
+          
+        // Allow Cloud Functions to read tokens for sending notifications
+        allow read: if request.auth != null;
+      }
     }
     
     // Folders - OWNER ONLY ACCESS (folders are not shared, only files within them)

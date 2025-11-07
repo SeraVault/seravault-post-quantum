@@ -108,7 +108,7 @@ const UserAvatar: React.FC = () => {
       <IconButton
         onClick={handleClick}
         size="small"
-        sx={{ ml: 2 }}
+        sx={{ ml: { xs: 0.5, sm: 2 } }}
         aria-controls={open ? 'account-menu' : undefined}
         aria-haspopup="true"
         aria-expanded={open ? 'true' : undefined}

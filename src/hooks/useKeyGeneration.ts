@@ -33,6 +33,7 @@ export interface UseKeyGenerationReturn {
     displayName: string,
     theme: 'light' | 'dark',
     privateKey: string | null,
+    setPrivateKeyInContext: (key: string | null) => void,
     onSuccess: (profile: UserProfile) => void,
     onError: (error: string) => void,
     setLoading: (loading: boolean) => void
@@ -138,6 +139,7 @@ export const useKeyGeneration = (): UseKeyGenerationReturn => {
     displayName: string,
     theme: 'light' | 'dark',
     privateKey: string | null,
+    setPrivateKeyInContext: (key: string | null) => void,
     onSuccess: (profile: UserProfile) => void,
     onError: (error: string) => void,
     setLoading: (loading: boolean) => void
@@ -157,43 +159,40 @@ export const useKeyGeneration = (): UseKeyGenerationReturn => {
     try {
       setLoading(true);
       
-      // Handle file migration if requested
-      if (migrateFiles && privateKey) {
-        setMigrationProgress({ current: 0, total: 1 });
-        
-        try {
-          // We'll need to get the new public key for migration
-          const { generateKeyPair } = await import('../crypto/quantumSafeCrypto');
-          const tempKeyPair = await generateKeyPair();
-          
-          const migrationResult = await migrateUserFiles(
-            user.uid,
-            privateKey,
-            tempKeyPair.publicKey,
-            (current, total) => setMigrationProgress({ current, total })
-          );
-
-          console.log(`Migration completed: ${migrationResult.success} files migrated, ${migrationResult.failed.length} failed`);
-          
-          if (migrationResult.failed.length > 0) {
-            onError(`Key regenerated successfully, but ${migrationResult.failed.length} files could not be migrated. Check console for details.`);
-          }
-        } catch (migrationError) {
-          console.error('Migration failed:', migrationError);
-          onError('Key generation succeeded, but file migration failed. Some files may be inaccessible.');
-        }
-        
-        setMigrationProgress(null);
-      }
-
       // CRITICAL: Clear all existing cached keys before regeneration
       const { usePrivateKeyStorage } = await import('../utils/secureStorage');
       const { clearStoredPrivateKey, storePrivateKey } = usePrivateKeyStorage(user.uid);
       clearStoredPrivateKey(); // Clear old cached keys first
       
+      // CRITICAL: Clear all hardware keys and biometric data
+      // The old private key stored in hardware is incompatible with new keys
+      try {
+        const { getRegisteredHardwareKeys, removeHardwareKey, removeStoredPrivateKey: removeHWStoredKey } = await import('../utils/hardwareKeyAuth');
+        const hardwareKeys = await getRegisteredHardwareKeys(user.uid);
+        
+        console.log(`🔄 Key regeneration: Removing ${hardwareKeys.length} hardware key(s)...`);
+        
+        for (const key of hardwareKeys) {
+          try {
+            // Remove stored private key from IndexedDB
+            await removeHWStoredKey(key.id);
+            // Remove hardware key registration
+            await removeHardwareKey(user.uid, key.id);
+            console.log(`✅ Removed hardware key: ${key.nickname || key.id}`);
+          } catch (keyError) {
+            console.warn(`⚠️ Failed to remove hardware key ${key.id}:`, keyError);
+          }
+        }
+        
+        console.log('✅ Key regeneration: Cleared all hardware keys and biometric data');
+      } catch (hwKeyError) {
+        console.warn('⚠️ Key regeneration: Error clearing hardware keys:', hwKeyError);
+        // Continue with regeneration even if hardware key cleanup fails
+      }
+      
       console.log('🔄 Key regeneration: Cleared old cached keys, generating new key pair...');
       
-      // Use centralized key management for regeneration
+      // Generate new key pair FIRST (before migration)
       const { profile, privateKey: newPrivateKey } = await regenerateUserKeys(
         user.uid,
         displayName,
@@ -209,11 +208,45 @@ export const useKeyGeneration = (): UseKeyGenerationReturn => {
         privateKeyLength: newPrivateKey.length
       });
       
+      // Handle file migration AFTER generating new keys
+      if (migrateFiles && privateKey && profile.publicKey) {
+        setMigrationProgress({ current: 0, total: 1 });
+        
+        try {
+          const { hexToBytes } = await import('../crypto/quantumSafeCrypto');
+          const newPublicKeyBytes = hexToBytes(profile.publicKey);
+          
+          const migrationResult = await migrateUserFiles(
+            user.uid,
+            privateKey, // OLD private key (to decrypt)
+            newPublicKeyBytes, // NEW public key (to re-encrypt)
+            (current, total) => setMigrationProgress({ current, total })
+          );
+
+          console.log(`Migration completed: ${migrationResult.success} files migrated, ${migrationResult.failed.length} failed`);
+          
+          if (migrationResult.failed.length > 0) {
+            onError(`Key regenerated successfully, but ${migrationResult.failed.length} files could not be migrated. Check console for details.`);
+          }
+        } catch (migrationError) {
+          console.error('Migration failed:', migrationError);
+          onError('Key generation succeeded, but file migration failed. Some files may be inaccessible.');
+        }
+        
+        setMigrationProgress(null);
+      }
+      
       // Store new private key with user's remember preference
       const rememberChoice = localStorage.getItem(`rememberPrivateKey_${user.uid}`) === 'true';
       storePrivateKey(newPrivateKey, rememberChoice);
       
       console.log('🔄 Key regeneration: New private key stored in secure storage');
+      
+      // CRITICAL: Update the context with the new private key immediately
+      setPrivateKeyInContext(newPrivateKey);
+      console.log('🔄 Key regeneration: Private key context updated');
+      console.log('🔑 New private key hash:', newPrivateKey.substring(0, 16) + '...');
+      console.log('🔑 New public key hash:', profile.publicKey?.substring(0, 16) + '...');
       
       // CRITICAL: Verify the key pair immediately after storage
       try {
@@ -223,6 +256,8 @@ export const useKeyGeneration = (): UseKeyGenerationReturn => {
           console.log('✅ Key regeneration: Key pair verification PASSED - public and private keys match');
         } else {
           console.error('❌ Key regeneration: Key pair verification FAILED - public and private keys DO NOT match!');
+          console.error('❌ Private key used:', newPrivateKey.substring(0, 16) + '...');
+          console.error('❌ Public key used:', profile.publicKey?.substring(0, 16) + '...');
           throw new Error('Generated key pair verification failed - keys do not match');
         }
       } catch (verificationError) {

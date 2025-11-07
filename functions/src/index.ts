@@ -1,5 +1,5 @@
 import {onDocumentUpdated, onDocumentCreated} from "firebase-functions/v2/firestore";
-import {onRequest, HttpsError} from "firebase-functions/v2/https";
+import {onRequest, onCall, HttpsError} from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import {FieldValue} from "firebase-admin/firestore";
 import cors from "cors";
@@ -646,10 +646,341 @@ export const onChatMessageCreated = onDocumentCreated(
         });
         
         console.log(`✅ Chat notification created for ${participantId}`);
+        
+        // Send FCM push notification to all user's devices
+        try {
+          const fcmTokensSnapshot = await db.collection('users')
+            .doc(participantId)
+            .collection('fcmTokens')
+            .get();
+          
+          if (!fcmTokensSnapshot.empty) {
+            const tokens = fcmTokensSnapshot.docs.map(doc => doc.data().token);
+            
+            // Send to all tokens
+            const fcmMessage = {
+              notification: {
+                title: notificationTitle,
+                body: notificationMessage,
+                icon: '/favicon.ico',
+              },
+              data: {
+                type: 'chat_message',
+                conversationId: chatId,
+                messageId: messageId,
+                senderId: senderId,
+                senderName: senderName,
+              },
+              tokens: tokens,
+            };
+            
+            const response = await admin.messaging().sendEachForMulticast(fcmMessage);
+            console.log(`📱 Sent FCM to ${response.successCount}/${tokens.length} devices for ${participantId}`);
+            
+            // Clean up invalid tokens
+            if (response.failureCount > 0) {
+              const tokensToDelete: string[] = [];
+              response.responses.forEach((resp, idx) => {
+                if (!resp.success && 
+                    (resp.error?.code === 'messaging/invalid-registration-token' ||
+                     resp.error?.code === 'messaging/registration-token-not-registered')) {
+                  tokensToDelete.push(tokens[idx]);
+                }
+              });
+              
+              // Delete invalid tokens
+              const deleteBatch = db.batch();
+              tokensToDelete.forEach(token => {
+                const tokenRef = db.collection('users')
+                  .doc(participantId)
+                  .collection('fcmTokens')
+                  .doc(token);
+                deleteBatch.delete(tokenRef);
+              });
+              
+              if (tokensToDelete.length > 0) {
+                await deleteBatch.commit();
+                console.log(`🗑️ Cleaned up ${tokensToDelete.length} invalid FCM tokens`);
+              }
+            }
+          } else {
+            console.log(`📵 No FCM tokens found for ${participantId}`);
+          }
+        } catch (fcmError) {
+          console.error(`❌ Error sending FCM to ${participantId}:`, fcmError);
+          // Don't fail the whole function if FCM fails
+        }
       }
       
     } catch (error) {
       console.error('❌ Error creating chat notification:', error);
+    }
+  }
+);
+
+/**
+ * Callable Cloud Function to delete a user's account and all associated data.
+ * This function performs server-side deletion with elevated privileges to ensure
+ * complete data removal including cleanup of shared files references.
+ */
+export const deleteUserAccount = onCall(
+  {cors: ['http://localhost:5173', 'http://localhost:3000', 'https://seravault-8c764.web.app', 'https://seravault-8c764.firebaseapp.com']},
+  async (request) => {
+    // Verify the user is authenticated
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'User must be authenticated to delete their account');
+    }
+
+    const userId = request.auth.uid;
+    console.log(`🗑️ Starting account deletion for user: ${userId}`);
+
+    try {
+      const results = {
+        storageFiles: 0,
+        fileRecords: 0,
+        folders: 0,
+        contacts: 0,
+        contactRequests: 0,
+        groups: 0,
+        notifications: 0,
+        conversations: 0,
+        sharedFilesCleaned: 0,
+        profile: false,
+        auth: false
+      };
+
+      // 1. Delete user's storage files
+      try {
+        const bucket = admin.storage().bucket();
+        const [files] = await bucket.getFiles({prefix: `users/${userId}/`});
+        
+        for (const file of files) {
+          await file.delete();
+          results.storageFiles++;
+        }
+        console.log(`✅ Deleted ${results.storageFiles} storage files`);
+      } catch (error) {
+        console.error('❌ Error deleting storage files:', error);
+      }
+
+      // 2. Delete file records
+      try {
+        const filesSnapshot = await db.collection('files')
+          .where('ownerId', '==', userId)
+          .get();
+        
+        const batch = db.batch();
+        filesSnapshot.docs.forEach(doc => {
+          batch.delete(doc.ref);
+          results.fileRecords++;
+        });
+        
+        if (results.fileRecords > 0) {
+          await batch.commit();
+        }
+        console.log(`✅ Deleted ${results.fileRecords} file records`);
+      } catch (error) {
+        console.error('❌ Error deleting file records:', error);
+      }
+
+      // 3. Delete folders
+      try {
+        const foldersSnapshot = await db.collection('folders')
+          .where('ownerId', '==', userId)
+          .get();
+        
+        const batch = db.batch();
+        foldersSnapshot.docs.forEach(doc => {
+          batch.delete(doc.ref);
+          results.folders++;
+        });
+        
+        if (results.folders > 0) {
+          await batch.commit();
+        }
+        console.log(`✅ Deleted ${results.folders} folders`);
+      } catch (error) {
+        console.error('❌ Error deleting folders:', error);
+      }
+
+      // 4. Delete contacts
+      try {
+        const contactsSnapshot = await db.collection('contacts')
+          .where('userId', '==', userId)
+          .get();
+        
+        const batch = db.batch();
+        contactsSnapshot.docs.forEach(doc => {
+          batch.delete(doc.ref);
+          results.contacts++;
+        });
+        
+        if (results.contacts > 0) {
+          await batch.commit();
+        }
+        console.log(`✅ Deleted ${results.contacts} contacts`);
+      } catch (error) {
+        console.error('❌ Error deleting contacts:', error);
+      }
+
+      // 5. Delete contact requests (sent and received)
+      try {
+        const sentRequests = await db.collection('contactRequests')
+          .where('senderId', '==', userId)
+          .get();
+        
+        const receivedRequests = await db.collection('contactRequests')
+          .where('recipientId', '==', userId)
+          .get();
+        
+        const batch = db.batch();
+        [...sentRequests.docs, ...receivedRequests.docs].forEach(doc => {
+          batch.delete(doc.ref);
+          results.contactRequests++;
+        });
+        
+        if (results.contactRequests > 0) {
+          await batch.commit();
+        }
+        console.log(`✅ Deleted ${results.contactRequests} contact requests`);
+      } catch (error) {
+        console.error('❌ Error deleting contact requests:', error);
+      }
+
+      // 6. Delete groups
+      try {
+        const groupsSnapshot = await db.collection('groups')
+          .where('ownerId', '==', userId)
+          .get();
+        
+        const batch = db.batch();
+        groupsSnapshot.docs.forEach(doc => {
+          batch.delete(doc.ref);
+          results.groups++;
+        });
+        
+        if (results.groups > 0) {
+          await batch.commit();
+        }
+        console.log(`✅ Deleted ${results.groups} groups`);
+      } catch (error) {
+        console.error('❌ Error deleting groups:', error);
+      }
+
+      // 7. Delete notifications
+      try {
+        const notificationsSnapshot = await db.collection('notifications')
+          .where('recipientId', '==', userId)
+          .get();
+        
+        const batch = db.batch();
+        notificationsSnapshot.docs.forEach(doc => {
+          batch.delete(doc.ref);
+          results.notifications++;
+        });
+        
+        if (results.notifications > 0) {
+          await batch.commit();
+        }
+        console.log(`✅ Deleted ${results.notifications} notifications`);
+      } catch (error) {
+        console.error('❌ Error deleting notifications:', error);
+      }
+
+      // 8. Delete conversations
+      try {
+        const conversationsSnapshot = await db.collection('conversations')
+          .where('participants', 'array-contains', userId)
+          .get();
+        
+        const batch = db.batch();
+        conversationsSnapshot.docs.forEach(doc => {
+          batch.delete(doc.ref);
+          results.conversations++;
+        });
+        
+        if (results.conversations > 0) {
+          await batch.commit();
+        }
+        console.log(`✅ Deleted ${results.conversations} conversations`);
+      } catch (error) {
+        console.error('❌ Error deleting conversations:', error);
+      }
+
+      // 9. Remove user from sharedWith arrays in files
+      try {
+        const sharedFilesSnapshot = await db.collection('files')
+          .where('sharedWith', 'array-contains', userId)
+          .get();
+        
+        const batch = db.batch();
+        sharedFilesSnapshot.docs.forEach(doc => {
+          batch.update(doc.ref, {
+            sharedWith: FieldValue.arrayRemove(userId)
+          });
+          results.sharedFilesCleaned++;
+        });
+        
+        if (results.sharedFilesCleaned > 0) {
+          await batch.commit();
+        }
+        console.log(`✅ Cleaned user from ${results.sharedFilesCleaned} shared files`);
+      } catch (error) {
+        console.error('❌ Error cleaning shared files:', error);
+      }
+
+      // 10. Delete user profile document
+      try {
+        await db.collection('users').doc(userId).delete();
+        results.profile = true;
+        console.log('✅ Deleted user profile');
+      } catch (error) {
+        console.error('❌ Error deleting user profile:', error);
+      }
+
+      // 11. Delete FCM tokens subcollection
+      try {
+        const tokensSnapshot = await db.collection('users')
+          .doc(userId)
+          .collection('fcmTokens')
+          .get();
+        
+        const batch = db.batch();
+        tokensSnapshot.docs.forEach(doc => {
+          batch.delete(doc.ref);
+        });
+        
+        if (tokensSnapshot.size > 0) {
+          await batch.commit();
+        }
+        console.log(`✅ Deleted ${tokensSnapshot.size} FCM tokens`);
+      } catch (error) {
+        console.error('❌ Error deleting FCM tokens:', error);
+      }
+
+      // 12. Delete Firebase Auth account
+      try {
+        await admin.auth().deleteUser(userId);
+        results.auth = true;
+        console.log('✅ Deleted Firebase Auth account');
+      } catch (error) {
+        console.error('❌ Error deleting auth account:', error);
+        throw new HttpsError('internal', 'Failed to delete authentication account');
+      }
+
+      console.log(`✅ Account deletion completed for user: ${userId}`);
+      return {
+        success: true,
+        message: 'Account successfully deleted',
+        results
+      };
+
+    } catch (error) {
+      console.error('❌ Account deletion failed:', error);
+      throw new HttpsError(
+        'internal',
+        error instanceof Error ? error.message : 'Failed to delete account'
+      );
     }
   }
 );

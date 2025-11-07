@@ -2,15 +2,33 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// Generate a build timestamp to force cache invalidation
+const buildTimestamp = new Date().getTime();
+
 // https://vite.dev/config/
 export default defineConfig({
+  // Add build timestamp as global variable
+  define: {
+    __BUILD_TIMESTAMP__: JSON.stringify(buildTimestamp),
+  },
   plugins: [
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      // Inject build timestamp into service worker to force update
+      injectManifest: {
+        injectionPoint: undefined,
+      },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
         maximumFileSizeToCacheInBytes: 5000000, // 5MB
+        // Clean up old caches automatically
+        cleanupOutdatedCaches: true,
+        // Skip waiting - activate new service worker immediately
+        skipWaiting: true,
+        clientsClaim: true,
+        // Add navigation fallback
+        navigateFallback: null,
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/firebasestorage\.googleapis\.com/,
