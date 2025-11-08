@@ -49,7 +49,6 @@ export interface UseKeyGenerationReturn {
 }
 
 export const useKeyGeneration = (): UseKeyGenerationReturn => {
-  console.log('🚨🚨🚨 USEKEY GENERATION HOOK INITIALIZED 🚨🚨🚨');
   const [passphrase, setPassphrase] = useState('');
   const [confirmPassphrase, setConfirmPassphrase] = useState('');
   const [showKeyRegeneration, setShowKeyRegeneration] = useState(false);
@@ -125,7 +124,6 @@ export const useKeyGeneration = (): UseKeyGenerationReturn => {
   };
 
   const handleRegenerateKeys = () => {
-    console.log('🚨🚨🚨 HANDLE REGENERATE KEYS CALLED 🚨🚨🚨', { showKeyRegeneration });
     if (!showKeyRegeneration) {
       setShowKeyRegeneration(true);
       return;
@@ -245,8 +243,6 @@ export const useKeyGeneration = (): UseKeyGenerationReturn => {
       // CRITICAL: Update the context with the new private key immediately
       setPrivateKeyInContext(newPrivateKey);
       console.log('🔄 Key regeneration: Private key context updated');
-      console.log('🔑 New private key hash:', newPrivateKey.substring(0, 16) + '...');
-      console.log('🔑 New public key hash:', profile.publicKey?.substring(0, 16) + '...');
       
       // CRITICAL: Verify the key pair immediately after storage
       try {

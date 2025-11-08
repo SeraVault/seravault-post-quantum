@@ -185,8 +185,6 @@ class SecureMemoryStorage {
   getTimeUntilExpiration(key: string): number {
     const item = this.storage.get(key);
     if (!item) {
-      console.log('🔐 getTimeUntilExpiration: No item found for key:', key);
-      console.log('🔐 Available keys:', Array.from(this.storage.keys()));
       return 0;
     }
     
@@ -250,11 +248,6 @@ export const usePrivateKeyStorage = (userId?: string) => {
     const storageKey = getStorageKey();
     const preferenceKey = getPreferenceKey();
     
-    // SECURITY: Log private key storage with user association
-    console.log(`🔐 SECURITY: Storing private key for user ${userId || 'unknown'} with key: ${storageKey}`);
-    console.log(`🔐 SECURITY: Private key preview: ${privateKey.substring(0, 16)}...`);
-    console.log(`🔐 SECURITY: Full private key being stored: ${privateKey}`); // TEMP DEBUG - remove later
-    
     if (rememberChoice) {
       // Store with longer timeout if user chooses to remember
       secureStorage.store(storageKey, privateKey, 60); // 1 hour
@@ -270,18 +263,7 @@ export const usePrivateKeyStorage = (userId?: string) => {
 
   const getStoredPrivateKey = (): string | null => {
     const storageKey = getStorageKey();
-    const retrievedKey = secureStorage.retrieve(storageKey);
-    
-    if (retrievedKey) {
-      // SECURITY: Log private key retrieval with user association
-      console.log(`🔐 SECURITY: Retrieved private key for user ${userId || 'unknown'} with key: ${storageKey}`);
-      console.log(`🔐 SECURITY: Retrieved key preview: ${retrievedKey.substring(0, 16)}...`);
-      console.log(`🔐 SECURITY: Full retrieved private key: ${retrievedKey}`); // TEMP DEBUG - remove later
-    } else {
-      console.log(`🔐 SECURITY: No cached private key found for user ${userId || 'unknown'} with key: ${storageKey}`);
-    }
-    
-    return retrievedKey;
+    return secureStorage.retrieve(storageKey);
   };
 
   const clearStoredPrivateKey = () => {

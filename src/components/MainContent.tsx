@@ -32,7 +32,7 @@ import ContentCopy from '@mui/icons-material/ContentCopy';
 import ContentCut from '@mui/icons-material/ContentCut';
 import Delete from '@mui/icons-material/Delete';
 import Clear from '@mui/icons-material/Clear';
-import { isFormFile } from '../utils/formFiles';
+import { isFormFile, type SecureFormData } from '../utils/formFiles';
 import { FileAccessService } from '../services/fileAccess';
 import { FileOperationsService } from '../services/fileOperations';
 import { backendService } from '../backend/BackendService';
@@ -207,7 +207,7 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
   // Form-related state
   const [formBuilderOpen, setFormBuilderOpen] = useState(false);
   const [formEditorOpen, setFormEditorOpen] = useState(false);
-  // const [unsavedFormData, setUnsavedFormData] = useState<null>(null); // SecureFormData removed for now
+  const [unsavedFormData, setUnsavedFormData] = useState<SecureFormData | null>(null);
   const [formViewerOpen, setFormViewerOpen] = useState(false);
   const [formFillerOpen, setFormFillerOpen] = useState(false);
   
@@ -2532,7 +2532,7 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
           />
         )}
 
-        {!isRecentsView && !isFavoritesView && !isSharedView && (
+        {!isSharedView && (
           <CreationFAB
             onCreateFolder={() => setNewFolderDialogOpen(true)}
             onUploadFiles={handleUploadClick}

@@ -368,6 +368,7 @@ const WYSIWYGEditor: React.FC<WYSIWYGEditorProps> = ({
           // Edit Mode - Show Quill editor
           <Paper 
             ref={containerRef}
+            className="wysiwyg-editor-container"
             variant="outlined"
             sx={{ 
             border: '1px solid',

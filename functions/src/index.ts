@@ -551,7 +551,18 @@ export const onChatMessageCreated = onDocumentCreated(
       if (!messageData) return;
       
       const senderId = messageData.senderId;
-      const senderName = messageData.senderName || 'Someone';
+      
+      // Get sender's display name from their profile
+      let senderName = 'Someone';
+      try {
+        const senderDoc = await db.collection('users').doc(senderId).get();
+        if (senderDoc.exists) {
+          const senderData = senderDoc.data();
+          senderName = senderData?.displayName || senderData?.email || 'Someone';
+        }
+      } catch (error) {
+        console.error(`⚠️ Failed to fetch sender name:`, error);
+      }
       
       // Get the chat document to find all participants
       const chatDoc = await db.collection('files').doc(chatId).get();

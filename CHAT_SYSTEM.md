@@ -21,7 +21,6 @@ The chat system stores conversations in the **files collection** as special file
   
   /messages/{messageId}  ← Subcollection
     - senderId: string
-    - senderName: string
     - encryptedContent: { [userId]: { ciphertext, nonce } }
     - timestamp: timestamp
     - type: 'text' | 'file' | 'system'
@@ -65,12 +64,13 @@ The chat system stores conversations in the **files collection** as special file
 const messagesRef = collection(db, 'files', chatId, 'messages');
 await addDoc(messagesRef, {
   senderId: currentUserId,
-  senderName: userName,
   encryptedContent: { ... },
   timestamp: serverTimestamp(),
   type: 'text'
 });
 ```
+
+**Note:** `senderName` is not stored in messages. The UI derives sender display names from user profiles via the `participantNames` map.
 
 ### Query Messages
 ```typescript

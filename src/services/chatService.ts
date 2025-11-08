@@ -179,15 +179,9 @@ export class ChatService {
       encryptedContent[participantId] = encrypted;
     }
     
-    // Get sender name for caching
-    const { getUserProfile } = await import('../firestore');
-    const senderProfile = await getUserProfile(currentUserId);
-    const senderName = senderProfile?.displayName || 'Unknown User';
-    
     // Create message document (conversationId is in the path, not the document)
     const messageData: Partial<ChatMessage> = {
       senderId: currentUserId,
-      senderName,
       encryptedContent,
       timestamp: serverTimestamp(),
       type,

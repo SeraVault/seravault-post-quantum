@@ -148,7 +148,7 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({
           >
             {!isOwn && showAvatar && (
               <Avatar sx={{ width: 32, height: 32 }}>
-                {message.senderName?.[0] || '?'}
+                {(participantNames[message.senderId] || 'Unknown')[0] || '?'}
               </Avatar>
             )}
             
@@ -171,7 +171,7 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({
             >
               {!isOwn && showAvatar && (
                 <Typography variant="caption" sx={{ fontWeight: 600, display: 'block', mb: 0.5 }}>
-                  {message.senderName || 'Unknown'}
+                  {participantNames[message.senderId] || 'Unknown'}
                 </Typography>
               )}
               
