@@ -16,6 +16,7 @@ import DeleteAccountDialog from '../components/DeleteAccountDialog';
 import KeyManagementSection from '../components/KeyManagementSection';
 import EncryptionStatusSection from '../components/EncryptionStatusSection';
 import KeyGenerationForm from '../components/KeyGenerationForm';
+import JsonImport from '../components/JsonImport';
 
 const ProfilePage: React.FC = () => {
   const { user } = useAuth();
@@ -236,6 +237,9 @@ const ProfilePage: React.FC = () => {
 
         {/* Hardware Security Keys */}
         <HardwareKeySetup />
+
+        {/* JSON Import */}
+        <JsonImport />
 
         {/* Danger Zone - Delete Account */}
         <Paper elevation={2} sx={{ p: 3, mb: 3, border: '2px solid', borderColor: 'error.main' }}>

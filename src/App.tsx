@@ -16,6 +16,7 @@ import { LoadingProvider, useGlobalLoading } from './context/LoadingContext';
 import { RecentsProvider } from './context/RecentsContext';
 import { MetadataProvider } from './context/MetadataContext';
 import { UpdatePrompt } from './components/UpdatePrompt';
+import ImportProgressIndicator from './components/ImportProgressIndicator';
 // Import migration utility to make it available in console
 import './utils/migrateFormTags';
 
@@ -128,6 +129,7 @@ const App: React.FC = () => {
             <TermsEnforcement>
               <UpdatePrompt />
               <GlobalLoadingSpinner />
+              <ImportProgressIndicator />
               <Suspense fallback={<PageLoadingFallback />}>
                 <Routes>
                   <Route path="/login" element={<LoginPage />} />

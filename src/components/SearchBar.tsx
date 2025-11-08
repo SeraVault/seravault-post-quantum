@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { TextField, InputAdornment, IconButton, useTheme, useMediaQuery } from '@mui/material';
 import { Search, Clear } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
@@ -17,20 +17,38 @@ const SearchBar: React.FC<SearchBarProps> = ({
   const { t } = useTranslation();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const [inputValue, setInputValue] = useState(searchQuery);
   
   const defaultPlaceholder = placeholder || t('search.searchPlaceholder');
 
   const handleClear = () => {
+    setInputValue('');
     onSearchChange('');
   };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      onSearchChange(inputValue);
+    } else if (e.key === 'Escape') {
+      handleClear();
+    }
+  };
+
+  // Sync input value when searchQuery is cleared externally
+  React.useEffect(() => {
+    if (searchQuery === '') {
+      setInputValue('');
+    }
+  }, [searchQuery]);
 
   return (
     <TextField
       placeholder={defaultPlaceholder}
       variant="outlined"
       size="small"
-      value={searchQuery}
-      onChange={(e) => onSearchChange(e.target.value)}
+      value={inputValue}
+      onChange={(e) => setInputValue(e.target.value)}
+      onKeyDown={handleKeyDown}
       sx={{ 
         minWidth: isMobile ? '100%' : '250px',
         maxWidth: isMobile ? '100%' : '300px'
@@ -41,7 +59,7 @@ const SearchBar: React.FC<SearchBarProps> = ({
             <Search color="action" />
           </InputAdornment>
         ),
-        endAdornment: searchQuery && (
+        endAdornment: inputValue && (
           <InputAdornment position="end">
             <IconButton 
               size="small" 

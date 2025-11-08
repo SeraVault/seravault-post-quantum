@@ -204,12 +204,72 @@ const HelpPage: React.FC = () => {
 - Protect your passphrase carefully
 - Enable biometric authentication for convenience
 
+## Key Management & Profile Settings
+
+### Authentication Methods
+Visit your **Profile** page to manage different ways to unlock your vault:
+
+#### Passphrase Protection
+- Your primary method for unlocking your vault
+- Used to encrypt your private key
+- Change your passphrase anytime from Profile
+- Choose a strong, memorable passphrase
+
+#### Biometric Authentication
+- Use fingerprint or Face ID for quick access
+- Available on supported devices
+- Set up from Profile page
+- Biometric data never leaves your device
+
+#### Hardware Security Keys
+- Use YubiKey or other FIDO2 devices
+- Most secure authentication method
+- Register keys from Profile page
+- Can register multiple keys as backup
+
+### Key Management Actions
+
+#### Generate New Keys
+- Create your encryption keys on first use
+- Post-quantum secure (ML-KEM-768)
+- Keep your passphrase safe - it cannot be recovered
+
+#### Export Private Key
+- Download your private key as backup
+- Store in a secure location (offline recommended)
+- Needed to recover access if you lose your passphrase
+- Access from Profile > Key Management section
+
+#### Import Private Key
+- Restore access using a previously exported key
+- Upload your key file from Profile page
+- Enter your passphrase to decrypt the key
+- Use this if you need to recover your account
+
+### Security Best Practices
+- **Never share your private key** with anyone
+- **Keep your passphrase secure** - write it down offline
+- **Export your key** and store the backup safely
+- **Enable biometric auth** for convenience without sacrificing security
+- **Use hardware keys** for maximum security
+- **Register multiple hardware keys** to avoid lockout
+
+### Profile Settings
+Access additional settings from your Profile page:
+
+- **Display Name**: Update how you appear to others
+- **Theme**: Switch between light and dark mode
+- **JSON Import**: Import data from other password managers
+- **Account Deletion**: Permanently delete your account and all data
+
 ## Tips & Tricks
 
 - Use the search bar to quickly find files
 - Recent files are accessible from the sidebar
 - Shared files appear in "Shared with me"
 - Export your private key as backup (keep it safe!)
+- Press Enter in the folder dialog to quickly create folders
+- Import progress continues even if you navigate away
 `;
   };
 

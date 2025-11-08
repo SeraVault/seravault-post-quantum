@@ -37,7 +37,7 @@ import { FileAccessService } from '../services/fileAccess';
 import { FileOperationsService } from '../services/fileOperations';
 import { backendService } from '../backend/BackendService';
 import { deleteFile } from '../files';
-import { getUserPublicProfile, getUserByEmail, deleteFolder } from '../firestore';
+import { getUserPublicProfile, getUserByEmail, deleteFolder, createFolder } from '../firestore';
 import { metadataCache, getOrDecryptMetadata } from '../services/metadataCache';
 
 // New components
@@ -402,36 +402,55 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
     return matchingItems;
   };
 
-  // Filter folders based on search (recursive)
+  // Filter folders based on search - only search in current folder
   const filteredFolders = useMemo(() => {
     if (!searchQuery.trim()) {
       return folders;
     }
-    // When searching, show all folders that match, not just current folder's subfolders
-    return allFolders.filter(folder => {
+    // When searching, only show folders in the current folder that match
+    return folders.filter(folder => {
       const folderName = typeof folder.name === 'string' ? folder.name.toLowerCase() : '';
       return folderName.includes(searchQuery.toLowerCase());
     });
-  }, [folders, allFolders, searchQuery]);
+  }, [folders, searchQuery]);
 
   // Debounced search and filtering with cached metadata
   useEffect(() => {
     let isMounted = true;
-    let timeoutId: NodeJS.Timeout;
 
     const updateFilteredFiles = async () => {
       try {
         let result = files;
 
-        // Apply search filter first (using cached metadata)
+        // Apply search filter - only search through already-loaded files in current view
         if (searchQuery.trim()) {
-          console.log('🔍 Starting search with cache...');
+          console.log('🔍 Searching current folder files...');
           const startTime = Date.now();
-
-          result = await searchItemsRecursively(searchQuery);
+          const searchTerm = searchQuery.toLowerCase();
+          
+          result = files.filter(file => {
+            // Search in file name (already decrypted)
+            const fileName = typeof file.name === 'string' ? file.name.toLowerCase() : '';
+            if (fileName.includes(searchTerm)) {
+              return true;
+            }
+            
+            // For form files, search in cached metadata tags
+            const cached = metadataCache.get(file.id!);
+            if (cached && 'tags' in cached && cached.tags) {
+              const tagsMatch = cached.tags.some((tag: string) => 
+                tag.toLowerCase().includes(searchTerm)
+              );
+              if (tagsMatch) {
+                return true;
+              }
+            }
+            
+            return false;
+          });
 
           const endTime = Date.now();
-          console.log(`🔍 Search completed in ${endTime - startTime}ms`);
+          console.log(`🔍 Search completed in ${endTime - startTime}ms, found ${result.length} matches`);
         }
 
         // Apply tag filter using pre-cached metadata for instant vault-wide performance
@@ -493,13 +512,11 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
       }
     };
 
-    // Debounce search updates to avoid excessive filtering
-    const debounceDelay = searchQuery.trim() ? 300 : 0; // 300ms for search, instant for no search
-    timeoutId = setTimeout(updateFilteredFiles, debounceDelay);
+    // No debounce needed since search only triggers on Enter key
+    updateFilteredFiles();
 
     return () => {
       isMounted = false;
-      clearTimeout(timeoutId);
     };
   }, [files, searchQuery, selectedTags, user?.uid, privateKey]);
 
@@ -1618,6 +1635,10 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
       
       // Clear clipboard after successful paste
       clearClipboard();
+      
+      // Clear selections to close bulk action menu
+      setSelectedFiles(new Set());
+      setSelectedFolders(new Set());
     } catch (error) {
       console.error('Paste operation failed:', error);
     }

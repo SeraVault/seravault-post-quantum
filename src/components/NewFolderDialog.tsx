@@ -19,8 +19,17 @@ const NewFolderDialog: React.FC<NewFolderDialogProps> = ({ open, onClose, onCrea
   const [name, setName] = useState('');
 
   const handleCreate = () => {
-    onCreate(name);
-    setName('');
+    if (name.trim()) {
+      onCreate(name);
+      setName('');
+    }
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleCreate();
+    }
   };
 
   return (
@@ -39,6 +48,7 @@ const NewFolderDialog: React.FC<NewFolderDialogProps> = ({ open, onClose, onCrea
           variant="standard"
           value={name}
           onChange={(e) => setName(e.target.value)}
+          onKeyPress={handleKeyPress}
         />
       </DialogContent>
       <DialogActions>
