@@ -20,7 +20,6 @@ import {
   InsertDriveFile,
   Visibility,
   Download,
-  LocalOffer,
 } from '@mui/icons-material';
 
 interface MobileActionMenuProps {
@@ -35,7 +34,6 @@ interface MobileActionMenuProps {
   onCut: () => void;
   onCopy: () => void;
   onShare?: () => void;
-  onManageTags?: () => void;
   onDelete: () => void;
 }
 
@@ -51,7 +49,6 @@ const MobileActionMenu: React.FC<MobileActionMenuProps> = ({
   onCut,
   onCopy,
   onShare,
-  onManageTags,
   onDelete,
 }) => {
   const { t } = useTranslation();
@@ -106,15 +103,6 @@ const MobileActionMenu: React.FC<MobileActionMenuProps> = ({
             </ListItemIcon>
             <ListItemText primary={t('contextMenu.rename')} />
           </ListItemButton>
-
-          {itemType === 'file' && onManageTags && (
-            <ListItemButton onClick={onManageTags} sx={{ borderRadius: 1, mb: 1 }}>
-              <ListItemIcon>
-                <LocalOffer />
-              </ListItemIcon>
-              <ListItemText primary="Manage Tags" />
-            </ListItemButton>
-          )}
 
           <Divider sx={{ my: 1 }} />
           

@@ -138,29 +138,9 @@ const BiometricSetup: React.FC = () => {
     }
   };
 
+  // Don't show the component at all if biometrics aren't available
   if (!available) {
-    return (
-      <Card>
-        <CardContent>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-            <Fingerprint color="disabled" />
-            <Typography variant="h6" color="text.secondary">
-              Biometric Authentication
-            </Typography>
-          </Box>
-          <Alert severity="info" sx={{ mb: 2 }}>
-            Biometric authentication (fingerprint/Face ID) is not available on this device or browser.
-            This feature requires a modern mobile browser with WebAuthn support.
-          </Alert>
-          <Typography variant="body2" color="text.secondary">
-            Supported on:
-            • iOS Safari (iPhone/iPad with Touch ID or Face ID)
-            • Chrome/Edge on Android (with fingerprint or face unlock)
-            • Modern desktop browsers with Windows Hello or Touch ID
-          </Typography>
-        </CardContent>
-      </Card>
-    );
+    return null;
   }
 
   return (
@@ -177,14 +157,19 @@ const BiometricSetup: React.FC = () => {
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
           <PhoneAndroid fontSize="small" />
           <Typography variant="body2" color="text.secondary">
-            {capabilities.type} • Device supported
+            {capabilities.type} • Platform authenticator available
           </Typography>
         </Box>
 
-        <Typography variant="body2" sx={{ mb: 3 }}>
-          Use your device's biometric authentication (fingerprint, Face ID, etc.) to quickly unlock 
+        <Typography variant="body2" sx={{ mb: 2 }}>
+          Use your device's biometric authentication (fingerprint, Face ID, Windows Hello, etc.) to quickly unlock 
           your private key instead of entering your passphrase every time.
         </Typography>
+
+        <Alert severity="info" sx={{ mb: 3 }}>
+          Note: Requires actual biometric hardware (fingerprint reader, face recognition camera, etc.). 
+          If your device only has PIN/password authentication, this feature won't work.
+        </Alert>
 
         {error && (
           <Alert severity="error" sx={{ mb: 2 }}>

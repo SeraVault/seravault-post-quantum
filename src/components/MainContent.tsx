@@ -57,7 +57,6 @@ import FormBuilder from './FormBuilder';
 import CreationFAB from './CreationFAB';
 import FileViewer from './FileViewer';
 import ChatViewer from './ChatViewer';
-import TagManagementDialog from './TagManagementDialog';
 import ContactSelector from './ContactSelector';
 
 interface MainContentProps {
@@ -133,8 +132,6 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
   const [shareItemType, setShareItemType] = useState<'file' | 'folder'>('file');
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [singleDeleteConfirmOpen, setSingleDeleteConfirmOpen] = useState(false);
-  const [tagManagementOpen, setTagManagementOpen] = useState(false);
-  const [fileToManageTags, setFileToManageTags] = useState<FileData | null>(null);
   const [itemToDelete, setItemToDelete] = useState<{ item: FileData | FolderData; type: 'file' | 'folder' } | null>(null);
   const [copyOptionsOpen, setCopyOptionsOpen] = useState(false);
   const [itemToCopy, setItemToCopy] = useState<{ item: FileData | FolderData; type: 'file' | 'folder' } | null>(null);
@@ -2192,16 +2189,6 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
           />
         )}
 
-        {/* Tag Management Dialog */}
-        <TagManagementDialog
-          open={tagManagementOpen}
-          onClose={() => setTagManagementOpen(false)}
-          file={fileToManageTags}
-          userId={user?.uid || ''}
-          userPrivateKey={privateKey || ''}
-          allFiles={files}
-        />
-
         <ContextMenu
           open={!!contextMenu}
           mouseX={contextMenu?.mouseX ?? 0}
@@ -2222,13 +2209,6 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
               setShareDialogOpen(true);
               setContextMenu(null);
             }
-          }}
-          onManageTags={() => {
-            if (contextMenu?.item && contextMenu.type === 'file') {
-              setFileToManageTags(contextMenu.item as FileData);
-              setTagManagementOpen(true);
-            }
-            setContextMenu(null);
           }}
           onRename={() => {
             if (contextMenu?.item) {
@@ -2325,11 +2305,6 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
               setMobileActionMenu({ open: false, item: null, type: 'file' });
             }
           }}
-          onManageTags={mobileActionMenu.type === 'file' && mobileActionMenu.item ? () => {
-            setFileToManageTags(mobileActionMenu.item as FileData);
-            setTagManagementOpen(true);
-            setMobileActionMenu({ open: false, item: null, type: 'file' });
-          } : undefined}
           onDelete={() => {
             if (mobileActionMenu.item) {
               showSingleDeleteConfirmation(mobileActionMenu.item, mobileActionMenu.type);
@@ -2532,20 +2507,18 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
           />
         )}
 
-        {!isSharedView && (
-          <CreationFAB
-            onCreateFolder={() => setNewFolderDialogOpen(true)}
-            onUploadFiles={handleUploadClick}
-            onCreateForm={() => {
-              setFormBuilderOpen(true);
-            }}
-            onCreateChat={() => {
-              setNewChatDialogOpen(true);
-            }}
-            onPaste={handlePaste}
-            showPaste={!!clipboardItem}
-          />
-        )}
+        <CreationFAB
+          onCreateFolder={() => setNewFolderDialogOpen(true)}
+          onUploadFiles={handleUploadClick}
+          onCreateForm={() => {
+            setFormBuilderOpen(true);
+          }}
+          onCreateChat={() => {
+            setNewChatDialogOpen(true);
+          }}
+          onPaste={handlePaste}
+          showPaste={!!clipboardItem}
+        />
 
         {/* Delete Confirmation Dialog */}
         <Dialog open={deleteConfirmOpen} onClose={() => setDeleteConfirmOpen(false)}>

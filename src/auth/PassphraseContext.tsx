@@ -6,7 +6,7 @@ import BiometricPassphraseDialog from '../components/BiometricPassphraseDialog';
 import { Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography, Box } from '@mui/material';
 import { Fingerprint } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { isHardwareKeySupported, getRegisteredHardwareKeys } from '../utils/hardwareKeyAuth';
+import { getRegisteredHardwareKeys } from '../utils/hardwareKeyAuth';
 import { getUserProfile } from '../firestore';
 
 interface PassphraseContextType {
@@ -210,14 +210,22 @@ const PassphraseProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       
       // Check if we should prompt for biometric setup (only for passphrase method)
       if (method === 'passphrase') {
-        const biometricsSupported = await isHardwareKeySupported();
-        if (biometricsSupported) {
-          // Check if user already has biometric setup
-          const existingKeys = await getRegisteredHardwareKeys(user.uid);
-          if (existingKeys.length === 0) {
-            // Show biometric setup prompt
-            setBiometricPromptOpen(true);
+        try {
+          // Import capabilities function to check for actual biometric hardware
+          const { getHardwareKeyCapabilities } = await import('../utils/hardwareKeyAuth');
+          const capabilities = await getHardwareKeyCapabilities();
+          
+          // Only prompt if platform authenticator (biometrics) is available
+          if (capabilities.platformAuthenticator) {
+            // Check if user already has biometric setup
+            const existingKeys = await getRegisteredHardwareKeys(user.uid);
+            if (existingKeys.length === 0) {
+              // Show biometric setup prompt
+              setBiometricPromptOpen(true);
+            }
           }
+        } catch (error) {
+          console.error('Error checking biometric capabilities:', error);
         }
       }
       

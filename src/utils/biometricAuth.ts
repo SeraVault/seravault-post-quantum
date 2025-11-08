@@ -15,7 +15,10 @@ export async function isBiometricAvailable(): Promise<boolean> {
   }
 
   try {
-    // Check if platform authenticator (biometric) is available
+    // Check if platform authenticator is available
+    // Note: This returns true if the browser/OS supports it, but actual biometric
+    // hardware (fingerprint/face) may not be present. The hardware check happens
+    // during actual registration/authentication.
     const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
     return available;
   } catch (error) {
