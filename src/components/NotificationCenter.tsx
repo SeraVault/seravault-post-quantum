@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Typography,
@@ -24,6 +25,8 @@ import {
   InsertDriveFile,
   Schedule,
   Storage,
+  PersonAdd,
+  Person,
 } from '@mui/icons-material';
 import { useAuth } from '../auth/AuthContext';
 import { NotificationService, type Notification } from '../services/notificationService';
@@ -72,6 +75,7 @@ function TabPanel(props: TabPanelProps) {
 const NotificationCenter: React.FC<NotificationCenterProps> = ({ onFileClick }) => {
   const { user } = useAuth();
   const { privateKey } = usePassphrase();
+  const navigate = useNavigate();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -196,8 +200,12 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onFileClick }) 
         await NotificationService.markAsRead(notification.id!);
       }
 
+      // Handle contact request notifications
+      if (notification.type === 'contact_request' || notification.type === 'contact_accepted') {
+        navigate('/contacts?tab=requests');
+      }
       // Navigate to file if callback provided and fileId exists
-      if (onFileClick && notification.fileId) {
+      else if (onFileClick && notification.fileId) {
         onFileClick(notification.fileId);
       }
     } catch (error) {
@@ -233,6 +241,10 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onFileClick }) 
         return <Edit color="info" />;
       case 'file_unshared':
         return <Cancel color="warning" />;
+      case 'contact_request':
+        return <PersonAdd color="primary" />;
+      case 'contact_accepted':
+        return <Person color="success" />;
       default:
         return <Notifications />;
     }

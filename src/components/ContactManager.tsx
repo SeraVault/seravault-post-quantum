@@ -50,6 +50,7 @@ import GroupManagement from './GroupManagement';
 
 interface ContactManagerProps {
   onClose?: () => void;
+  initialTab?: number;
 }
 
 interface TabPanelProps {
@@ -66,14 +67,15 @@ function TabPanel({ children, value, index }: TabPanelProps) {
   );
 }
 
-const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _ }) => {
+const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _, initialTab = 0 }) => {
   const { user } = useAuth();
   const { privateKey } = usePassphrase();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-  const [tabValue, setTabValue] = useState(0);
+  const [tabValue, setTabValue] = useState(initialTab);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [contactRequests, setContactRequests] = useState<ContactRequest[]>([]);
+  const [sentRequests, setSentRequests] = useState<ContactRequest[]>([]);
   const [contactSettings, setContactSettings] = useState<ContactSettings | null>(null);
   const [groups, setGroups] = useState<GroupType[]>([]);
   const [loading, setLoading] = useState(true);
@@ -91,6 +93,11 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _ }) => {
   // Group management dialog
   const [groupManagementOpen, setGroupManagementOpen] = useState(false);
 
+  // Update tab when initialTab prop changes
+  useEffect(() => {
+    setTabValue(initialTab);
+  }, [initialTab]);
+
   // Load data on component mount
   useEffect(() => {
     if (!user) return;
@@ -103,15 +110,17 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _ }) => {
         // Convert private key string to Uint8Array if available
         const privateKeyBytes = privateKey ? hexToBytes(privateKey) : undefined;
         
-        const [contactsData, requestsData, settingsData, groupsData] = await Promise.all([
+        const [contactsData, requestsData, sentRequestsData, settingsData, groupsData] = await Promise.all([
           ContactService.getUserContacts(user.uid),
           ContactService.getPendingContactRequests(user.uid),
+          ContactService.getSentContactRequests(user.uid),
           ContactService.getContactSettings(user.uid),
           getUserGroups(user.uid, privateKeyBytes)
         ]);
 
         setContacts(contactsData);
         setContactRequests(requestsData);
+        setSentRequests(sentRequestsData);
         setContactSettings(settingsData);
         setGroups(groupsData);
       } catch (err) {
@@ -124,15 +133,26 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _ }) => {
 
     loadContactData();
 
-    // Subscribe to real-time contact requests
-    const unsubscribe = ContactService.subscribeToContactRequests(
+    // Subscribe to real-time incoming contact requests
+    const unsubscribeIncoming = ContactService.subscribeToContactRequests(
       user.uid,
       (requests) => {
         setContactRequests(requests);
       }
     );
 
-    return unsubscribe;
+    // Subscribe to real-time outgoing contact requests
+    const unsubscribeOutgoing = ContactService.subscribeToSentContactRequests(
+      user.uid,
+      (requests) => {
+        setSentRequests(requests);
+      }
+    );
+
+    return () => {
+      unsubscribeIncoming();
+      unsubscribeOutgoing();
+    };
   }, [user, privateKey]);
 
   const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
@@ -194,6 +214,12 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _ }) => {
       } else {
         // Regular contact request sent
         console.log(`✅ Contact request sent to existing user ${newContactEmail.trim()}`);
+      }
+      
+      // Refresh contact requests to show the newly sent request
+      if (user) {
+        const updatedRequests = await ContactService.getPendingContactRequests(user.uid);
+        setContactRequests(updatedRequests);
       }
       
       setAddContactOpen(false);

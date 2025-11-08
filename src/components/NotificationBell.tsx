@@ -106,14 +106,21 @@ const NotificationBell: React.FC<NotificationBellProps> = ({ className }) => {
         type: notification.type,
         fileId: notification.fileId,
         fileName: notification.fileName,
-        conversationId: notification.conversationId
+        conversationId: notification.conversationId,
+        contactRequestId: notification.contactRequestId
       });
       
       // Close the menu BEFORE navigating
       handleClose();
       
+      // Handle contact request notifications
+      if (notification.type === 'contact_request' || notification.type === 'contact_accepted') {
+        console.log(`👥 Navigating to contacts page for ${notification.type}`);
+        // Navigate to contacts page with requests tab selected
+        navigate('/contacts?tab=requests');
+      }
       // Handle chat message notifications
-      if (notification.type === 'chat_message' && notification.conversationId) {
+      else if (notification.type === 'chat_message' && notification.conversationId) {
         console.log(`💬 Opening chat: ${notification.conversationId}`);
         // Open chat modal via URL parameter
         navigate(`/?chat=${notification.conversationId}`);

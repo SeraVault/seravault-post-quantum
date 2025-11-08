@@ -539,6 +539,59 @@ export class ContactService {
   }
 
   /**
+   * Get sent contact requests (outgoing) for a user
+   */
+  static async getSentContactRequests(userId: string): Promise<ContactRequest[]> {
+    try {
+      const q = query(
+        collection(db, this.CONTACT_REQUESTS_COLLECTION),
+        where('fromUserId', '==', userId),
+        where('status', '==', 'sent'),
+        orderBy('createdAt', 'desc')
+      );
+
+      const querySnapshot = await getDocs(q);
+      const requests: ContactRequest[] = [];
+
+      querySnapshot.forEach((doc) => {
+        const data = doc.data() as ContactRequest;
+        requests.push({ id: doc.id, ...data });
+      });
+
+      return requests;
+    } catch (error) {
+      console.error('Error fetching sent contact requests:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Subscribe to real-time sent contact requests for a user
+   */
+  static subscribeToSentContactRequests(
+    userId: string,
+    callback: (requests: ContactRequest[]) => void
+  ): () => void {
+    const q = query(
+      collection(db, this.CONTACT_REQUESTS_COLLECTION),
+      where('fromUserId', '==', userId),
+      where('status', '==', 'sent'),
+      orderBy('createdAt', 'desc')
+    );
+
+    return onSnapshot(q, (querySnapshot) => {
+      const requests: ContactRequest[] = [];
+      
+      querySnapshot.forEach((doc) => {
+        const data = doc.data() as ContactRequest;
+        requests.push({ id: doc.id, ...data });
+      });
+
+      callback(requests);
+    });
+  }
+
+  /**
    * Get or create contact settings for a user
    */
   static async getContactSettings(userId: string): Promise<ContactSettings> {

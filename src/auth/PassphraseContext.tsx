@@ -58,9 +58,7 @@ const PassphraseProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       
       if (user && !privateKey) {
-        setLoading(true);
-        
-        // Try to get from secure storage first
+        // Try to get from secure storage first - check this BEFORE setting loading
         const storedKey = getStoredPrivateKey();
         if (storedKey) {
           console.log('🔑 Found stored private key for user', user.uid);
@@ -68,6 +66,8 @@ const PassphraseProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setLoading(false);
           return;
         }
+        
+        setLoading(true);
         
         // Check if user has a profile with keys before showing unlock dialog
         try {
@@ -81,29 +81,33 @@ const PassphraseProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           
           // Check if user has passphrase-protected keys OR hardware keys with stored private keys
           const hasPassphraseProtectedKey = profile.encryptedPrivateKey || profile.legacyEncryptedPrivateKey;
+          let hasHardwareKeys = false;
           
-          if (!hasPassphraseProtectedKey) {
-            // No passphrase-protected key - check for hardware keys with stored private keys
-            try {
-              const { getRegisteredHardwareKeys } = await import('../utils/hardwareKeyAuth');
-              const hardwareKeys = await getRegisteredHardwareKeys(user.uid);
-              const hasHardwareKeyWithPrivateKey = hardwareKeys.some(k => k.storesPrivateKey);
-              
-              if (!hasHardwareKeyWithPrivateKey) {
-                // User has no way to unlock their keys
-                console.log('🔑 User has no keys yet, skipping unlock dialog');
-                setLoading(false);
-                return;
-              }
-              // User has hardware keys with stored private keys - they should use hardware authentication
-              console.log('🔑 User has hardware keys with stored private keys');
-            } catch (error) {
-              console.error('Error checking hardware keys:', error);
-              // If we can't check hardware keys, assume no keys
-              setLoading(false);
-              return;
+          console.log('🔑 Checking keys - hasPassphraseProtectedKey:', hasPassphraseProtectedKey);
+          
+          // Always check for hardware keys
+          try {
+            const { getRegisteredHardwareKeys } = await import('../utils/hardwareKeyAuth');
+            const hardwareKeys = await getRegisteredHardwareKeys(user.uid);
+            hasHardwareKeys = hardwareKeys.length > 0;
+            
+            console.log('🔑 Hardware keys check - found:', hardwareKeys.length, 'keys:', hardwareKeys);
+            
+            if (hasHardwareKeys) {
+              console.log('🔑 User has hardware keys registered');
             }
+          } catch (error) {
+            console.error('Error checking hardware keys:', error);
           }
+          
+          // If user has neither passphrase-protected key nor hardware keys, they have no way to unlock
+          if (!hasPassphraseProtectedKey && !hasHardwareKeys) {
+            console.log('🔑 User has no keys yet, skipping unlock dialog - passphrase:', hasPassphraseProtectedKey, 'hardware:', hasHardwareKeys);
+            setLoading(false);
+            return;
+          }
+          
+          console.log('🔑 User has keys - will show unlock dialog');
         } catch (error) {
           console.error('Error checking user profile:', error);
           setLoading(false);
@@ -111,12 +115,20 @@ const PassphraseProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         
         // If no stored key and user has keys, show passphrase dialog
-        if (!userDismissed) {
+        console.log('🔑 userDismissed:', userDismissed, 'opening dialog...');
+        // Double-check we still don't have a private key before opening dialog
+        if (!userDismissed && !privateKey) {
           setLoading(false);
           setPassphraseDialogOpen(true);
+          console.log('🔑 Dialog should now be open:', true);
+        } else {
+          setLoading(false);
         }
       } else if (privateKey) {
+        // We have a private key - ensure dialog is closed and loading is off
         setLoading(false);
+        setPassphraseDialogOpen(false);
+        console.log('🔑 Private key exists, ensuring dialog is closed');
       }
     };
     checkPrivateKey();
@@ -194,7 +206,7 @@ const PassphraseProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       storePrivateKey(decryptedPrivateKey, rememberChoice);
       setLoading(false);
       setPassphraseDialogOpen(false);
-      setUserDismissed(false);
+      setUserDismissed(true); // Mark as dismissed to prevent reopening
       
       // Check if we should prompt for biometric setup (only for passphrase method)
       if (method === 'passphrase') {

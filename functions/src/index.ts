@@ -814,7 +814,7 @@ export const deleteUserAccount = onCall(
         console.error('❌ Error deleting folders:', error);
       }
 
-      // 4. Delete contacts
+      // 4. Delete contacts (user's contact list)
       try {
         const contactsSnapshot = await db.collection('contacts')
           .where('userId', '==', userId)
@@ -832,6 +832,27 @@ export const deleteUserAccount = onCall(
         console.log(`✅ Deleted ${results.contacts} contacts`);
       } catch (error) {
         console.error('❌ Error deleting contacts:', error);
+      }
+
+      // 4b. Remove user from other users' contact lists
+      try {
+        const otherUsersContactsSnapshot = await db.collection('contacts')
+          .where('contactId', '==', userId)
+          .get();
+        
+        const batch = db.batch();
+        let otherContactsRemoved = 0;
+        otherUsersContactsSnapshot.docs.forEach(doc => {
+          batch.delete(doc.ref);
+          otherContactsRemoved++;
+        });
+        
+        if (otherContactsRemoved > 0) {
+          await batch.commit();
+        }
+        console.log(`✅ Removed user from ${otherContactsRemoved} other users' contact lists`);
+      } catch (error) {
+        console.error('❌ Error removing user from other contact lists:', error);
       }
 
       // 5. Delete contact requests (sent and received)
