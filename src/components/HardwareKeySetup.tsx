@@ -40,6 +40,7 @@ import {
   Fingerprint,
 } from '@mui/icons-material';
 import AuthenticationMethodsHelp from './AuthenticationMethodsHelp';
+import RemovePassphraseKeyDialog from './RemovePassphraseKeyDialog';
 import { useAuth } from '../auth/AuthContext';
 import { usePassphrase } from '../auth/PassphraseContext';
 import {
@@ -72,6 +73,7 @@ const HardwareKeySetup: React.FC = () => {
   const [nicknameDialogOpen, setNicknameDialogOpen] = useState(false);
   const [newKeyNickname, setNewKeyNickname] = useState('');
   const [storePrivateKeyOption, setStorePrivateKeyOption] = useState(false);
+  const [removePassphraseKeyDialogOpen, setRemovePassphraseKeyDialogOpen] = useState(false);
   const [authenticatorType, setAuthenticatorType] = useState<'cross-platform' | 'platform'>('cross-platform');
   const [helpDialogOpen, setHelpDialogOpen] = useState(false);
   const [editingKey, setEditingKey] = useState<HardwareKeyCredential | null>(null);
@@ -117,24 +119,34 @@ const HardwareKeySetup: React.FC = () => {
           await storePrivateKeyInHardware(newKey.id, privateKey);
           newKey.storesPrivateKey = true;
           const authTypeLabel = authenticatorType === 'cross-platform' ? 'Hardware key' : 'Passkey';
-          setSuccess(`${authTypeLabel} registered and private key stored securely! You can now log in without a passphrase.`);
+          
+          // Add the new key to the list immediately
+          setRegisteredKeys([...registeredKeys, newKey]);
+          setNicknameDialogOpen(false);
+          setNewKeyNickname('');
+          setStorePrivateKeyOption(false);
+          setAuthenticatorType('cross-platform');
+          
+          // Now show dialog asking if they want to remove passphrase-protected key
+          setRemovePassphraseKeyDialogOpen(true);
+          setSuccess(`${authTypeLabel} registered and private key stored securely!`);
         } catch (storeError) {
           // Key registered but private key storage failed
           const authTypeLabel = authenticatorType === 'cross-platform' ? 'Hardware key' : 'Passkey';
           setError(`${authTypeLabel} registered, but failed to store private key. You will still need to enter your passphrase.`);
           console.error('Failed to store private key:', storeError);
+          setRegisteredKeys([...registeredKeys, newKey]);
+          setNicknameDialogOpen(false);
         }
       } else {
         const authTypeLabel = authenticatorType === 'cross-platform' ? 'Hardware security key' : 'Passkey';
         setSuccess(`${authTypeLabel} registered successfully!`);
+        setRegisteredKeys([...registeredKeys, newKey]);
+        setNicknameDialogOpen(false);
+        setNewKeyNickname('');
+        setStorePrivateKeyOption(false);
+        setAuthenticatorType('cross-platform');
       }
-      
-      setRegisteredKeys([...registeredKeys, newKey]);
-      setNicknameDialogOpen(false);
-      setNewKeyNickname('');
-      setStorePrivateKeyOption(false);
-      // Reset to default for next registration
-      setAuthenticatorType('cross-platform');
     } catch (err) {
       let errorMessage = err instanceof Error ? err.message : 'Failed to register authentication method';
       
@@ -194,6 +206,27 @@ const HardwareKeySetup: React.FC = () => {
     } catch (error) {
       console.error('Failed to update nickname:', error);
       setError('Failed to update nickname');
+    }
+  };
+
+  const handleRemovePassphraseKey = async () => {
+    if (!user) return;
+    
+    try {
+      // Import firestore and update user profile
+      const { doc, updateDoc } = await import('firebase/firestore');
+      const { db } = await import('../firebase');
+      
+      const userDocRef = doc(db, 'users', user.uid);
+      await updateDoc(userDocRef, {
+        encryptedPrivateKey: null,
+        legacyEncryptedPrivateKey: null,
+      });
+      
+      setSuccess('Passphrase-protected key removed. Your private key now only exists in your hardware keys!');
+    } catch (error) {
+      console.error('Failed to remove passphrase key:', error);
+      throw new Error('Failed to remove passphrase-protected key from server');
     }
   };
 
@@ -314,7 +347,19 @@ const HardwareKeySetup: React.FC = () => {
                   <Box display="flex" alignItems="center" gap={2} width="100%">
                     {getKeyTypeIcon(key.type)}
                     <ListItemText
-                      primary={key.nickname}
+                      primary={
+                        <Box display="flex" alignItems="center" gap={1}>
+                          <span>{key.nickname}</span>
+                          {key.storesPrivateKey && (
+                            <Chip 
+                              label="Stores Private Key" 
+                              size="small" 
+                              color="success"
+                              icon={<Security />}
+                            />
+                          )}
+                        </Box>
+                      }
                       secondary={
                         <>
                           {getAuthenticatorName(key.aaguid)}
@@ -364,11 +409,11 @@ const HardwareKeySetup: React.FC = () => {
           <Typography variant="body2">
             <strong>How it works:</strong>
           </Typography>
-          <Typography variant="body2" component="ul" sx={{ mt: 1, pl: 2 }}>
-            <li>Insert your security key (USB, NFC, or Bluetooth)</li>
+          <Typography variant="body2" component="ul" sx={{ mt: 1, pl: 2, mb: 0 }}>
+            <li>Insert your security key (USB, NFC, or Bluetooth) or use device biometrics</li>
             <li>Touch the key when your browser prompts you</li>
             <li>The key will be registered and can be used for authentication</li>
-            <li>You'll still need your passphrase to decrypt your files</li>
+            <li><strong>Optional:</strong> Store your private key in the hardware for maximum security (no passphrase needed, but requires backup keys)</li>
           </Typography>
         </Alert>
       </CardContent>
@@ -514,9 +559,13 @@ const HardwareKeySetup: React.FC = () => {
           
           {storePrivateKeyOption && (
             <Alert severity="warning" sx={{ mt: 2 }}>
+              <Typography variant="body2" fontWeight="bold" gutterBottom>
+                Important: Hardware Backup Recommendation
+              </Typography>
               <Typography variant="body2">
-                <strong>Important:</strong> If you lose this {authenticatorType === 'cross-platform' ? 'key' : 'device'}, you'll need a backup key or your passphrase to access your files.
-                Always register at least 2 authentication methods!
+                After registration, you'll be prompted to remove the passphrase-protected key from the server.
+                <strong> We strongly recommend having at least 2-3 hardware keys</strong> registered before doing so.
+                Losing your only {authenticatorType === 'cross-platform' ? 'hardware key' : 'device'} would mean permanent data loss!
               </Typography>
             </Alert>
           )}
@@ -573,6 +622,15 @@ const HardwareKeySetup: React.FC = () => {
       <AuthenticationMethodsHelp 
         open={helpDialogOpen} 
         onClose={() => setHelpDialogOpen(false)} 
+      />
+
+      {/* Remove Passphrase Key Dialog */}
+      <RemovePassphraseKeyDialog
+        open={removePassphraseKeyDialogOpen}
+        onClose={() => setRemovePassphraseKeyDialogOpen(false)}
+        onConfirm={handleRemovePassphraseKey}
+        hardwareKeyCount={registeredKeys.filter(k => k.storesPrivateKey).length}
+        authenticatorType={authenticatorType}
       />
     </Card>
   );

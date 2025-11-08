@@ -72,11 +72,37 @@ const PassphraseProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // Check if user has a profile with keys before showing unlock dialog
         try {
           const profile = await getUserProfile(user.uid);
-          if (!profile || !profile.publicKey || (!profile.encryptedPrivateKey && !profile.legacyEncryptedPrivateKey)) {
-            // User doesn't have keys yet (likely on profile creation page)
+          if (!profile || !profile.publicKey) {
+            // User doesn't have a public key yet (likely on profile creation page)
             console.log('🔑 User has no keys yet, skipping unlock dialog');
             setLoading(false);
             return;
+          }
+          
+          // Check if user has passphrase-protected keys OR hardware keys with stored private keys
+          const hasPassphraseProtectedKey = profile.encryptedPrivateKey || profile.legacyEncryptedPrivateKey;
+          
+          if (!hasPassphraseProtectedKey) {
+            // No passphrase-protected key - check for hardware keys with stored private keys
+            try {
+              const { getRegisteredHardwareKeys } = await import('../utils/hardwareKeyAuth');
+              const hardwareKeys = await getRegisteredHardwareKeys(user.uid);
+              const hasHardwareKeyWithPrivateKey = hardwareKeys.some(k => k.storesPrivateKey);
+              
+              if (!hasHardwareKeyWithPrivateKey) {
+                // User has no way to unlock their keys
+                console.log('🔑 User has no keys yet, skipping unlock dialog');
+                setLoading(false);
+                return;
+              }
+              // User has hardware keys with stored private keys - they should use hardware authentication
+              console.log('🔑 User has hardware keys with stored private keys');
+            } catch (error) {
+              console.error('Error checking hardware keys:', error);
+              // If we can't check hardware keys, assume no keys
+              setLoading(false);
+              return;
+            }
           }
         } catch (error) {
           console.error('Error checking user profile:', error);

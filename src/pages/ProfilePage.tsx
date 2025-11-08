@@ -60,6 +60,10 @@ const ProfilePage: React.FC = () => {
     total: number;
   } | null>(null);
 
+  // Hardware key state
+  const [hasHardwareKeysWithPrivateKey, setHasHardwareKeysWithPrivateKey] = useState(false);
+  const [checkingHardwareKeys, setCheckingHardwareKeys] = useState(true);
+
   // Success handlers that update profile and refresh private key
   const handleKeyGenerationSuccess = (profile: UserProfile) => {
     setUserProfile(profile);
@@ -70,6 +74,30 @@ const ProfilePage: React.FC = () => {
   useEffect(() => {
     fetchProfile(user);
   }, [user, fetchProfile]);
+  
+  // Check for hardware keys with stored private keys
+  useEffect(() => {
+    const checkHardwareKeys = async () => {
+      if (!user) {
+        setCheckingHardwareKeys(false);
+        return;
+      }
+
+      try {
+        const { getRegisteredHardwareKeys } = await import('../utils/hardwareKeyAuth');
+        const hardwareKeys = await getRegisteredHardwareKeys(user.uid);
+        const hasKeysWithPrivateKey = hardwareKeys.some(k => k.storesPrivateKey);
+        setHasHardwareKeysWithPrivateKey(hasKeysWithPrivateKey);
+      } catch (error) {
+        console.error('Error checking hardware keys:', error);
+        setHasHardwareKeysWithPrivateKey(false);
+      } finally {
+        setCheckingHardwareKeys(false);
+      }
+    };
+
+    checkHardwareKeys();
+  }, [user]);
   
   // Scroll to biometric section if navigated with hash
   useEffect(() => {
@@ -119,7 +147,7 @@ const ProfilePage: React.FC = () => {
 
   // Account deletion handler
 
-  if (loading) {
+  if (loading || checkingHardwareKeys) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
         <CircularProgress />
@@ -127,7 +155,11 @@ const ProfilePage: React.FC = () => {
     );
   }
 
-  if (!userProfile || !userProfile.publicKey || (!userProfile.encryptedPrivateKey && !userProfile.legacyEncryptedPrivateKey)) {
+  // Show key generation form only if user truly has no way to access their keys
+  const hasPassphraseProtectedKey = userProfile?.encryptedPrivateKey || userProfile?.legacyEncryptedPrivateKey;
+  const needsKeyGeneration = !userProfile || !userProfile.publicKey || (!hasPassphraseProtectedKey && !hasHardwareKeysWithPrivateKey);
+
+  if (needsKeyGeneration) {
     return (
       <KeyGenerationForm
         userProfile={userProfile}
