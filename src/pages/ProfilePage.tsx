@@ -86,7 +86,8 @@ const ProfilePage: React.FC = () => {
       try {
         const { getRegisteredHardwareKeys } = await import('../utils/hardwareKeyAuth');
         const hardwareKeys = await getRegisteredHardwareKeys(user.uid);
-        const hasKeysWithPrivateKey = hardwareKeys.some(k => k.storesPrivateKey);
+        // Check if user has ANY hardware keys registered
+        const hasKeysWithPrivateKey = hardwareKeys.length > 0;
         setHasHardwareKeysWithPrivateKey(hasKeysWithPrivateKey);
       } catch (error) {
         console.error('Error checking hardware keys:', error);
