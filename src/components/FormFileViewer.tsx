@@ -18,6 +18,8 @@ import {
   MenuItem,
   ListItemIcon,
   ListItemText,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import {
   Edit,
@@ -51,6 +53,8 @@ interface FormFileViewerProps {
 
 
 const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userId, onEdit, onClose, onDownload, onShare }) => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [formData, setFormData] = useState<SecureFormData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -652,7 +656,7 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
 
   if (loading) {
     return (
-      <Dialog open onClose={onClose} maxWidth="md" fullWidth>
+      <Dialog open onClose={onClose} maxWidth="md" fullWidth fullScreen={isMobile}>
         <DialogContent sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 200 }}>
           <CircularProgress />
         </DialogContent>
@@ -662,7 +666,7 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
 
   if (error || !formData) {
     return (
-      <Dialog open onClose={onClose} maxWidth="md" fullWidth>
+      <Dialog open onClose={onClose} maxWidth="md" fullWidth fullScreen={isMobile}>
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Box sx={{
             overflow: 'hidden',
@@ -736,7 +740,7 @@ const FormFileViewer: React.FC<FormFileViewerProps> = ({ file, privateKey, userI
   const formColor = formData.metadata.color || '#455a64';
 
   return (
-    <Dialog open onClose={onClose} maxWidth="md" fullWidth>
+    <Dialog open onClose={onClose} maxWidth="md" fullWidth fullScreen={isMobile}>
       <DialogTitle>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Box sx={{

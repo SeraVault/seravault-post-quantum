@@ -624,7 +624,7 @@ const FileViewer: React.FC<FileViewerProps> = ({
       onClose={onClose}
       maxWidth={viewerState.isFullscreen ? false : "xl"}
       fullWidth
-      fullScreen={viewerState.isFullscreen}
+      fullScreen={isMobile || viewerState.isFullscreen}
       PaperProps={{
         sx: {
           height: viewerState.isFullscreen ? '100vh' : '95vh',

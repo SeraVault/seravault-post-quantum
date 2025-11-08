@@ -21,6 +21,8 @@ import {
   Accordion,
   AccordionSummary,
   AccordionDetails,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import {
   Save,
@@ -57,6 +59,8 @@ const FormInstanceFiller: React.FC<FormInstanceFillerProps> = ({
   onCancel,
 }) => {
   const { t, i18n } = useTranslation();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [formData, setFormData] = useState<SecureFormData | null>(null);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
@@ -90,7 +94,7 @@ const FormInstanceFiller: React.FC<FormInstanceFillerProps> = ({
 
   if (!formData) {
     return (
-      <Dialog open onClose={onCancel} maxWidth="sm" fullWidth>
+      <Dialog open onClose={onCancel} maxWidth="sm" fullWidth fullScreen={isMobile}>
         <DialogTitle>{t('common.loading')}</DialogTitle>
         <DialogContent>
           <Typography>{t('forms.loadingFormMessage', 'Please wait while the form loads...')}</Typography>
@@ -351,7 +355,7 @@ const FormInstanceFiller: React.FC<FormInstanceFillerProps> = ({
   };
 
   return (
-    <Dialog open onClose={onCancel} maxWidth="md" fullWidth>
+    <Dialog open onClose={onCancel} maxWidth="md" fullWidth fullScreen={isMobile}>
       <DialogTitle>
         {existingFormData ? t('forms.editForm') : t('forms.fillForm', 'Fill Form')} - {formData.metadata.name}
       </DialogTitle>
