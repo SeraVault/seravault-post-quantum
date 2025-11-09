@@ -26,7 +26,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteUserAccount = exports.onChatMessageCreated = exports.onUserInvitationCreated = exports.markAllNotificationsAsRead = exports.markNotificationAsRead = exports.onUnknownFileShare = exports.onContactAccepted = exports.onContactRequest = exports.onFileModified = exports.onFileShared = void 0;
+exports.calculateStorageUsage = exports.deleteUserAccount = exports.onChatMessageCreated = exports.onUserInvitationCreated = exports.markAllNotificationsAsRead = exports.markNotificationAsRead = exports.onUnknownFileShare = exports.onContactAccepted = exports.onContactRequest = exports.onFileModified = exports.onFileShared = void 0;
 const firestore_1 = require("firebase-functions/v2/firestore");
 const https_1 = require("firebase-functions/v2/https");
 const admin = __importStar(require("firebase-admin"));
@@ -490,7 +490,18 @@ exports.onChatMessageCreated = (0, firestore_1.onDocumentCreated)("files/{chatId
         if (!messageData)
             return;
         const senderId = messageData.senderId;
-        const senderName = messageData.senderName || 'Someone';
+        // Get sender's display name from their profile
+        let senderName = 'Someone';
+        try {
+            const senderDoc = await db.collection('users').doc(senderId).get();
+            if (senderDoc.exists) {
+                const senderData = senderDoc.data();
+                senderName = (senderData === null || senderData === void 0 ? void 0 : senderData.displayName) || (senderData === null || senderData === void 0 ? void 0 : senderData.email) || 'Someone';
+            }
+        }
+        catch (error) {
+            console.error(`⚠️ Failed to fetch sender name:`, error);
+        }
         // Get the chat document to find all participants
         const chatDoc = await db.collection('files').doc(chatId).get();
         if (!chatDoc.exists) {
@@ -712,7 +723,7 @@ exports.deleteUserAccount = (0, https_1.onCall)({ cors: ['http://localhost:5173'
         catch (error) {
             console.error('❌ Error deleting folders:', error);
         }
-        // 4. Delete contacts
+        // 4. Delete contacts (user's contact list)
         try {
             const contactsSnapshot = await db.collection('contacts')
                 .where('userId', '==', userId)
@@ -729,6 +740,25 @@ exports.deleteUserAccount = (0, https_1.onCall)({ cors: ['http://localhost:5173'
         }
         catch (error) {
             console.error('❌ Error deleting contacts:', error);
+        }
+        // 4b. Remove user from other users' contact lists
+        try {
+            const otherUsersContactsSnapshot = await db.collection('contacts')
+                .where('contactId', '==', userId)
+                .get();
+            const batch = db.batch();
+            let otherContactsRemoved = 0;
+            otherUsersContactsSnapshot.docs.forEach(doc => {
+                batch.delete(doc.ref);
+                otherContactsRemoved++;
+            });
+            if (otherContactsRemoved > 0) {
+                await batch.commit();
+            }
+            console.log(`✅ Removed user from ${otherContactsRemoved} other users' contact lists`);
+        }
+        catch (error) {
+            console.error('❌ Error removing user from other contact lists:', error);
         }
         // 5. Delete contact requests (sent and received)
         try {
@@ -872,6 +902,55 @@ exports.deleteUserAccount = (0, https_1.onCall)({ cors: ['http://localhost:5173'
     catch (error) {
         console.error('❌ Account deletion failed:', error);
         throw new https_1.HttpsError('internal', error instanceof Error ? error.message : 'Failed to delete account');
+    }
+});
+/**
+ * Calculate storage usage for a user
+ * Much faster than client-side calculation since it runs server-side
+ */
+exports.calculateStorageUsage = (0, https_1.onCall)({ cors: ['http://localhost:5173', 'http://localhost:3000', 'https://seravault-8c764.web.app', 'https://seravault-8c764.firebaseapp.com'] }, async (request) => {
+    var _a;
+    const userId = (_a = request.auth) === null || _a === void 0 ? void 0 : _a.uid;
+    if (!userId) {
+        throw new https_1.HttpsError('unauthenticated', 'User must be authenticated');
+    }
+    try {
+        // Get all files owned by the user
+        const filesSnapshot = await db.collection('files')
+            .where('owner', '==', userId)
+            .select('storagePath') // Only fetch the storagePath field for efficiency
+            .get();
+        let totalBytes = 0;
+        const fileStoragePaths = [];
+        for (const doc of filesSnapshot.docs) {
+            const storagePath = doc.data().storagePath;
+            if (storagePath) {
+                fileStoragePaths.push(storagePath);
+            }
+        }
+        // Get file sizes from storage metadata
+        const bucket = admin.storage().bucket();
+        const sizePromises = fileStoragePaths.map(async (storagePath) => {
+            try {
+                const file = bucket.file(storagePath);
+                const [metadata] = await file.getMetadata();
+                return parseInt(metadata.size) || 0;
+            }
+            catch (error) {
+                console.warn(`Failed to get size for ${storagePath}:`, error);
+                return 0;
+            }
+        });
+        const sizes = await Promise.all(sizePromises);
+        totalBytes = sizes.reduce((sum, size) => sum + size, 0);
+        return {
+            usedBytes: totalBytes,
+            fileCount: filesSnapshot.size,
+        };
+    }
+    catch (error) {
+        console.error('Failed to calculate storage usage:', error);
+        throw new https_1.HttpsError('internal', error instanceof Error ? error.message : 'Failed to calculate storage usage');
     }
 });
 //# sourceMappingURL=index.js.map

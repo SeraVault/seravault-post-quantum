@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react';
-import { Box, Typography, Paper, Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, ToggleButtonGroup, ToggleButton } from '@mui/material';
-import { Edit, Visibility } from '@mui/icons-material';
+import { Box, Typography, Paper, Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, useTheme } from '@mui/material';
 import Quill from 'quill';
 import 'quill/dist/quill.snow.css';
 
@@ -21,6 +20,7 @@ const WYSIWYGEditor: React.FC<WYSIWYGEditorProps> = ({
   sensitive = false,
   disabled = false,
 }) => {
+  const theme = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const quillRef = useRef<Quill | null>(null);
@@ -29,7 +29,6 @@ const WYSIWYGEditor: React.FC<WYSIWYGEditorProps> = ({
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [linkText, setLinkText] = useState('');
   const [linkUrl, setLinkUrl] = useState('');
-  const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit');
 
   // Keep onChange ref up to date
   useEffect(() => {
@@ -108,6 +107,7 @@ const WYSIWYGEditor: React.FC<WYSIWYGEditorProps> = ({
       if (toolbar && toolbar.container) {
         const fullscreenButton = toolbar.container.querySelector('.ql-fullscreen');
         if (fullscreenButton) {
+          fullscreenButton.setAttribute('title', 'Toggle Fullscreen');
           fullscreenButton.addEventListener('click', () => {
             toggleFullscreen();
           });
@@ -150,6 +150,37 @@ const WYSIWYGEditor: React.FC<WYSIWYGEditorProps> = ({
     // Set initial content
     if (value) {
       quill.root.innerHTML = value;
+    }
+
+    // Ensure the editor is focusable on mobile
+    const editorElement = quill.root;
+    if (editorElement) {
+      editorElement.setAttribute('contenteditable', 'true');
+      editorElement.style.webkitUserSelect = 'text';
+      editorElement.style.userSelect = 'text';
+      editorElement.style.cursor = 'text';
+      
+      // Only force focus on empty editor, otherwise let browser handle cursor positioning
+      const handleTouch = (e: Event) => {
+        if (!disabled) {
+          const length = quill.getLength();
+          // Only intervene if editor is empty
+          if (length <= 1) {
+            e.preventDefault();
+            setTimeout(() => {
+              quill.focus();
+              quill.setSelection(0, 0);
+            }, 0);
+          }
+          // Otherwise let the native touch handling position the cursor
+        }
+      };
+      
+      editorElement.addEventListener('touchstart', handleTouch, { passive: false });
+      
+      return () => {
+        editorElement.removeEventListener('touchstart', handleTouch);
+      };
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
@@ -279,92 +310,20 @@ const WYSIWYGEditor: React.FC<WYSIWYGEditorProps> = ({
   return (
     <>
       <Box sx={{ mb: 2 }}>
-        {/* Header with Label and Preview Toggle */}
-        <Box sx={{ 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'center', 
-          mb: 1 
-        }}>
-          <Typography 
-            variant="subtitle2" 
-            sx={{ 
-              color: sensitive ? 'error.main' : 'text.primary',
-              fontWeight: required ? 600 : 400,
-            }}
-          >
-            {label} {required && '*'} {sensitive && '🔒'}
-          </Typography>
-          
-          {!disabled && (
-            <ToggleButtonGroup
-              value={viewMode}
-              exclusive
-              onChange={(_e, newMode) => newMode && setViewMode(newMode)}
-              size="small"
-              aria-label="view mode"
-            >
-              <ToggleButton value="edit" aria-label="edit mode">
-                <Edit fontSize="small" sx={{ mr: 0.5 }} />
-                Edit
-              </ToggleButton>
-              <ToggleButton value="preview" aria-label="preview mode">
-                <Visibility fontSize="small" sx={{ mr: 0.5 }} />
-                Preview
-              </ToggleButton>
-            </ToggleButtonGroup>
-          )}
-        </Box>
+        {/* Header with Label */}
+        <Typography 
+          variant="subtitle2" 
+          sx={{ 
+            color: sensitive ? 'error.main' : 'text.primary',
+            fontWeight: required ? 600 : 400,
+            mb: 1,
+          }}
+        >
+          {label} {required && '*'} {sensitive && '🔒'}
+        </Typography>
         
-        {viewMode === 'preview' ? (
-          // Preview Mode - Show rendered HTML
-          <Paper 
-            variant="outlined"
-            sx={{ 
-              border: '1px solid',
-              borderColor: 'divider',
-              borderRadius: 1,
-              p: 2,
-              backgroundColor: 'background.paper',
-              minHeight: 300,
-              overflow: 'auto',
-              '& p': {
-                color: 'text.primary',
-                margin: '0 0 1em 0',
-              },
-              '& h1, & h2, & h3, & h4, & h5, & h6': {
-                color: 'text.primary',
-                margin: '0.5em 0',
-              },
-              '& strong': {
-                fontWeight: 600,
-              },
-              '& a': {
-                color: 'primary.main',
-                textDecoration: 'underline',
-              },
-              '& img': {
-                maxWidth: '100%',
-                height: 'auto',
-                borderRadius: 1,
-                boxShadow: 1,
-              },
-              '& ul, & ol': {
-                paddingLeft: 3,
-              },
-            }}
-          >
-            {value ? (
-              <div dangerouslySetInnerHTML={{ __html: value }} />
-            ) : (
-              <Typography color="text.disabled" fontStyle="italic">
-                No content to preview
-              </Typography>
-            )}
-          </Paper>
-        ) : (
-          // Edit Mode - Show Quill editor
-          <Paper 
+        {/* Quill Editor */}
+        <Paper 
             ref={containerRef}
             className="wysiwyg-editor-container"
             variant="outlined"
@@ -405,35 +364,70 @@ const WYSIWYGEditor: React.FC<WYSIWYGEditorProps> = ({
               lineHeight: 1.6,
               backgroundColor: 'background.paper !important',
               color: 'text.primary !important',
+              outline: 'none !important',
+              border: 'none !important',
+              '&:focus': {
+                outline: 'none !important',
+                border: 'none !important',
+              },
             },
             '& .ql-toolbar': {
-              borderBottom: '1px solid',
-              borderBottomColor: 'divider',
-              backgroundColor: 'background.default',
+              borderBottom: '2px solid',
+              borderBottomColor: theme.palette.divider,
+              backgroundColor: theme.palette.mode === 'dark' ? theme.palette.grey[800] : theme.palette.grey[100],
+              padding: '8px',
+              borderTopLeftRadius: '4px',
+              borderTopRightRadius: '4px',
             },
             '& .ql-toolbar .ql-stroke': {
-              stroke: 'text.primary',
+              stroke: `${theme.palette.text.primary} !important`,
             },
             '& .ql-toolbar .ql-fill': {
-              fill: 'text.primary',
+              fill: `${theme.palette.text.primary} !important`,
             },
             '& .ql-toolbar .ql-picker-label': {
-              color: 'text.primary',
+              color: `${theme.palette.text.primary} !important`,
+              border: `1px solid ${theme.palette.divider}`,
+              borderRadius: '3px',
+              '&:hover': {
+                backgroundColor: theme.palette.action.selected,
+              },
+            },
+            '& .ql-toolbar button': {
+              border: '1px solid transparent',
+              borderRadius: '3px',
+              '&:hover': {
+                backgroundColor: theme.palette.action.selected,
+                borderColor: theme.palette.divider,
+              },
+              '&.ql-active': {
+                backgroundColor: theme.palette.primary.main,
+                borderColor: theme.palette.primary.main,
+                '& .ql-stroke': {
+                  stroke: `${theme.palette.primary.contrastText} !important`,
+                },
+                '& .ql-fill': {
+                  fill: `${theme.palette.primary.contrastText} !important`,
+                },
+              },
             },
             '& .ql-toolbar .ql-picker-options': {
-              backgroundColor: 'background.paper',
-              border: '1px solid',
-              borderColor: 'divider',
+              backgroundColor: theme.palette.background.paper,
+              border: `1px solid ${theme.palette.divider}`,
+              boxShadow: theme.shadows[3],
             },
             '& .ql-toolbar .ql-picker-item': {
-              color: 'text.primary',
+              color: theme.palette.text.primary,
+              '&:hover': {
+                backgroundColor: theme.palette.action.hover,
+              },
             },
             // Custom fullscreen button styling to match native Quill buttons
             '& .ql-fullscreen': {
               width: '28px !important',
               height: '28px !important',
               padding: '5px',
-              border: 'none',
+              border: '1px solid transparent',
               background: 'transparent',
               cursor: 'pointer',
               borderRadius: '3px',
@@ -441,26 +435,28 @@ const WYSIWYGEditor: React.FC<WYSIWYGEditorProps> = ({
               position: 'relative',
               '&:before': {
                 content: '"⤢"',
-                fontSize: '14px',
+                fontSize: '16px',
                 lineHeight: '18px',
                 display: 'block',
                 textAlign: 'center',
-                color: '#444',
+                color: theme.palette.text.primary,
                 fontFamily: '"Helvetica Neue", "Helvetica", "Arial", sans-serif',
-                fontWeight: 'normal',
+                fontWeight: 'bold',
               },
               '&:hover': {
-                color: '#06c',
+                backgroundColor: theme.palette.action.selected,
+                borderColor: theme.palette.divider,
                 '&:before': {
-                  color: '#06c',
+                  color: theme.palette.text.primary,
                 },
               },
             },
             '& .ql-fullscreen.ql-active': {
-              color: '#06c',
+              backgroundColor: theme.palette.primary.main,
+              borderColor: theme.palette.primary.main,
               '&:before': {
                 content: '"⤡"',
-                color: '#06c',
+                color: theme.palette.primary.contrastText,
               },
             },
             '& .ql-editor.ql-blank::before': {
@@ -472,16 +468,26 @@ const WYSIWYGEditor: React.FC<WYSIWYGEditorProps> = ({
               backgroundColor: 'background.paper',
             },
             '& .ql-snow .ql-tooltip': {
-              backgroundColor: 'background.paper',
-              border: '1px solid',
-              borderColor: 'divider',
-              color: 'text.primary',
+              backgroundColor: theme.palette.background.paper,
+              border: `1px solid ${theme.palette.divider}`,
+              borderRadius: '4px',
+              boxShadow: theme.shadows[4],
+              color: theme.palette.text.primary,
+              zIndex: 1000,
             },
             '& .ql-snow .ql-tooltip input[type=text]': {
-              backgroundColor: 'background.default',
-              border: '1px solid',
-              borderColor: 'divider',
-              color: 'text.primary',
+              backgroundColor: theme.palette.background.default,
+              border: `1px solid ${theme.palette.divider}`,
+              borderRadius: '3px',
+              color: theme.palette.text.primary,
+              padding: '5px',
+            },
+            '& .ql-snow .ql-tooltip a': {
+              color: theme.palette.primary.main,
+            },
+            // Toolbar button tooltips (native browser title attribute)
+            '& .ql-toolbar button[title]': {
+              position: 'relative',
             },
             // Ensure text content is visible
             '& .ql-editor p': {
@@ -522,16 +528,15 @@ const WYSIWYGEditor: React.FC<WYSIWYGEditorProps> = ({
           onDrop={handleDrop}
           onDragOver={(e) => e.preventDefault()}
           onPaste={handlePaste}
+          onClick={() => {
+            // Ensure editor gets focus when clicking anywhere on the Paper
+            if (quillRef.current && !disabled) {
+              quillRef.current.focus();
+            }
+          }}
         >
           <div ref={editorRef} />
         </Paper>
-        )}
-        
-        {!disabled && (
-          <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-            💡 WYSIWYG Editor: Rich text editing with full formatting toolbar. You can drag & drop or paste images directly. Use the fullscreen button (⛶) in the toolbar for distraction-free editing.
-          </Typography>
-        )}
       </Box>
 
       {/* Link Dialog */}

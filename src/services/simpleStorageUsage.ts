@@ -1,6 +1,4 @@
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import { ref, getMetadata } from 'firebase/storage';
-import { db, storage } from '../firebase';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 
 export interface StorageUsage {
   usedBytes: number;
@@ -28,47 +26,19 @@ function formatBytes(bytes: number): string {
 }
 
 /**
- * Calculate total storage usage for a user based on actual Firebase Storage file sizes
- * Much simpler - no decryption needed, just gets the real encrypted file sizes
+ * Calculate total storage usage for a user using server-side Cloud Function
+ * Much faster than client-side calculation
  */
 export async function calculateStorageUsage(userId: string): Promise<StorageUsage> {
   try {
-    
-    // Query only files owned by this user
-    const filesQuery = query(
-      collection(db, 'files'), 
-      where('owner', '==', userId)
+    const functions = getFunctions();
+    const calculateStorageUsageFn = httpsCallable<void, { usedBytes: number; fileCount: number }>(
+      functions,
+      'calculateStorageUsage'
     );
     
-    const filesSnapshot = await getDocs(filesQuery);
-    let totalUsedBytes = 0;
-    let processedFiles = 0;
-    let failedFiles = 0;
-    
-    
-    // Process each file owned by the user
-    for (const fileDoc of filesSnapshot.docs) {
-      const fileData = fileDoc.data();
-      
-      if (!fileData.storagePath) {
-        continue;
-      }
-      
-      try {
-        // Get file metadata from Firebase Storage
-        const storageRef = ref(storage, fileData.storagePath);
-        const metadata = await getMetadata(storageRef);
-        
-        const fileSize = metadata.size || 0;
-        totalUsedBytes += fileSize;
-        processedFiles++;
-        
-        
-      } catch (error) {
-        failedFiles++;
-        // Continue processing other files
-      }
-    }
+    const result = await calculateStorageUsageFn();
+    const totalUsedBytes = result.data.usedBytes;
     
     const percentage = Math.round((totalUsedBytes / DEFAULT_STORAGE_LIMIT_BYTES) * 100);
     
@@ -80,10 +50,10 @@ export async function calculateStorageUsage(userId: string): Promise<StorageUsag
       percentage: Math.min(percentage, 100), // Cap at 100%
     };
     
-    
     return usage;
     
   } catch (error) {
+    console.error('Failed to calculate storage usage:', error);
     
     // Return default values on error
     return {

@@ -509,10 +509,10 @@ const FileTable: React.FC<FileTableProps> = ({
         overflow: 'auto', 
         width: '100%',
         minHeight: 0,
+        position: 'relative',
         // Mobile scroll performance optimizations
         ...(isMobile && {
           WebkitOverflowScrolling: 'touch',
-          transform: 'translateZ(0)',
           willChange: 'scroll-position',
         }),
       }}
@@ -530,6 +530,32 @@ const FileTable: React.FC<FileTableProps> = ({
           },
           '& .MuiTableCell-root': {
             contain: 'layout style paint',
+          },
+          // Ensure sticky header stays on top with proper stacking
+          '& .MuiTableHead-root': {
+            position: 'sticky',
+            top: 0,
+            zIndex: 10,
+          },
+          '& .MuiTableHead-root .MuiTableCell-root': {
+            backgroundColor: 'background.paper',
+            backgroundImage: 'none',
+            borderBottom: '2px solid',
+            borderBottomColor: 'divider',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+            // Ensure fully opaque background
+            opacity: 1,
+          },
+          // Ensure header cells in dark mode have proper solid background
+          '& .MuiTableHead-root .MuiTableCell-root::before': {
+            content: '""',
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'background.paper',
+            zIndex: -1,
           }
         }}
       >

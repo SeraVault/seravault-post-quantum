@@ -1016,3 +1016,64 @@ export const deleteUserAccount = onCall(
     }
   }
 );
+
+/**
+ * Calculate storage usage for a user
+ * Much faster than client-side calculation since it runs server-side
+ */
+export const calculateStorageUsage = onCall(
+  { cors: ['http://localhost:5173', 'http://localhost:3000', 'https://seravault-8c764.web.app', 'https://seravault-8c764.firebaseapp.com'] },
+  async (request) => {
+    const userId = request.auth?.uid;
+    
+    if (!userId) {
+      throw new HttpsError('unauthenticated', 'User must be authenticated');
+    }
+
+    try {
+      // Get all files owned by the user
+      const filesSnapshot = await db.collection('files')
+        .where('owner', '==', userId)
+        .select('storagePath')  // Only fetch the storagePath field for efficiency
+        .get();
+
+      let totalBytes = 0;
+      const fileStoragePaths: string[] = [];
+
+      for (const doc of filesSnapshot.docs) {
+        const storagePath = doc.data().storagePath;
+        if (storagePath) {
+          fileStoragePaths.push(storagePath);
+        }
+      }
+
+      // Get file sizes from storage metadata
+      const bucket = admin.storage().bucket();
+      const sizePromises = fileStoragePaths.map(async (storagePath) => {
+        try {
+          const file = bucket.file(storagePath);
+          const [metadata] = await file.getMetadata();
+          return parseInt(metadata.size as string) || 0;
+        } catch (error) {
+          console.warn(`Failed to get size for ${storagePath}:`, error);
+          return 0;
+        }
+      });
+
+      const sizes = await Promise.all(sizePromises);
+      totalBytes = sizes.reduce((sum, size) => sum + size, 0);
+
+      return {
+        usedBytes: totalBytes,
+        fileCount: filesSnapshot.size,
+      };
+
+    } catch (error) {
+      console.error('Failed to calculate storage usage:', error);
+      throw new HttpsError(
+        'internal',
+        error instanceof Error ? error.message : 'Failed to calculate storage usage'
+      );
+    }
+  }
+);
