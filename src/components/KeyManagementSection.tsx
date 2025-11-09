@@ -4,7 +4,7 @@ import { type UserProfile } from '../firestore';
 import ChangePassphraseDialog from './ChangePassphraseDialog';
 
 interface KeyManagementSectionProps {
-  userProfile: UserProfile;
+  userProfile: UserProfile | null;
   privateKey: string | null;
   onDownloadKey: () => void;
   onDownloadDecryptedKey: () => void;
@@ -19,6 +19,13 @@ const KeyManagementSection: React.FC<KeyManagementSectionProps> = ({
   const [changePassphraseOpen, setChangePassphraseOpen] = useState(false);
   const [successMessage, setSuccessMessage] = useState(false);
 
+  // Check if user has encrypted private key (it's an object with ciphertext, salt, nonce)
+  const hasEncryptedKey = Boolean(
+    userProfile?.encryptedPrivateKey && 
+    typeof userProfile.encryptedPrivateKey === 'object' &&
+    'ciphertext' in userProfile.encryptedPrivateKey
+  );
+
   return (
     <>
       <Paper elevation={2} sx={{ p: 3, mb: 3 }}>
@@ -26,18 +33,30 @@ const KeyManagementSection: React.FC<KeyManagementSectionProps> = ({
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           Backup and manage your encryption keys
         </Typography>
+        
+        {!hasEncryptedKey && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            <Typography variant="body2">
+              You're using hardware key authentication. Your private key is stored securely on your device and not protected by a passphrase.
+              You can still download your decrypted key for backup purposes.
+            </Typography>
+          </Alert>
+        )}
+        
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'start' }}>
           <Box>
             <Button
               variant="outlined"
               onClick={onDownloadKey}
-              disabled={!userProfile?.encryptedPrivateKey}
+              disabled={!hasEncryptedKey}
               sx={{ mb: 1 }}
             >
               Download Key Backup
             </Button>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', maxWidth: 250 }}>
-              Downloads a JSON file containing your encrypted private key. Safe to store as backup.
+              {hasEncryptedKey 
+                ? 'Downloads a JSON file containing your encrypted private key. Safe to store as backup.'
+                : 'Not available when using hardware key authentication only.'}
             </Typography>
           </Box>
           
@@ -52,7 +71,7 @@ const KeyManagementSection: React.FC<KeyManagementSectionProps> = ({
               Download Decrypted Key
             </Button>
             <Typography variant="caption" color="warning.main" sx={{ display: 'block', maxWidth: 250 }}>
-              ⚠️ Downloads your private key in plain text. Only use if you understand the security risks.
+              ⚠️ Downloads your private key in plain text. {hasEncryptedKey ? 'Only use if you understand the security risks.' : 'Use this to backup your key when using hardware authentication.'}
             </Typography>
           </Box>
 
@@ -60,13 +79,15 @@ const KeyManagementSection: React.FC<KeyManagementSectionProps> = ({
             <Button
               variant="outlined"
               onClick={() => setChangePassphraseOpen(true)}
-              disabled={!userProfile?.encryptedPrivateKey}
+              disabled={!hasEncryptedKey}
               sx={{ mb: 1 }}
             >
               Change Passphrase
             </Button>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', maxWidth: 250 }}>
-              Update the passphrase used to encrypt your private key.
+              {hasEncryptedKey 
+                ? 'Update the passphrase used to encrypt your private key.'
+                : 'Not available when using hardware key authentication only.'}
             </Typography>
           </Box>
         </Box>

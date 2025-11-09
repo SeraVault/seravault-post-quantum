@@ -31,7 +31,7 @@ const KeyGenerationForm: React.FC<KeyGenerationFormProps> = ({
     <Container component="main" maxWidth="sm">
       <Paper elevation={3} sx={{ padding: 4, marginTop: 8, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         <Typography component="h1" variant="h5">
-          {(userProfile?.publicKey || userProfile?.encryptedPrivateKey || userProfile?.legacyEncryptedPrivateKey) ? 'Regenerate Your Secure Key Pair' : 'Create Your Secure Key Pair'}
+          {(userProfile?.publicKey || userProfile?.encryptedPrivateKey) ? 'Regenerate Your Secure Key Pair' : 'Create Your Secure Key Pair'}
         </Typography>
         
         <Alert severity="info" sx={{ mt: 2, width: '100%' }}>
@@ -42,7 +42,7 @@ const KeyGenerationForm: React.FC<KeyGenerationFormProps> = ({
         </Alert>
         
         <Typography variant="body1" sx={{ mt: 2, mb: 2 }}>
-          {(userProfile?.publicKey || userProfile?.encryptedPrivateKey || userProfile?.legacyEncryptedPrivateKey)
+          {(userProfile?.publicKey || userProfile?.encryptedPrivateKey)
             ? 'Your account needs updated post-quantum secure keys. Please regenerate your key pair with a strong passphrase.'
             : 'To secure your documents, you need to generate a post-quantum secure key pair. Please enter a display name and a strong passphrase to encrypt your private key.'
           }

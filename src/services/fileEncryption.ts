@@ -52,7 +52,7 @@ export class FileEncryptionService {
     encryptedContent.set(iv, 0);
     encryptedContent.set(new Uint8Array(encryptedContentBuffer), 12);
 
-    // Encrypt file key for each user using HPKE
+    // Encrypt file key for each user using post-quantum encryption
     const encryptedKeys: { [userId: string]: string } = {};
     
     for (const userId of userIds) {

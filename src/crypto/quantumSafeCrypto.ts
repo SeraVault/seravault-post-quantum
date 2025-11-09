@@ -1,6 +1,6 @@
 /**
- * Quantum-Safe Cryptography using Kyber + AES-256-GCM
- * Replaces the problematic HPKE implementation with quantum-resistant algorithms
+ * Quantum-Safe Cryptography using ML-KEM-768 + AES-256-GCM
+ * Post-quantum key encapsulation mechanism (KEM) with AES for data encryption
  */
 
 import { ml_kem768 } from '@noble/post-quantum/ml-kem';

@@ -8,6 +8,7 @@ import { useKeyGeneration } from '../hooks/useKeyGeneration';
 import { type UserProfile } from '../firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { useNavigate } from 'react-router-dom';
+import { type User as FirebaseUser } from 'firebase/auth';
 import BiometricSetup from '../components/BiometricSetup';
 import HardwareKeySetup from '../components/HardwareKeySetup';
 import DeviceCapabilityInfo from '../components/DeviceCapabilityInfo';
@@ -114,8 +115,35 @@ const ProfilePage: React.FC = () => {
   }, []);
 
   const handleConfirmDecryptedKeyDownload = async () => {
-    if (!userProfile) return;
-    await handleDownloadDecryptedKey(userProfile, privateKey, setError);
+    if (!userProfile || !privateKey) return;
+    
+    try {
+      const keyData = {
+        version: "1.0",
+        keyType: "ML-KEM-768 (DECRYPTED)",
+        displayName: userProfile.displayName,
+        email: userProfile.email,
+        publicKey: userProfile.publicKey,
+        privateKeyHex: privateKey,
+        exportedAt: new Date().toISOString(),
+        warning: "This file contains your private key in PLAIN TEXT. Store it securely and never share it."
+      };
+
+      const blob = new Blob([JSON.stringify(keyData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${userProfile.displayName.replace(/[^a-zA-Z0-9]/g, '_')}_mlkem768_decrypted_key.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      setShowDecryptedKeyWarning(false);
+    } catch (error) {
+      console.error('Error downloading decrypted key:', error);
+      setError('Failed to download decrypted key file');
+    }
   };
 
   // Handle account deletion
@@ -158,7 +186,7 @@ const ProfilePage: React.FC = () => {
   }
 
   // Show key generation form only if user truly has no way to access their keys
-  const hasPassphraseProtectedKey = userProfile?.encryptedPrivateKey || userProfile?.legacyEncryptedPrivateKey;
+  const hasPassphraseProtectedKey = userProfile?.encryptedPrivateKey;
   const needsKeyGeneration = !userProfile || !userProfile.publicKey || (!hasPassphraseProtectedKey && !hasHardwareKeysWithPrivateKey);
 
   if (needsKeyGeneration) {
@@ -218,14 +246,12 @@ const ProfilePage: React.FC = () => {
         <EncryptionStatusSection encryptionMethod={encryptionMethod} />
 
         {/* Key Management */}
-        {(encryptionMethod === 'ML-KEM768' || encryptionMethod === 'HPKE') && (
-          <KeyManagementSection
-            userProfile={userProfile}
-            privateKey={privateKey}
-            onDownloadKey={() => handleDownloadKey(userProfile, setError)}
-            onDownloadDecryptedKey={() => handleDownloadDecryptedKey(userProfile, privateKey, setError)}
-          />
-        )}
+        <KeyManagementSection
+          userProfile={userProfile}
+          privateKey={privateKey}
+          onDownloadKey={() => handleDownloadKey(userProfile, setError)}
+          onDownloadDecryptedKey={() => setShowDecryptedKeyWarning(true)}
+        />
 
         {/* Device Capability Information */}
         <DeviceCapabilityInfo />
@@ -236,7 +262,7 @@ const ProfilePage: React.FC = () => {
         </Box>
 
         {/* Hardware Security Keys */}
-        <HardwareKeySetup />
+        <HardwareKeySetup onEncryptedKeyChange={() => fetchProfile(user as FirebaseUser)} />
 
         {/* JSON Import */}
         <JsonImport />

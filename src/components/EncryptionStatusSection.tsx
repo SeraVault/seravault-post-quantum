@@ -2,7 +2,7 @@ import React from 'react';
 import { Box, Typography, Button, Paper, Chip } from '@mui/material';
 import { Link } from 'react-router-dom';
 
-type EncryptionMethod = 'ML-KEM768' | 'Legacy';
+type EncryptionMethod = 'ML-KEM768';
 
 interface EncryptionStatusSectionProps {
   encryptionMethod: EncryptionMethod;
@@ -28,19 +28,12 @@ const EncryptionStatusSection: React.FC<EncryptionStatusSectionProps> = ({ encry
         </Typography>
         <Chip 
           label={encryptionMethod}
-          color={encryptionMethod === 'ML-KEM768' ? 'success' : 'error'}
+          color="success"
           sx={{ mr: 1 }}
         />
-        {encryptionMethod === 'ML-KEM768' && (
-          <Typography variant="body2" color="success.main" sx={{ mt: 1 }}>
-            ✓ You're using quantum-safe ML-KEM-768 encryption
-          </Typography>
-        )}
-        {encryptionMethod === 'Legacy' && (
-          <Typography variant="body2" color="error.main" sx={{ mt: 1 }}>
-            Your encryption keys need to be updated for security
-          </Typography>
-        )}
+        <Typography variant="body2" color="success.main" sx={{ mt: 1 }}>
+          ✓ You're using quantum-safe ML-KEM-768 encryption
+        </Typography>
       </Box>
     </Paper>
   );

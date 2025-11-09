@@ -54,7 +54,11 @@ import {
   type HardwareKeyCredential,
 } from '../utils/hardwareKeyAuth';
 
-const HardwareKeySetup: React.FC = () => {
+interface HardwareKeySetupProps {
+  onEncryptedKeyChange?: () => void;
+}
+
+const HardwareKeySetup: React.FC<HardwareKeySetupProps> = ({ onEncryptedKeyChange }) => {
   const { user } = useAuth();
   const { privateKey } = usePassphrase();
   const [capabilities, setCapabilities] = useState<{
@@ -68,12 +72,16 @@ const HardwareKeySetup: React.FC = () => {
   const [registering, setRegistering] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [hasEncryptedKey, setHasEncryptedKey] = useState(false);
   
   // Dialog states
   const [nicknameDialogOpen, setNicknameDialogOpen] = useState(false);
   const [newKeyNickname, setNewKeyNickname] = useState('');
   const [storePrivateKeyOption, setStorePrivateKeyOption] = useState(false);
   const [removePassphraseKeyDialogOpen, setRemovePassphraseKeyDialogOpen] = useState(false);
+  const [restorePassphraseKeyDialogOpen, setRestorePassphraseKeyDialogOpen] = useState(false);
+  const [newPassphrase, setNewPassphrase] = useState('');
+  const [confirmNewPassphrase, setConfirmNewPassphrase] = useState('');
   const [authenticatorType, setAuthenticatorType] = useState<'cross-platform' | 'platform'>('cross-platform');
   const [helpDialogOpen, setHelpDialogOpen] = useState(false);
   const [editingKey, setEditingKey] = useState<HardwareKeyCredential | null>(null);
@@ -90,17 +98,26 @@ const HardwareKeySetup: React.FC = () => {
         if (user) {
           const keys = await getRegisteredHardwareKeys(user.uid);
           setRegisteredKeys(keys);
+          
+          // Check if user has encrypted private key
+          const { doc, getDoc } = await import('firebase/firestore');
+          const { db } = await import('../firebase');
+          const userDoc = await getDoc(doc(db, 'users', user.uid));
+          const userData = userDoc.data();
+          const hasKey = !!(userData?.encryptedPrivateKey?.ciphertext);
+          setHasEncryptedKey(hasKey);
+          console.log('HardwareKeySetup: hasEncryptedKey =', hasKey, 'privateKey =', !!privateKey, 'registeredKeys =', keys.length);
         }
-      } catch (error) {
-        console.error('Failed to load hardware key data:', error);
-        setError('Failed to load hardware key information');
+      } catch (err) {
+        setError('Failed to load hardware key settings');
+        console.error('Error loading hardware keys:', err);
       } finally {
         setLoading(false);
       }
     };
 
     loadData();
-  }, [user]);
+  }, [user, privateKey]);
 
   const handleRegisterKey = async () => {
     if (!user) return;
@@ -220,13 +237,56 @@ const HardwareKeySetup: React.FC = () => {
       const userDocRef = doc(db, 'users', user.uid);
       await updateDoc(userDocRef, {
         encryptedPrivateKey: null,
-        legacyEncryptedPrivateKey: null,
       });
       
+      setHasEncryptedKey(false);
       setSuccess('Passphrase-protected key removed. Your private key now only exists in your hardware keys!');
+      onEncryptedKeyChange?.();
     } catch (error) {
       console.error('Failed to remove passphrase key:', error);
       throw new Error('Failed to remove passphrase-protected key from server');
+    }
+  };
+
+  const handleRestorePassphraseKey = async () => {
+    if (!user || !privateKey) {
+      setError('You must be logged in and have your private key unlocked');
+      return;
+    }
+
+    if (!newPassphrase || newPassphrase.length < 8) {
+      setError('Passphrase must be at least 8 characters long');
+      return;
+    }
+
+    if (newPassphrase !== confirmNewPassphrase) {
+      setError('Passphrases do not match');
+      return;
+    }
+
+    try {
+      // Encrypt the private key with the new passphrase
+      const { encryptString } = await import('../crypto/quantumSafeCrypto');
+      const encryptedPrivateKey = encryptString(privateKey, newPassphrase);
+
+      // Store in Firestore
+      const { doc, updateDoc } = await import('firebase/firestore');
+      const { db } = await import('../firebase');
+      
+      const userDocRef = doc(db, 'users', user.uid);
+      await updateDoc(userDocRef, {
+        encryptedPrivateKey: encryptedPrivateKey,
+      });
+
+      setHasEncryptedKey(true);
+      setSuccess('Passphrase-protected key restored! You can now use both hardware keys and passphrase to unlock.');
+      setRestorePassphraseKeyDialogOpen(false);
+      setNewPassphrase('');
+      setConfirmNewPassphrase('');
+      onEncryptedKeyChange?.();
+    } catch (error) {
+      console.error('Failed to restore passphrase key:', error);
+      setError('Failed to restore passphrase-protected key');
     }
   };
 
@@ -392,7 +452,7 @@ const HardwareKeySetup: React.FC = () => {
                 </ListItem>
               ))}
             </List>
-            <Box mt={2}>
+            <Box mt={2} display="flex" flexDirection="column" gap={1}>
               <Button
                 variant="outlined"
                 startIcon={<VpnKey />}
@@ -401,6 +461,19 @@ const HardwareKeySetup: React.FC = () => {
               >
                 Add Another Security Key
               </Button>
+              
+              {/* Show restore button when user has privateKey unlocked but no passphrase backup */}
+              {!hasEncryptedKey && privateKey && (
+                <Button
+                  variant="outlined"
+                  color="success"
+                  startIcon={<Security />}
+                  onClick={() => setRestorePassphraseKeyDialogOpen(true)}
+                  fullWidth
+                >
+                  Add Passphrase Protection
+                </Button>
+              )}
             </Box>
           </>
         )}
@@ -632,6 +705,71 @@ const HardwareKeySetup: React.FC = () => {
         hardwareKeyCount={registeredKeys.filter(k => k.storesPrivateKey).length}
         authenticatorType={authenticatorType}
       />
+
+      {/* Restore Passphrase Key Dialog */}
+      <Dialog 
+        open={restorePassphraseKeyDialogOpen} 
+        onClose={() => {
+          setRestorePassphraseKeyDialogOpen(false);
+          setNewPassphrase('');
+          setConfirmNewPassphrase('');
+          setError(null);
+        }}
+        maxWidth="sm" 
+        fullWidth
+      >
+        <DialogTitle>Restore Passphrase Protection</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Create a passphrase to encrypt your private key. This allows you to unlock your account using either your hardware key or your passphrase.
+          </Typography>
+          
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+              {error}
+            </Alert>
+          )}
+
+          <TextField
+            label="New Passphrase"
+            type="password"
+            value={newPassphrase}
+            onChange={(e) => setNewPassphrase(e.target.value)}
+            fullWidth
+            margin="normal"
+            helperText="At least 8 characters"
+          />
+          
+          <TextField
+            label="Confirm Passphrase"
+            type="password"
+            value={confirmNewPassphrase}
+            onChange={(e) => setConfirmNewPassphrase(e.target.value)}
+            fullWidth
+            margin="normal"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button 
+            onClick={() => {
+              setRestorePassphraseKeyDialogOpen(false);
+              setNewPassphrase('');
+              setConfirmNewPassphrase('');
+              setError(null);
+            }}
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleRestorePassphraseKey}
+            variant="contained"
+            color="success"
+            disabled={!newPassphrase || !confirmNewPassphrase}
+          >
+            Restore Protection
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Card>
   );
 };

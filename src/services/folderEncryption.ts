@@ -37,26 +37,24 @@ export class FolderEncryptionService {
     });
     
     // CRITICAL: Verify that public and private keys match before encryption
-    // TEMPORARY WORKAROUND: Skip verification due to HPKE library bug
     try {
       const { verifyKeyPair } = await import('./keyManagement');
       const isValidPair = await verifyKeyPair(userPrivateKey, publicKeyHex);
       if (isValidPair) {
         console.log('✅ FolderEncryptionService: Key pair verification PASSED before encryption');
       } else {
-        console.warn('⚠️ FolderEncryptionService: Key pair verification failed, but continuing (HPKE library bug)');
+        console.warn('⚠️ FolderEncryptionService: Key pair verification failed');
         console.warn('⚠️ Private key:', userPrivateKey.substring(0, 16) + '...');
         console.warn('⚠️ Public key:', publicKeyHex.substring(0, 16) + '...');
       }
     } catch (verificationError) {
-      console.warn('⚠️ FolderEncryptionService: Key verification error (HPKE library bug):', verificationError instanceof Error ? verificationError.message : String(verificationError));
-      // Continue despite verification failure due to HPKE library bug
+      console.warn('⚠️ FolderEncryptionService: Key verification error:', verificationError instanceof Error ? verificationError.message : String(verificationError));
     }
     
     // Generate a random key for folder metadata encryption
     const metadataKey = crypto.getRandomValues(new Uint8Array(32));
     
-    // Encrypt the metadata key using quantum-safe Kyber + AES
+    // Encrypt the metadata key using quantum-safe ML-KEM-768 + AES
     const encryptedKeyResult = await encryptData(metadataKey, publicKey);
     const iv = encryptedKeyResult.iv;
     const encapsulatedKey = encryptedKeyResult.encapsulatedKey;

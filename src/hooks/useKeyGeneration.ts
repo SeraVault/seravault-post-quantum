@@ -4,7 +4,7 @@ import { createUserWithKeys, regenerateUserKeys } from '../services/keyManagemen
 import { type UserProfile } from '../firestore';
 import { migrateUserFiles } from '../services/keyMigration';
 
-export type EncryptionMethod = 'ML-KEM768' | 'Legacy';
+export type EncryptionMethod = 'ML-KEM768';
 
 export interface UseKeyGenerationReturn {
   passphrase: string;
@@ -287,13 +287,9 @@ export const useKeyGeneration = (): UseKeyGenerationReturn => {
   };
 
   const getEncryptionMethod = (userProfile: UserProfile | null): EncryptionMethod => {
-    if (!userProfile || !userProfile.publicKey) return 'Legacy';
-    
+    // All users should have ML-KEM-768 keys
     // ML-KEM-768 public keys are 1184 bytes = 2368 hex characters
-    if (userProfile.publicKey.length === 2368) {
-      return 'ML-KEM768';
-    }
-    return 'Legacy';
+    return 'ML-KEM768';
   };
 
   const handleDownloadKey = async (userProfile: UserProfile, onError: (error: string) => void) => {
@@ -303,10 +299,9 @@ export const useKeyGeneration = (): UseKeyGenerationReturn => {
     }
 
     try {
-      const encryptionMethod = getEncryptionMethod(userProfile);
       const keyData = {
         version: "1.0",
-        keyType: encryptionMethod === 'ML-KEM768' ? "ML-KEM-768" : "Legacy",
+        keyType: "ML-KEM-768",
         displayName: userProfile.displayName,
         email: userProfile.email,
         publicKey: userProfile.publicKey,
@@ -318,8 +313,7 @@ export const useKeyGeneration = (): UseKeyGenerationReturn => {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      const keyTypeForFilename = encryptionMethod === 'ML-KEM768' ? 'mlkem768' : 'legacy';
-      link.download = `${userProfile.displayName.replace(/[^a-zA-Z0-9]/g, '_')}_${keyTypeForFilename}_key.json`;
+      link.download = `${userProfile.displayName.replace(/[^a-zA-Z0-9]/g, '_')}_mlkem768_key.json`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

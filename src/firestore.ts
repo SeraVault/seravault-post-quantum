@@ -15,8 +15,6 @@ export interface UserProfile {
     salt: string; // base64  
     nonce: string; // base64
   };
-  // Legacy field - will be migrated
-  legacyEncryptedPrivateKey?: string;
   // Terms acceptance
   termsAcceptedAt?: string; // ISO timestamp when user accepted terms
   // UI preferences
@@ -35,7 +33,7 @@ export interface UserProfile {
 export interface Folder {
   id?: string;
   owner: string;
-  name: string | { ciphertext: string; nonce: string }; // Encrypted (legacy string or new post-quantum format)
+  name: string | { ciphertext: string; nonce: string }; // Encrypted folder name
   parent: string | null;
   createdAt: FieldValue;
   encryptedKeys?: { [uid: string]: string }; // uid -> encrypted key exchange result (for post-quantum)
@@ -47,12 +45,11 @@ export interface Group {
   name: string | { ciphertext: string; nonce: string }; // Encrypted group name
   description?: string | { ciphertext: string; nonce: string }; // Encrypted description
   members: string[] | { ciphertext: string; nonce: string }; // Encrypted members array
-  memberKeys?: { [uid: string]: string }; // HPKE encrypted group keys for each member
+  memberKeys?: { [uid: string]: string }; // Encrypted group keys for each member
   createdAt: FieldValue;
   updatedAt: FieldValue;
-  isEncrypted?: boolean; // Flag to distinguish encrypted vs legacy groups
+  isEncrypted?: boolean; // Flag to distinguish encrypted vs unencrypted groups
 }
-
 
 
 export const getUserProfile = async (uid: string): Promise<UserProfile | null> => {
@@ -187,7 +184,7 @@ export const renameFolderWithEncryption = async (folderId: string, newName: stri
     // Generate a random key for folder metadata encryption
     const metadataKey = crypto.getRandomValues(new Uint8Array(32));
     
-    // Encrypt the metadata key using HPKE
+    // Encrypt the metadata key using post-quantum encryption
     const encryptedKeyResult = await encryptData(metadataKey, publicKey);
     const encapsulatedKey = encryptedKeyResult.encapsulatedKey;
     const cipherText = encryptedKeyResult.ciphertext;
@@ -532,7 +529,7 @@ const bytesToHex = (bytes: Uint8Array): string => {
 
 /**
  * Encrypt group data (name, description, members) with a group key
- * and encrypt the group key for each member using HPKE
+ * and encrypt the group key for each member using post-quantum encryption
  */
 export const encryptGroupData = async (
   groupData: { name: string; description: string; members: string[] },

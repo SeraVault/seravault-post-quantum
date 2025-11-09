@@ -78,7 +78,7 @@ const PassphraseProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
           
           // Check if user has passphrase-protected keys OR hardware keys with stored private keys
-          const hasPassphraseProtectedKey = profile.encryptedPrivateKey || profile.legacyEncryptedPrivateKey;
+          const hasPassphraseProtectedKey = profile.encryptedPrivateKey;
           let hasHardwareKeys = false;
           
           // Always check for hardware keys

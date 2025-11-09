@@ -212,7 +212,7 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
         
         // Check for encrypted key file format
         if (keyData.encryptedPrivateKey && keyData.keyType) {
-          if (!keyData.keyType.includes('ML-KEM-768') && !keyData.keyType.includes('Legacy')) {
+          if (!keyData.keyType.includes('ML-KEM-768')) {
             throw new Error('Invalid or unsupported key file format. Only ML-KEM-768 keys are supported.');
           }
 
@@ -229,7 +229,7 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
           console.log('Decrypted successfully');
         }
         // Check for decrypted key file format
-        else if (keyData.privateKeyHex && (keyData.keyType.includes('DECRYPTED') || keyData.keyType.includes('ML-KEM-768') || keyData.keyType.includes('Legacy'))) {
+        else if (keyData.privateKeyHex && (keyData.keyType.includes('DECRYPTED') || keyData.keyType.includes('ML-KEM-768'))) {
           privateKeyHex = keyData.privateKeyHex;
           console.log('Using decrypted key from file');
           // Validate it's a proper hex string
