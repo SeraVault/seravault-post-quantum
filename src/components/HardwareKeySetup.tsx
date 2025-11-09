@@ -106,7 +106,7 @@ const HardwareKeySetup: React.FC<HardwareKeySetupProps> = ({ onEncryptedKeyChang
           const userData = userDoc.data();
           const hasKey = !!(userData?.encryptedPrivateKey?.ciphertext);
           setHasEncryptedKey(hasKey);
-          console.log('HardwareKeySetup: hasEncryptedKey =', hasKey, 'privateKey =', !!privateKey, 'registeredKeys =', keys.length);
+          console.log('HardwareKeySetup: hasEncryptedKey =', hasKey, 'privateKey =', !!privateKey, 'registeredKeys =', keys.length, 'keys with private key =', keys.filter(k => k.storesPrivateKey).length);
         }
       } catch (err) {
         setError('Failed to load hardware key settings');
@@ -254,8 +254,8 @@ const HardwareKeySetup: React.FC<HardwareKeySetupProps> = ({ onEncryptedKeyChang
       return;
     }
 
-    if (!newPassphrase || newPassphrase.length < 8) {
-      setError('Passphrase must be at least 8 characters long');
+    if (!newPassphrase || newPassphrase.length < 12) {
+      setError('Passphrase must be at least 12 characters long');
       return;
     }
 
@@ -379,6 +379,20 @@ const HardwareKeySetup: React.FC<HardwareKeySetupProps> = ({ onEncryptedKeyChang
 
         <Divider sx={{ my: 2 }} />
 
+        {/* Show info when user has both passphrase and hardware keys */}
+        {hasEncryptedKey && registeredKeys.length > 0 && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 0.5 }}>
+              🔐 Dual Authentication Mode
+            </Typography>
+            <Typography variant="body2">
+              You have both passphrase protection and hardware keys set up. You can unlock using either method. 
+              For maximum security, you can remove the passphrase-protected copy from our servers if you have 
+              multiple backup hardware keys.
+            </Typography>
+          </Alert>
+        )}
+
         {registeredKeys.length === 0 ? (
           <Box textAlign="center" py={3}>
             <VpnKey sx={{ fontSize: 60, color: 'text.disabled', mb: 2 }} />
@@ -472,6 +486,19 @@ const HardwareKeySetup: React.FC<HardwareKeySetupProps> = ({ onEncryptedKeyChang
                   fullWidth
                 >
                   Add Passphrase Protection
+                </Button>
+              )}
+              
+              {/* Show remove button when user has both passphrase encryption AND hardware keys */}
+              {hasEncryptedKey && registeredKeys.length > 0 && (
+                <Button
+                  variant="outlined"
+                  color="warning"
+                  startIcon={<Security />}
+                  onClick={() => setRemovePassphraseKeyDialogOpen(true)}
+                  fullWidth
+                >
+                  Remove Passphrase Protection
                 </Button>
               )}
             </Box>
@@ -702,7 +729,7 @@ const HardwareKeySetup: React.FC<HardwareKeySetupProps> = ({ onEncryptedKeyChang
         open={removePassphraseKeyDialogOpen}
         onClose={() => setRemovePassphraseKeyDialogOpen(false)}
         onConfirm={handleRemovePassphraseKey}
-        hardwareKeyCount={registeredKeys.filter(k => k.storesPrivateKey).length}
+        hardwareKeyCount={registeredKeys.length}
         authenticatorType={authenticatorType}
       />
 
@@ -720,9 +747,21 @@ const HardwareKeySetup: React.FC<HardwareKeySetupProps> = ({ onEncryptedKeyChang
       >
         <DialogTitle>Restore Passphrase Protection</DialogTitle>
         <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Create a passphrase to encrypt your private key. This allows you to unlock your account using either your hardware key or your passphrase.
           </Typography>
+          
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 0.5 }}>
+              🔒 Choose a Strong Passphrase
+            </Typography>
+            <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+              Your passphrase protects your private key. Use 12+ characters with a mix of words, numbers, and symbols.
+            </Typography>
+            <Typography variant="body2" sx={{ fontSize: '0.875rem', mt: 0.5 }}>
+              <strong>Examples:</strong> "Coffee-Mountain-2024!", "MyDog&Spot!Runs"
+            </Typography>
+          </Alert>
           
           {error && (
             <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
@@ -737,7 +776,7 @@ const HardwareKeySetup: React.FC<HardwareKeySetupProps> = ({ onEncryptedKeyChang
             onChange={(e) => setNewPassphrase(e.target.value)}
             fullWidth
             margin="normal"
-            helperText="At least 8 characters"
+            helperText="At least 12 characters recommended"
           />
           
           <TextField

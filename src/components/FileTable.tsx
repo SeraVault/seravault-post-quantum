@@ -97,15 +97,15 @@ const FileTable: React.FC<FileTableProps> = ({
   const [userProfiles, setUserProfiles] = React.useState<{ [userId: string]: UserProfile }>({});
   const [currentUserProfile, setCurrentUserProfile] = React.useState<UserProfile | null>(null);
   
-  // Default column visibility (all visible by default)
-  const defaultColumnVisibility: ColumnVisibility = {
+  // Default column visibility - hide size, shared, created, modified on mobile
+  const defaultColumnVisibility: ColumnVisibility = React.useMemo(() => ({
     type: true,
-    size: true,
-    shared: true,
-    created: true,
-    modified: true,
+    size: !isMobile,
+    shared: !isMobile,
+    created: !isMobile,
+    modified: !isMobile,
     owner: true,
-  };
+  }), [isMobile]);
   
   const [columnVisibility, setColumnVisibility] = React.useState<ColumnVisibility>(defaultColumnVisibility);
 
@@ -119,12 +119,15 @@ const FileTable: React.FC<FileTableProps> = ({
           if (profile?.columnVisibility) {
             setColumnVisibility({
               type: profile.columnVisibility.type ?? true,
-              size: profile.columnVisibility.size ?? true,
-              shared: profile.columnVisibility.shared ?? true,
-              created: profile.columnVisibility.created ?? true,
-              modified: profile.columnVisibility.modified ?? true,
+              size: profile.columnVisibility.size ?? !isMobile,
+              shared: profile.columnVisibility.shared ?? !isMobile,
+              created: profile.columnVisibility.created ?? !isMobile,
+              modified: profile.columnVisibility.modified ?? !isMobile,
               owner: profile.columnVisibility.owner ?? true,
             });
+          } else if (isMobile) {
+            // If no saved preferences and on mobile, use mobile defaults
+            setColumnVisibility(defaultColumnVisibility);
           }
         } catch (error) {
           console.warn('Failed to load current user profile:', error);
@@ -133,7 +136,7 @@ const FileTable: React.FC<FileTableProps> = ({
     };
     
     loadCurrentUserProfile();
-  }, [currentUserId]);
+  }, [currentUserId, isMobile, defaultColumnVisibility]);
 
   // Handle column visibility changes
   const handleColumnVisibilityChange = async (newVisibility: ColumnVisibility) => {
@@ -506,6 +509,12 @@ const FileTable: React.FC<FileTableProps> = ({
         overflow: 'auto', 
         width: '100%',
         minHeight: 0,
+        // Mobile scroll performance optimizations
+        ...(isMobile && {
+          WebkitOverflowScrolling: 'touch',
+          transform: 'translateZ(0)',
+          willChange: 'scroll-position',
+        }),
       }}
     >
       <Table 
@@ -513,7 +522,15 @@ const FileTable: React.FC<FileTableProps> = ({
         sx={{ 
           minWidth: isMobile ? 0 : 650, 
           width: '100%', 
-          tableLayout: 'fixed'
+          tableLayout: 'fixed',
+          // Performance optimizations for mobile scrolling
+          '& .MuiTableRow-root': {
+            willChange: isMobile ? 'transform' : 'auto',
+            contain: 'layout style paint',
+          },
+          '& .MuiTableCell-root': {
+            contain: 'layout style paint',
+          }
         }}
       >
         <TableHead>
@@ -675,7 +692,7 @@ const FileTable: React.FC<FileTableProps> = ({
           {sortedFolders.map((folder) => (
             <TableRow 
               key={folder.id} 
-              hover
+              hover={!isMobile}
               draggable
               onDragStart={(e) => {
                 const dragData = {
@@ -818,7 +835,7 @@ const FileTable: React.FC<FileTableProps> = ({
             return (
               <TableRow 
                 key={file.id} 
-                hover
+                hover={!isMobile}
                 draggable
                 onDragStart={(e) => {
                   const dragData = {

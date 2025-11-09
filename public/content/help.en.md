@@ -193,6 +193,28 @@ Visit your **Profile** page to manage different ways to unlock your vault:
 - Most secure authentication method
 - Register keys from Profile page
 - Can register multiple keys as backup
+- Option to store private key directly in hardware (no passphrase needed)
+- Can switch between passphrase-only and hardware-key authentication modes
+
+##### Hardware Key Authentication Modes
+
+**Passphrase + Hardware Key (Hybrid)**
+- Your private key is encrypted with your passphrase AND stored in hardware
+- Can unlock using either your passphrase OR hardware key
+- Provides redundancy and flexibility
+- Recommended for most users
+
+**Hardware Key Only**
+- Private key stored only in hardware keys (no passphrase backup)
+- Maximum security - no encrypted key on server
+- Must have access to hardware key to unlock
+- **Important**: Register multiple hardware keys as backup to avoid lockout
+
+**Switching Between Modes**
+- Remove passphrase protection: After storing key in hardware, you can remove the passphrase-encrypted backup
+- Restore passphrase protection: If using hardware-only mode, you can add passphrase encryption back
+- Both operations available in Profile > Hardware Security Keys section
+- Allows you to choose security vs. convenience balance
 
 ### Key Management Actions
 
@@ -220,6 +242,8 @@ Visit your **Profile** page to manage different ways to unlock your vault:
 - **Enable biometric auth** for convenience without sacrificing security
 - **Use hardware keys** for maximum security
 - **Register multiple hardware keys** to avoid lockout
+- **Consider hybrid mode** (passphrase + hardware key) for best balance of security and convenience
+- **Hardware-only mode** provides maximum security but requires careful backup key management
 
 ### Profile Settings
 Access additional settings from your Profile page:

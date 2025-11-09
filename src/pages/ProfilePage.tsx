@@ -15,7 +15,6 @@ import DeviceCapabilityInfo from '../components/DeviceCapabilityInfo';
 import DecryptedKeyWarningDialog from '../components/DecryptedKeyWarningDialog';
 import DeleteAccountDialog from '../components/DeleteAccountDialog';
 import KeyManagementSection from '../components/KeyManagementSection';
-import EncryptionStatusSection from '../components/EncryptionStatusSection';
 import KeyGenerationForm from '../components/KeyGenerationForm';
 import JsonImport from '../components/JsonImport';
 
@@ -49,7 +48,6 @@ const ProfilePage: React.FC = () => {
     setConfirmPassphrase,
     setShowDecryptedKeyWarning,
     handleGenerateKeys,
-    getEncryptionMethod,
     handleDownloadKey,
     handleDownloadDecryptedKey,
   } = useKeyGeneration();
@@ -205,8 +203,6 @@ const ProfilePage: React.FC = () => {
     );
   }
 
-  const encryptionMethod = getEncryptionMethod(userProfile);
-
   return (
     <>
       <Box sx={{ maxWidth: 800, mx: 'auto' }}>
@@ -243,16 +239,6 @@ const ProfilePage: React.FC = () => {
           )}
         </Paper>
 
-        <EncryptionStatusSection encryptionMethod={encryptionMethod} />
-
-        {/* Key Management */}
-        <KeyManagementSection
-          userProfile={userProfile}
-          privateKey={privateKey}
-          onDownloadKey={() => handleDownloadKey(userProfile, setError)}
-          onDownloadDecryptedKey={() => setShowDecryptedKeyWarning(true)}
-        />
-
         {/* Device Capability Information */}
         <DeviceCapabilityInfo />
 
@@ -263,6 +249,14 @@ const ProfilePage: React.FC = () => {
 
         {/* Hardware Security Keys */}
         <HardwareKeySetup onEncryptedKeyChange={() => fetchProfile(user as FirebaseUser)} />
+
+        {/* Key Management */}
+        <KeyManagementSection
+          userProfile={userProfile}
+          privateKey={privateKey}
+          onDownloadKey={() => handleDownloadKey(userProfile, setError)}
+          onDownloadDecryptedKey={() => setShowDecryptedKeyWarning(true)}
+        />
 
         {/* JSON Import */}
         <JsonImport />

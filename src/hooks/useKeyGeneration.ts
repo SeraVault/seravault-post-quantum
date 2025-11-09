@@ -68,6 +68,10 @@ export const useKeyGeneration = (): UseKeyGenerationReturn => {
       onError('Passphrases do not match');
       return;
     }
+    if (!passphrase || passphrase.length < 12) {
+      onError('Passphrase must be at least 12 characters long. Use a strong passphrase with a mix of words, numbers, and symbols.');
+      return;
+    }
     if (!user) {
       onError('User not authenticated');
       return;

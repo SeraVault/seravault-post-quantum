@@ -47,6 +47,32 @@ const KeyGenerationForm: React.FC<KeyGenerationFormProps> = ({
             : 'To secure your documents, you need to generate a post-quantum secure key pair. Please enter a display name and a strong passphrase to encrypt your private key.'
           }
         </Typography>
+        
+        <Alert severity="warning" sx={{ mt: 2, mb: 2, width: '100%' }}>
+          <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 1 }}>
+            🔒 Create a Strong Passphrase
+          </Typography>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            Your passphrase is the ONLY way to decrypt your private key. If you lose it, your data cannot be recovered.
+          </Typography>
+          <Typography variant="body2" component="div">
+            <strong>Good passphrases:</strong>
+            <ul style={{ margin: '4px 0', paddingLeft: '20px' }}>
+              <li>"Coffee-Mountain-Bicycle-2024!" (random words + year)</li>
+              <li>"MyDog&Spot!Loves2Run" (memorable phrase with numbers/symbols)</li>
+              <li>"I♥Paris!Visited2019" (personal memory with substitutions)</li>
+            </ul>
+          </Typography>
+          <Typography variant="body2" component="div">
+            <strong>Bad passphrases:</strong>
+            <ul style={{ margin: '4px 0', paddingLeft: '20px' }}>
+              <li>"password123" (too common)</li>
+              <li>"MyName2024" (too predictable)</li>
+              <li>Short phrases under 12 characters</li>
+            </ul>
+          </Typography>
+        </Alert>
+        
         {error && <Alert severity="error" sx={{ mt: 2, width: '100%' }}>{error}</Alert>}
         <TextField
           margin="normal"

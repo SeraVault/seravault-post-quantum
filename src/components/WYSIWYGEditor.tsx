@@ -8,7 +8,6 @@ interface WYSIWYGEditorProps {
   label: string;
   value: string;
   onChange: (value: string) => void;
-  placeholder?: string;
   required?: boolean;
   sensitive?: boolean;
   disabled?: boolean;
@@ -18,7 +17,6 @@ const WYSIWYGEditor: React.FC<WYSIWYGEditorProps> = ({
   label,
   value,
   onChange,
-  placeholder = '',
   required = false,
   sensitive = false,
   disabled = false,
@@ -87,7 +85,7 @@ const WYSIWYGEditor: React.FC<WYSIWYGEditorProps> = ({
 
     const quill = new Quill(editorRef.current, {
       theme: 'snow',
-      placeholder: placeholder || 'Enter some rich text...',
+      placeholder: '', // No placeholder - let users click directly
       readOnly: disabled,
       modules: {
         toolbar: toolbarOptions,
@@ -527,12 +525,6 @@ const WYSIWYGEditor: React.FC<WYSIWYGEditorProps> = ({
         >
           <div ref={editorRef} />
         </Paper>
-        )}
-        
-        {placeholder && !value && viewMode === 'edit' && (
-          <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
-            {placeholder}
-          </Typography>
         )}
         
         {!disabled && (

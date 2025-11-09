@@ -140,6 +140,10 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
   // New chat dialog state
   const [newChatDialogOpen, setNewChatDialogOpen] = useState(false);
   const [selectedContacts, setSelectedContacts] = useState<string[]>([]);
+  
+  // Back navigation confirmation (for mobile)
+  const [showBackConfirmation, setShowBackConfirmation] = useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null);
 
 
   // Context menu and mobile action menu
@@ -200,6 +204,34 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
       window.removeEventListener('sessionTimeout', handleSessionTimeout as EventListener);
     };
   }, []);
+
+  // Handle back button on mobile - prevent accidental logout
+  useEffect(() => {
+    if (!isMobile) return; // Only on mobile devices
+
+    const handlePopState = (event: PopStateEvent) => {
+      // Check if we're at the root/files page
+      if (window.location.pathname === '/' || window.location.pathname === '/files') {
+        // Prevent default back navigation
+        event.preventDefault();
+        
+        // Push the current state back to prevent navigation
+        window.history.pushState(null, '', window.location.href);
+        
+        // Show confirmation dialog
+        setShowBackConfirmation(true);
+      }
+    };
+
+    // Push initial state to enable back button interception
+    window.history.pushState(null, '', window.location.href);
+    
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [isMobile]);
 
   // Form-related state
   const [formBuilderOpen, setFormBuilderOpen] = useState(false);
@@ -2664,6 +2696,34 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
               variant="contained"
             >
               Copy
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Back Navigation Confirmation Dialog (Mobile) */}
+        <Dialog
+          open={showBackConfirmation}
+          onClose={() => setShowBackConfirmation(false)}
+        >
+          <DialogTitle>Leave SeraVault?</DialogTitle>
+          <DialogContent>
+            <DialogContentText>
+              Going back will log you out and you'll need to enter your passphrase again. Are you sure you want to leave?
+            </DialogContentText>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setShowBackConfirmation(false)} color="primary" autoFocus>
+              Stay
+            </Button>
+            <Button
+              onClick={() => {
+                setShowBackConfirmation(false);
+                // Actually navigate back/logout
+                window.history.go(-2); // Go back 2 steps to bypass our push state
+              }}
+              color="error"
+            >
+              Leave
             </Button>
           </DialogActions>
         </Dialog>

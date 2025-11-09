@@ -8,7 +8,6 @@ interface DualEditorProps {
   label: string;
   value: string;
   onChange: (value: string) => void;
-  placeholder?: string;
   required?: boolean;
   sensitive?: boolean;
   disabled?: boolean;
@@ -19,7 +18,6 @@ const DualEditor: React.FC<DualEditorProps> = ({
   label,
   value,
   onChange,
-  placeholder = '',
   required = false,
   sensitive = false,
   disabled = false,
@@ -98,7 +96,6 @@ const DualEditor: React.FC<DualEditorProps> = ({
           label="" // Don't show label since we have it above
           value={getContentForMode()}
           onChange={handleContentChange}
-          placeholder={placeholder}
           required={false} // Don't show required indicator since we have it above
           sensitive={false} // Don't show sensitive indicator since we have it above
           disabled={disabled}
@@ -108,7 +105,6 @@ const DualEditor: React.FC<DualEditorProps> = ({
           label="" // Don't show label since we have it above
           value={getContentForMode()}
           onChange={handleContentChange}
-          placeholder={placeholder}
           required={false} // Don't show required indicator since we have it above
           sensitive={false} // Don't show sensitive indicator since we have it above
           disabled={disabled}
