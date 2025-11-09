@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Box, 
   Button, 
@@ -21,13 +21,16 @@ import {
   CheckCircleOutline
 } from '@mui/icons-material';
 import { backendService } from '../backend/BackendService';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { createUserProfile } from '../firestore';
 import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { auth } from '../firebase';
 import TermsAcceptanceDialog from '../components/TermsAcceptanceDialog';
 
 const SignupPage: React.FC = () => {
+  const [searchParams] = useSearchParams();
+  const invitationId = searchParams.get('invite');
+  
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -37,8 +40,43 @@ const SignupPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [showTermsDialog, setShowTermsDialog] = useState(false);
   const [pendingSignupType, setPendingSignupType] = useState<'email' | 'google' | null>(null);
+  const [invitationInfo, setInvitationInfo] = useState<{
+    fromUserDisplayName: string;
+    fromUserEmail: string;
+    message?: string;
+  } | null>(null);
   const navigate = useNavigate();
   const theme = useTheme();
+
+  // Load invitation info if invitation ID is present
+  useEffect(() => {
+    const loadInvitation = async () => {
+      if (invitationId) {
+        try {
+          const { doc, getDoc } = await import('firebase/firestore');
+          const { db } = await import('../firebase');
+          
+          const inviteDoc = await getDoc(doc(db, 'userInvitations', invitationId));
+          if (inviteDoc.exists()) {
+            const data = inviteDoc.data();
+            setInvitationInfo({
+              fromUserDisplayName: data.fromUserDisplayName || 'Someone',
+              fromUserEmail: data.fromUserEmail || '',
+              message: data.message
+            });
+            // Pre-fill email if available
+            if (data.toEmail) {
+              setEmail(data.toEmail);
+            }
+          }
+        } catch (error) {
+          console.error('Error loading invitation:', error);
+        }
+      }
+    };
+    
+    loadInvitation();
+  }, [invitationId]);
 
   // Password strength indicator
   const getPasswordStrength = () => {
@@ -94,7 +132,13 @@ const SignupPage: React.FC = () => {
           theme: 'dark',
           termsAcceptedAt: new Date().toISOString(),
         });
-        navigate('/');
+        
+        // If signing up from an invitation, navigate to contacts page
+        if (invitationId) {
+          navigate('/contacts?invite=' + invitationId);
+        } else {
+          navigate('/');
+        }
       } else if (pendingSignupType === 'google') {
         const userCredential = await signInWithPopup(auth, new GoogleAuthProvider());
         const user = userCredential.user;
@@ -104,7 +148,13 @@ const SignupPage: React.FC = () => {
           theme: 'dark',
           termsAcceptedAt: new Date().toISOString(),
         });
-        navigate('/');
+        
+        // If signing up from an invitation, navigate to contacts page
+        if (invitationId) {
+          navigate('/contacts?invite=' + invitationId);
+        } else {
+          navigate('/');
+        }
       }
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'An error occurred';
@@ -174,6 +224,27 @@ const SignupPage: React.FC = () => {
                 Join SeraVault for quantum-safe storage
               </Typography>
             </Box>
+
+            {/* Invitation Banner */}
+            {invitationInfo && (
+              <Alert 
+                severity="info" 
+                icon={<CheckCircleOutline />}
+                sx={{ mb: 3, borderRadius: 2 }}
+              >
+                <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 0.5 }}>
+                  You've been invited by {invitationInfo.fromUserDisplayName}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {invitationInfo.fromUserEmail}
+                </Typography>
+                {invitationInfo.message && (
+                  <Typography variant="body2" sx={{ mt: 1, fontStyle: 'italic' }}>
+                    "{invitationInfo.message}"
+                  </Typography>
+                )}
+              </Alert>
+            )}
 
             {error && (
               <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }}>

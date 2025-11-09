@@ -237,7 +237,14 @@ export async function createUserWithKeys(
   // Store in Firestore
   await createUserProfile(userId, profile);
   
-  return { profile, privateKey: privateKeyHex };
+  // Fetch the complete profile from Firestore to ensure we have all fields
+  // including termsAcceptedAt and other fields that were merged
+  const completeProfile = await getUserProfile(userId);
+  if (!completeProfile) {
+    throw new Error('Failed to fetch complete user profile after creation');
+  }
+  
+  return { profile: completeProfile, privateKey: privateKeyHex };
 }
 
 /**

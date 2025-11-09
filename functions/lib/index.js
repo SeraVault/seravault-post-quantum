@@ -32,6 +32,7 @@ const https_1 = require("firebase-functions/v2/https");
 const admin = __importStar(require("firebase-admin"));
 const firestore_2 = require("firebase-admin/firestore");
 const cors_1 = __importDefault(require("cors"));
+const nodemailer = __importStar(require("nodemailer"));
 // Configure CORS for web clients
 const corsHandler = (0, cors_1.default)({
     origin: [
@@ -47,6 +48,40 @@ if (!admin.apps.length) {
     admin.initializeApp();
 }
 const db = admin.firestore();
+// Configure nodemailer transporter
+// For production, use environment variables for credentials
+// Firebase automatically sets up email transport for deployed functions
+const emailTransporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: process.env.EMAIL_USER || 'noreply@seravault.app',
+        pass: process.env.EMAIL_PASSWORD || '', // Use App Password for Gmail
+    },
+});
+// Helper to send emails
+async function sendEmail(to, subject, html) {
+    try {
+        // In development, just log the email
+        if (process.env.FUNCTIONS_EMULATOR === 'true') {
+            console.log('📧 [DEV MODE] Would send email:');
+            console.log(`To: ${to}`);
+            console.log(`Subject: ${subject}`);
+            console.log(`Body: ${html}`);
+            return;
+        }
+        await emailTransporter.sendMail({
+            from: '"SeraVault" <noreply@seravault.app>',
+            to,
+            subject,
+            html,
+        });
+        console.log(`✅ Email sent to ${to}`);
+    }
+    catch (error) {
+        console.error(`❌ Error sending email to ${to}:`, error);
+        throw error;
+    }
+}
 /**
  * Create a notification securely on the server side
  */
@@ -460,19 +495,94 @@ exports.markAllNotificationsAsRead = (0, https_1.onRequest)(async (req, res) => 
         }
     });
 });
-// Log invitation creation for tracking (no email sending)
+// Send invitation email when userInvitation is created
 exports.onUserInvitationCreated = (0, firestore_1.onDocumentCreated)("userInvitations/{invitationId}", async (event) => {
     var _a;
     try {
         const invitation = (_a = event.data) === null || _a === void 0 ? void 0 : _a.data();
         if (!invitation)
             return;
+        const invitationId = event.params.invitationId;
         console.log(`📧 Invitation created for ${invitation.toEmail} from ${invitation.fromUserDisplayName} (${invitation.fromUserEmail})`);
-        console.log(`🔗 Invitation ID: ${event.params.invitationId}`);
-        // Log for audit/analytics purposes - no actual email sending
+        console.log(`🔗 Invitation ID: ${invitationId}`);
+        // Generate invitation link
+        const baseUrl = process.env.APP_URL || 'https://seravault-8c764.web.app';
+        const inviteLink = `${baseUrl}/signup?invite=${invitationId}`;
+        // Create email content
+        const subject = `${invitation.fromUserDisplayName} invited you to SeraVault`;
+        const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+    .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+    .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
+    .button { display: inline-block; background: #667eea; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; font-weight: bold; }
+    .message-box { background: white; padding: 20px; border-left: 4px solid #667eea; margin: 20px 0; }
+    .features { background: white; padding: 20px; border-radius: 5px; margin: 20px 0; }
+    .feature { margin: 10px 0; padding-left: 25px; position: relative; }
+    .feature:before { content: "✓"; position: absolute; left: 0; color: #667eea; font-weight: bold; }
+    .footer { text-align: center; color: #666; font-size: 12px; margin-top: 30px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🔐 You're Invited to SeraVault</h1>
+    </div>
+    <div class="content">
+      <p>Hi there!</p>
+      
+      <p><strong>${invitation.fromUserDisplayName}</strong> (${invitation.fromUserEmail}) has invited you to connect on SeraVault, a secure file sharing platform with end-to-end encryption.</p>
+      
+      ${invitation.message ? `
+      <div class="message-box">
+        <strong>Personal message:</strong>
+        <p>"${invitation.message}"</p>
+      </div>
+      ` : ''}
+      
+      <div style="text-align: center;">
+        <a href="${inviteLink}" class="button">Accept Invitation & Create Account</a>
+      </div>
+      
+      <p style="text-align: center; color: #666; font-size: 14px;">
+        Or copy this link: <br/>
+        <code style="background: #e0e0e0; padding: 5px 10px; border-radius: 3px;">${inviteLink}</code>
+      </p>
+      
+      <div class="features">
+        <h3>Why SeraVault?</h3>
+        <div class="feature">End-to-end encrypted file storage and sharing</div>
+        <div class="feature">Secure contact management</div>
+        <div class="feature">Zero-knowledge architecture - even we can't see your files</div>
+        <div class="feature">Military-grade encryption (ML-KEM-768)</div>
+      </div>
+      
+      <p style="color: #666; font-size: 14px;">
+        <em>This invitation will expire in 30 days.</em>
+      </p>
+      
+      <div class="footer">
+        <p>Best regards,<br/>${invitation.fromUserDisplayName}</p>
+        <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;"/>
+        <p>This invitation was sent through SeraVault.<br/>
+        If you don't want to receive these invitations, please contact the sender directly.</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+      `;
+        // Send the email
+        await sendEmail(invitation.toEmail, subject, html);
+        console.log(`✅ Invitation email sent to ${invitation.toEmail}`);
     }
     catch (error) {
-        console.error('Error logging invitation creation:', error);
+        console.error('Error sending invitation email:', error);
+        // Don't throw - we don't want to fail the invitation creation if email fails
     }
 });
 /**
