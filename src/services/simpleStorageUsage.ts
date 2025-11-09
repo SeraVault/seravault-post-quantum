@@ -26,18 +26,19 @@ function formatBytes(bytes: number): string {
 }
 
 /**
- * Calculate total storage usage for a user using server-side Cloud Function
+ * Calculate storage usage for a user by calling the Cloud Function
+ * Uses the user's profile storageUsed field which is maintained by Firestore triggers
  * Much faster than client-side calculation
  */
 export async function calculateStorageUsage(userId: string): Promise<StorageUsage> {
   try {
     const functions = getFunctions();
-    const calculateStorageUsageFn = httpsCallable<void, { usedBytes: number; fileCount: number }>(
+    const getUserStorageUsageFn = httpsCallable<void, { usedBytes: number; fileCount: number; lastUpdated?: any }>(
       functions,
-      'calculateStorageUsage'
+      'getUserStorageUsage'
     );
     
-    const result = await calculateStorageUsageFn();
+    const result = await getUserStorageUsageFn();
     const totalUsedBytes = result.data.usedBytes;
     
     const percentage = Math.round((totalUsedBytes / DEFAULT_STORAGE_LIMIT_BYTES) * 100);
@@ -58,7 +59,7 @@ export async function calculateStorageUsage(userId: string): Promise<StorageUsag
     // Return default values on error
     return {
       usedBytes: 0,
-      usedFormatted: '0 B',
+      usedFormatted: formatBytes(0),
       totalBytes: DEFAULT_STORAGE_LIMIT_BYTES,
       totalFormatted: formatBytes(DEFAULT_STORAGE_LIMIT_BYTES),
       percentage: 0,

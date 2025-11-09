@@ -182,6 +182,7 @@ export async function verifyKeyPair(privateKeyHex: string, publicKeyHex: string)
 
 /**
  * Create new user profile with generated keys
+ * If passphrase is empty, keys are generated but encryptedPrivateKey is not stored (hardware-only mode)
  */
 export async function createUserWithKeys(
   userId: string,
@@ -190,23 +191,53 @@ export async function createUserWithKeys(
   passphrase: string,
   theme: 'light' | 'dark' = 'dark'
 ): Promise<{ profile: UserProfile; privateKey: string }> {
-  const keyPair = await generateAndEncryptKeyPair(passphrase);
+  // Always generate a key pair
+  const { publicKey, privateKey } = await generateKeyPair();
+  const publicKeyHex = bytesToHex(publicKey);
+  const privateKeyHex = bytesToHex(privateKey);
+  
+  console.log('✅ Generated quantum-safe ML-KEM-768 key pair:', {
+    publicKeyLength: publicKey.length,
+    privateKeyLength: privateKey.length
+  });
+  
+  // Test the generated key pair
+  console.log('🔒 Testing quantum-safe ML-KEM-768 key pair...');
+  try {
+    const testData = new TextEncoder().encode('mlkem_test_data');
+    const encrypted = await encryptData(testData, publicKey);
+    const decrypted = await decryptData(encrypted, privateKey);
+    const decryptedText = new TextDecoder().decode(decrypted);
+    
+    if (decryptedText !== 'mlkem_test_data') {
+      throw new Error('Quantum-safe ML-KEM-768 key pair failed verification');
+    }
+    console.log('✅ Quantum-safe ML-KEM-768 key pair works correctly!');
+  } catch (keyTestError) {
+    console.error('❌ Quantum-safe ML-KEM-768 key pair test failed:', keyTestError);
+    throw new Error(`Quantum-safe ML-KEM-768 key pair is invalid: ${keyTestError instanceof Error ? keyTestError.message : String(keyTestError)}`);
+  }
   
   const profile: UserProfile = {
     displayName,
     email,
     theme,
-    publicKey: keyPair.publicKey,
-    encryptedPrivateKey: keyPair.encryptedPrivateKey
+    publicKey: publicKeyHex,
   };
+  
+  // Only encrypt and store private key if passphrase is provided
+  if (passphrase && passphrase.length >= 12) {
+    console.log('🔑 Encrypting private key with PBKDF2...');
+    const encryptedPrivateKey = encryptString(privateKeyHex, passphrase);
+    profile.encryptedPrivateKey = encryptedPrivateKey;
+  } else {
+    console.log('⚠️ Hardware-only mode: Private key will NOT be stored with passphrase');
+  }
   
   // Store in Firestore
   await createUserProfile(userId, profile);
   
-  // Return profile and decrypted private key
-  const privateKey = await decryptPrivateKey(keyPair.encryptedPrivateKey, passphrase);
-  
-  return { profile, privateKey };
+  return { profile, privateKey: privateKeyHex };
 }
 
 /**

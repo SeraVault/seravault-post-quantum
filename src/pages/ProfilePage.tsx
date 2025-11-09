@@ -69,6 +69,19 @@ const ProfilePage: React.FC = () => {
     setUserProfile(profile);
     // Key verification is already done in useKeyGeneration.handleConfirmRegeneration
     // No need to verify again here
+    
+    // Re-check hardware keys after generation
+    const recheckHardwareKeys = async () => {
+      if (!user) return;
+      try {
+        const { getRegisteredHardwareKeys } = await import('../utils/hardwareKeyAuth');
+        const hardwareKeys = await getRegisteredHardwareKeys(user.uid);
+        setHasHardwareKeysWithPrivateKey(hardwareKeys.length > 0);
+      } catch (error) {
+        console.error('Error rechecking hardware keys:', error);
+      }
+    };
+    recheckHardwareKeys();
   };
 
   useEffect(() => {
@@ -184,8 +197,14 @@ const ProfilePage: React.FC = () => {
   }
 
   // Show key generation form only if user truly has no way to access their keys
-  const hasPassphraseProtectedKey = userProfile?.encryptedPrivateKey;
-  const needsKeyGeneration = !userProfile || !userProfile.publicKey || (!hasPassphraseProtectedKey && !hasHardwareKeysWithPrivateKey);
+  const hasPassphraseProtectedKey = !!userProfile?.encryptedPrivateKey;
+  const hasHardwareKeyAccess = hasHardwareKeysWithPrivateKey;
+  
+  // User needs key generation if:
+  // 1. No user profile exists, OR
+  // 2. No public key exists (no keys at all), OR
+  // 3. Has public key but no way to unlock it (no passphrase AND no hardware key)
+  const needsKeyGeneration = !userProfile || !userProfile.publicKey || (!hasPassphraseProtectedKey && !hasHardwareKeyAccess);
 
   if (needsKeyGeneration) {
     return (

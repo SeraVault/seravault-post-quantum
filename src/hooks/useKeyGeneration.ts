@@ -64,13 +64,29 @@ export const useKeyGeneration = (): UseKeyGenerationReturn => {
     setLoading: (loading: boolean) => void,
     useHardwareStorage?: boolean
   ) => {
-    if (passphrase !== confirmPassphrase) {
-      onError('Passphrases do not match');
-      return;
-    }
-    if (!passphrase || passphrase.length < 12) {
-      onError('Passphrase must be at least 12 characters long. Use a strong passphrase with a mix of words, numbers, and symbols.');
-      return;
+    // Passphrase validation - only required for standard (non-hardware) storage
+    // With hardware storage, passphrase is optional (for backup access)
+    if (!useHardwareStorage) {
+      if (passphrase !== confirmPassphrase) {
+        onError('Passphrases do not match');
+        return;
+      }
+      if (!passphrase || passphrase.length < 12) {
+        onError('Passphrase must be at least 12 characters long. Use a strong passphrase with a mix of words, numbers, and symbols.');
+        return;
+      }
+    } else {
+      // Hardware mode: if passphrase is provided, validate it
+      if (passphrase || confirmPassphrase) {
+        if (passphrase !== confirmPassphrase) {
+          onError('Passphrases do not match');
+          return;
+        }
+        if (passphrase.length > 0 && passphrase.length < 12) {
+          onError('If setting a backup passphrase, it must be at least 12 characters long.');
+          return;
+        }
+      }
     }
     if (!user) {
       onError('User not authenticated');
@@ -84,12 +100,15 @@ export const useKeyGeneration = (): UseKeyGenerationReturn => {
     try {
       setLoading(true);
       
+      // Determine if we should create an encrypted private key backup
+      const hasPassphrase = passphrase && passphrase.length >= 12;
+      
       // Use centralized key management
       const { profile, privateKey } = await createUserWithKeys(
         user.uid,
         displayName,
         user.email || '',
-        passphrase
+        hasPassphrase ? passphrase : '' // Empty string if no passphrase (hardware-only mode)
       );
       
       if (useHardwareStorage) {
@@ -104,6 +123,21 @@ export const useKeyGeneration = (): UseKeyGenerationReturn => {
           await storePrivateKeyInHardware(credential.id, privateKey);
           
           console.log('✅ Private key stored in hardware key');
+          
+          // If no passphrase was provided, remove the encryptedPrivateKey from profile
+          if (!hasPassphrase) {
+            const { updateUserProfile } = await import('../firestore');
+            const { deleteField } = await import('firebase/firestore');
+            await updateUserProfile(user.uid, {
+              encryptedPrivateKey: deleteField() as any
+            });
+            console.log('✅ Hardware-only mode: No passphrase backup stored');
+          } else {
+            console.log('✅ Hardware + Passphrase mode: Both methods available');
+          }
+          
+          // Small delay to ensure credential is fully persisted before showing unlock dialog
+          await new Promise(resolve => setTimeout(resolve, 200));
         } catch (hardwareError) {
           console.error('Hardware key setup failed:', hardwareError);
           onError('Hardware key setup failed. Please try again or use standard mode.');

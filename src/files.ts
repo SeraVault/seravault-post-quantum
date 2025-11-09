@@ -38,6 +38,23 @@ export const createFile = async (fileData: Omit<FileData, 'createdAt'>) => {
 export const updateFile = async (fileId: string, data: Partial<FileData>) => {
   try {
     await backendService.files.update(fileId, data);
+    
+    // If the file owner is provided in the update data, invalidate their storage cache
+    // Otherwise, fetch the file to get the owner and invalidate
+    if (data.owner) {
+      invalidateStorageUsage(data.owner);
+    } else {
+      // Fetch file to get owner for cache invalidation
+      try {
+        const fileData = await backendService.files.get(fileId);
+        if (fileData?.owner) {
+          invalidateStorageUsage(fileData.owner);
+        }
+      } catch (err) {
+        console.warn('Could not invalidate storage cache after update:', err);
+        // Don't fail the update operation if cache invalidation fails
+      }
+    }
   } catch (error) {
     console.error('Error updating file in Firestore:', error);
     throw error;

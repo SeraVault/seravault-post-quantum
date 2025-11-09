@@ -1077,3 +1077,222 @@ export const calculateStorageUsage = onCall(
     }
   }
 );
+
+/**
+ * Update user storage usage when a file is created
+ * Maintains a running total in the user's profile
+ */
+export const updateStorageOnFileCreate = onDocumentCreated(
+  {
+    document: "files/{fileId}",
+    region: "us-central1",
+  },
+  async (event) => {
+    try {
+      const fileData = event.data?.data();
+      if (!fileData) return;
+
+      const owner = fileData.owner;
+      const storagePath = fileData.storagePath;
+
+      // Only process files with actual storage (skip conversation records, etc.)
+      if (!owner || !storagePath) return;
+
+      // Get file size from Storage metadata
+      const bucket = admin.storage().bucket();
+      const file = bucket.file(storagePath);
+      
+      const [metadata] = await file.getMetadata();
+      const fileSize = typeof metadata.size === 'number' ? metadata.size : parseInt(metadata.size || '0');
+
+      if (fileSize === 0) return;
+
+      // Update user's storage usage atomically
+      const userRef = db.collection('users').doc(owner);
+      await userRef.set(
+        {
+          storageUsed: FieldValue.increment(fileSize),
+          storageUpdatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      console.log(`✅ Added ${fileSize} bytes to user ${owner} storage (file created)`);
+    } catch (error) {
+      console.error('Error updating storage on file create:', error);
+      // Don't throw - we don't want to fail the file creation
+    }
+  }
+);
+
+/**
+ * Update user storage usage when a file is updated
+ * Handles storage path changes (file content updates)
+ */
+export const updateStorageOnFileUpdate = onDocumentUpdated(
+  {
+    document: "files/{fileId}",
+    region: "us-central1",
+  },
+  async (event) => {
+    try {
+      const beforeData = event.data?.before.data();
+      const afterData = event.data?.after.data();
+      
+      if (!beforeData || !afterData) return;
+
+      const owner = afterData.owner;
+      if (!owner) return;
+
+      const oldStoragePath = beforeData.storagePath;
+      const newStoragePath = afterData.storagePath;
+
+      // Only update if storage path changed (content was updated)
+      if (oldStoragePath === newStoragePath) return;
+
+      const bucket = admin.storage().bucket();
+      
+      // Get old file size
+      let oldSize = 0;
+      if (oldStoragePath) {
+        try {
+          const oldFile = bucket.file(oldStoragePath);
+          const [oldMetadata] = await oldFile.getMetadata();
+          oldSize = typeof oldMetadata.size === 'number' ? oldMetadata.size : parseInt(oldMetadata.size || '0');
+        } catch (error) {
+          console.warn(`Could not get old file size for ${oldStoragePath}:`, error);
+        }
+      }
+
+      // Get new file size
+      let newSize = 0;
+      if (newStoragePath) {
+        try {
+          const newFile = bucket.file(newStoragePath);
+          const [newMetadata] = await newFile.getMetadata();
+          newSize = typeof newMetadata.size === 'number' ? newMetadata.size : parseInt(newMetadata.size || '0');
+        } catch (error) {
+          console.warn(`Could not get new file size for ${newStoragePath}:`, error);
+        }
+      }
+
+      const sizeDelta = newSize - oldSize;
+      if (sizeDelta === 0) return;
+
+      // Update user's storage usage atomically
+      const userRef = db.collection('users').doc(owner);
+      await userRef.set(
+        {
+          storageUsed: FieldValue.increment(sizeDelta),
+          storageUpdatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      console.log(`✅ Updated user ${owner} storage by ${sizeDelta} bytes (file updated)`);
+    } catch (error) {
+      console.error('Error updating storage on file update:', error);
+      // Don't throw - we don't want to fail the file update
+    }
+  }
+);
+
+/**
+ * Update user storage usage when a file is deleted
+ * Decrements the storage usage
+ */
+export const updateStorageOnFileDelete = onDocumentUpdated(
+  {
+    document: "files/{fileId}",
+    region: "us-central1",
+  },
+  async (event) => {
+    try {
+      const beforeData = event.data?.before.data();
+      const afterData = event.data?.after.data();
+      
+      // Check if this is a deletion (document still exists but marked for deletion)
+      // Or handle actual document deletion with onDocumentDeleted if needed
+      if (!beforeData || afterData) return;
+
+      const owner = beforeData.owner;
+      const storagePath = beforeData.storagePath;
+
+      if (!owner || !storagePath) return;
+
+      // Get file size from Storage metadata
+      const bucket = admin.storage().bucket();
+      const file = bucket.file(storagePath);
+      
+      try {
+        const [metadata] = await file.getMetadata();
+        const fileSize = typeof metadata.size === 'number' ? metadata.size : parseInt(metadata.size || '0');
+
+        if (fileSize === 0) return;
+
+        // Update user's storage usage atomically
+        const userRef = db.collection('users').doc(owner);
+        await userRef.set(
+          {
+            storageUsed: FieldValue.increment(-fileSize),
+            storageUpdatedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+
+        console.log(`✅ Removed ${fileSize} bytes from user ${owner} storage (file deleted)`);
+      } catch (error) {
+        // File might already be deleted from storage, that's okay
+        console.warn(`Could not get file size for ${storagePath}:`, error);
+      }
+    } catch (error) {
+      console.error('Error updating storage on file delete:', error);
+      // Don't throw - we don't want to fail the file deletion
+    }
+  }
+);
+
+/**
+ * Get user's current storage usage from their profile
+ * Much faster than calculating from scratch
+ */
+export const getUserStorageUsage = onCall(
+  {
+    region: "us-central1",
+    cors: ['http://localhost:5173', 'http://localhost:3000', 'https://seravault-8c764.web.app', 'https://seravault-8c764.firebaseapp.com'],
+  },
+  async (request) => {
+    try {
+      // Get authenticated user
+      if (!request.auth) {
+        throw new HttpsError('unauthenticated', 'User must be authenticated');
+      }
+
+      const userId = request.auth.uid;
+      const userRef = db.collection('users').doc(userId);
+      const userDoc = await userRef.get();
+
+      const storageUsed = userDoc.data()?.storageUsed || 0;
+      const storageUpdatedAt = userDoc.data()?.storageUpdatedAt;
+
+      // Count files for verification
+      const filesSnapshot = await db
+        .collection('files')
+        .where('owner', '==', userId)
+        .select('storagePath')
+        .get();
+
+      return {
+        usedBytes: storageUsed,
+        fileCount: filesSnapshot.size,
+        lastUpdated: storageUpdatedAt,
+      };
+    } catch (error) {
+      console.error('Failed to get user storage usage:', error);
+      throw new HttpsError(
+        'internal',
+        error instanceof Error ? error.message : 'Failed to get storage usage'
+      );
+    }
+  }
+);

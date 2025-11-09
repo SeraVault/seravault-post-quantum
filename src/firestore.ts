@@ -15,6 +15,10 @@ export interface UserProfile {
     salt: string; // base64  
     nonce: string; // base64
   };
+  // Storage tracking (maintained by Cloud Functions)
+  storageUsed?: number; // Total bytes used by this user
+  storageUpdatedAt?: FieldValue | Date; // When storage was last updated
+  storageLimit?: number; // Custom storage limit for this user (optional)
   // Terms acceptance
   termsAcceptedAt?: string; // ISO timestamp when user accepted terms
   // UI preferences
@@ -108,7 +112,8 @@ export const createUserProfile = async (uid: string, data: UserProfile) => {
 
   try {
     const docRef = doc(db, 'users', uid);
-    await setDoc(docRef, data);
+    // Use merge: true to preserve existing fields like termsAcceptedAt, columnVisibility, etc.
+    await setDoc(docRef, data, { merge: true });
     
     console.log('✅ createUserProfile: Firestore write completed successfully');
     

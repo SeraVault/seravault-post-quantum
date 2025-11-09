@@ -26,7 +26,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.calculateStorageUsage = exports.deleteUserAccount = exports.onChatMessageCreated = exports.onUserInvitationCreated = exports.markAllNotificationsAsRead = exports.markNotificationAsRead = exports.onUnknownFileShare = exports.onContactAccepted = exports.onContactRequest = exports.onFileModified = exports.onFileShared = void 0;
+exports.getUserStorageUsage = exports.updateStorageOnFileDelete = exports.updateStorageOnFileUpdate = exports.updateStorageOnFileCreate = exports.calculateStorageUsage = exports.deleteUserAccount = exports.onChatMessageCreated = exports.onUserInvitationCreated = exports.markAllNotificationsAsRead = exports.markNotificationAsRead = exports.onUnknownFileShare = exports.onContactAccepted = exports.onContactRequest = exports.onFileModified = exports.onFileShared = void 0;
 const firestore_1 = require("firebase-functions/v2/firestore");
 const https_1 = require("firebase-functions/v2/https");
 const admin = __importStar(require("firebase-admin"));
@@ -951,6 +951,189 @@ exports.calculateStorageUsage = (0, https_1.onCall)({ cors: ['http://localhost:5
     catch (error) {
         console.error('Failed to calculate storage usage:', error);
         throw new https_1.HttpsError('internal', error instanceof Error ? error.message : 'Failed to calculate storage usage');
+    }
+});
+/**
+ * Update user storage usage when a file is created
+ * Maintains a running total in the user's profile
+ */
+exports.updateStorageOnFileCreate = (0, firestore_1.onDocumentCreated)({
+    document: "files/{fileId}",
+    region: "us-central1",
+}, async (event) => {
+    var _a;
+    try {
+        const fileData = (_a = event.data) === null || _a === void 0 ? void 0 : _a.data();
+        if (!fileData)
+            return;
+        const owner = fileData.owner;
+        const storagePath = fileData.storagePath;
+        // Only process files with actual storage (skip conversation records, etc.)
+        if (!owner || !storagePath)
+            return;
+        // Get file size from Storage metadata
+        const bucket = admin.storage().bucket();
+        const file = bucket.file(storagePath);
+        const [metadata] = await file.getMetadata();
+        const fileSize = typeof metadata.size === 'number' ? metadata.size : parseInt(metadata.size || '0');
+        if (fileSize === 0)
+            return;
+        // Update user's storage usage atomically
+        const userRef = db.collection('users').doc(owner);
+        await userRef.set({
+            storageUsed: firestore_2.FieldValue.increment(fileSize),
+            storageUpdatedAt: firestore_2.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        console.log(`✅ Added ${fileSize} bytes to user ${owner} storage (file created)`);
+    }
+    catch (error) {
+        console.error('Error updating storage on file create:', error);
+        // Don't throw - we don't want to fail the file creation
+    }
+});
+/**
+ * Update user storage usage when a file is updated
+ * Handles storage path changes (file content updates)
+ */
+exports.updateStorageOnFileUpdate = (0, firestore_1.onDocumentUpdated)({
+    document: "files/{fileId}",
+    region: "us-central1",
+}, async (event) => {
+    var _a, _b;
+    try {
+        const beforeData = (_a = event.data) === null || _a === void 0 ? void 0 : _a.before.data();
+        const afterData = (_b = event.data) === null || _b === void 0 ? void 0 : _b.after.data();
+        if (!beforeData || !afterData)
+            return;
+        const owner = afterData.owner;
+        if (!owner)
+            return;
+        const oldStoragePath = beforeData.storagePath;
+        const newStoragePath = afterData.storagePath;
+        // Only update if storage path changed (content was updated)
+        if (oldStoragePath === newStoragePath)
+            return;
+        const bucket = admin.storage().bucket();
+        // Get old file size
+        let oldSize = 0;
+        if (oldStoragePath) {
+            try {
+                const oldFile = bucket.file(oldStoragePath);
+                const [oldMetadata] = await oldFile.getMetadata();
+                oldSize = typeof oldMetadata.size === 'number' ? oldMetadata.size : parseInt(oldMetadata.size || '0');
+            }
+            catch (error) {
+                console.warn(`Could not get old file size for ${oldStoragePath}:`, error);
+            }
+        }
+        // Get new file size
+        let newSize = 0;
+        if (newStoragePath) {
+            try {
+                const newFile = bucket.file(newStoragePath);
+                const [newMetadata] = await newFile.getMetadata();
+                newSize = typeof newMetadata.size === 'number' ? newMetadata.size : parseInt(newMetadata.size || '0');
+            }
+            catch (error) {
+                console.warn(`Could not get new file size for ${newStoragePath}:`, error);
+            }
+        }
+        const sizeDelta = newSize - oldSize;
+        if (sizeDelta === 0)
+            return;
+        // Update user's storage usage atomically
+        const userRef = db.collection('users').doc(owner);
+        await userRef.set({
+            storageUsed: firestore_2.FieldValue.increment(sizeDelta),
+            storageUpdatedAt: firestore_2.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        console.log(`✅ Updated user ${owner} storage by ${sizeDelta} bytes (file updated)`);
+    }
+    catch (error) {
+        console.error('Error updating storage on file update:', error);
+        // Don't throw - we don't want to fail the file update
+    }
+});
+/**
+ * Update user storage usage when a file is deleted
+ * Decrements the storage usage
+ */
+exports.updateStorageOnFileDelete = (0, firestore_1.onDocumentUpdated)({
+    document: "files/{fileId}",
+    region: "us-central1",
+}, async (event) => {
+    var _a, _b;
+    try {
+        const beforeData = (_a = event.data) === null || _a === void 0 ? void 0 : _a.before.data();
+        const afterData = (_b = event.data) === null || _b === void 0 ? void 0 : _b.after.data();
+        // Check if this is a deletion (document still exists but marked for deletion)
+        // Or handle actual document deletion with onDocumentDeleted if needed
+        if (!beforeData || afterData)
+            return;
+        const owner = beforeData.owner;
+        const storagePath = beforeData.storagePath;
+        if (!owner || !storagePath)
+            return;
+        // Get file size from Storage metadata
+        const bucket = admin.storage().bucket();
+        const file = bucket.file(storagePath);
+        try {
+            const [metadata] = await file.getMetadata();
+            const fileSize = typeof metadata.size === 'number' ? metadata.size : parseInt(metadata.size || '0');
+            if (fileSize === 0)
+                return;
+            // Update user's storage usage atomically
+            const userRef = db.collection('users').doc(owner);
+            await userRef.set({
+                storageUsed: firestore_2.FieldValue.increment(-fileSize),
+                storageUpdatedAt: firestore_2.FieldValue.serverTimestamp(),
+            }, { merge: true });
+            console.log(`✅ Removed ${fileSize} bytes from user ${owner} storage (file deleted)`);
+        }
+        catch (error) {
+            // File might already be deleted from storage, that's okay
+            console.warn(`Could not get file size for ${storagePath}:`, error);
+        }
+    }
+    catch (error) {
+        console.error('Error updating storage on file delete:', error);
+        // Don't throw - we don't want to fail the file deletion
+    }
+});
+/**
+ * Get user's current storage usage from their profile
+ * Much faster than calculating from scratch
+ */
+exports.getUserStorageUsage = (0, https_1.onCall)({
+    region: "us-central1",
+    cors: ['http://localhost:5173', 'http://localhost:3000', 'https://seravault-8c764.web.app', 'https://seravault-8c764.firebaseapp.com'],
+}, async (request) => {
+    var _a, _b;
+    try {
+        // Get authenticated user
+        if (!request.auth) {
+            throw new https_1.HttpsError('unauthenticated', 'User must be authenticated');
+        }
+        const userId = request.auth.uid;
+        const userRef = db.collection('users').doc(userId);
+        const userDoc = await userRef.get();
+        const storageUsed = ((_a = userDoc.data()) === null || _a === void 0 ? void 0 : _a.storageUsed) || 0;
+        const storageUpdatedAt = (_b = userDoc.data()) === null || _b === void 0 ? void 0 : _b.storageUpdatedAt;
+        // Count files for verification
+        const filesSnapshot = await db
+            .collection('files')
+            .where('owner', '==', userId)
+            .select('storagePath')
+            .get();
+        return {
+            usedBytes: storageUsed,
+            fileCount: filesSnapshot.size,
+            lastUpdated: storageUpdatedAt,
+        };
+    }
+    catch (error) {
+        console.error('Failed to get user storage usage:', error);
+        throw new https_1.HttpsError('internal', error instanceof Error ? error.message : 'Failed to get storage usage');
     }
 });
 //# sourceMappingURL=index.js.map

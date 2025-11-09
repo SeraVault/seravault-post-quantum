@@ -63,8 +63,11 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
         setBiometricAvailable(available);
         setHasBiometric(setup);
         
-        // Check for hardware keys
+        // Check for hardware keys - add a small delay to ensure credentials are persisted
         try {
+          // Small delay to allow browser credential store to sync
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
           const keys = await getRegisteredHardwareKeys(user.uid);
           setHasHardwareKeys(keys.length > 0);
           
