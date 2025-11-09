@@ -1,9 +1,15 @@
 import {onDocumentUpdated, onDocumentCreated} from "firebase-functions/v2/firestore";
 import {onRequest, onCall, HttpsError} from "firebase-functions/v2/https";
+import {defineSecret} from "firebase-functions/params";
 import * as admin from "firebase-admin";
 import {FieldValue} from "firebase-admin/firestore";
 import cors from "cors";
 import * as nodemailer from "nodemailer";
+import {renderEmailTemplate} from "./emailTemplates";
+
+// Define secrets for email credentials
+const emailUser = defineSecret('EMAIL_USER');
+const emailPassword = defineSecret('EMAIL_PASSWORD');
 
 // Configure CORS for web clients
 const corsHandler = cors({
@@ -23,16 +29,16 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-// Configure nodemailer transporter
-// For production, use environment variables for credentials
-// Firebase automatically sets up email transport for deployed functions
-const emailTransporter = nodemailer.createTransport({
-  service: 'gmail', // or 'SendGrid', 'Mailgun', etc.
-  auth: {
-    user: process.env.EMAIL_USER || 'noreply@seravault.app',
-    pass: process.env.EMAIL_PASSWORD || '', // Use App Password for Gmail
-  },
-});
+// Helper to create email transporter (called at runtime with secret values)
+function createEmailTransporter() {
+  return nodemailer.createTransport({
+    service: 'gmail', // or 'SendGrid', 'Mailgun', etc.
+    auth: {
+      user: emailUser.value(),
+      pass: emailPassword.value(),
+    },
+  });
+}
 
 // Helper to send emails
 async function sendEmail(to: string, subject: string, html: string): Promise<void> {
@@ -46,7 +52,8 @@ async function sendEmail(to: string, subject: string, html: string): Promise<voi
       return;
     }
 
-    await emailTransporter.sendMail({
+    const transporter = createEmailTransporter();
+    await transporter.sendMail({
       from: '"SeraVault" <noreply@seravault.app>',
       to,
       subject,
@@ -554,7 +561,10 @@ export const markAllNotificationsAsRead = onRequest(async (req, res) => {
 
 // Send invitation email when userInvitation is created
 export const onUserInvitationCreated = onDocumentCreated(
-  "userInvitations/{invitationId}",
+  {
+    document: "userInvitations/{invitationId}",
+    secrets: [emailUser, emailPassword], // Bind secrets to this function
+  },
   async (event) => {
     try {
       const invitation = event.data?.data();
@@ -565,79 +575,22 @@ export const onUserInvitationCreated = onDocumentCreated(
       console.log(`📧 Invitation created for ${invitation.toEmail} from ${invitation.fromUserDisplayName} (${invitation.fromUserEmail})`);
       console.log(`🔗 Invitation ID: ${invitationId}`);
       
-      // Generate invitation link
-      const baseUrl = process.env.APP_URL || 'https://seravault-8c764.web.app';
+      // Generate invitation link - use the app hosting target, not the landing page
+      const baseUrl = process.env.APP_URL || 'https://seravault-8c764-app.web.app';
       const inviteLink = `${baseUrl}/signup?invite=${invitationId}`;
       
-      // Create email content
+      // Create email subject
       const subject = `${invitation.fromUserDisplayName} invited you to SeraVault`;
       
-      const html = `
-<!DOCTYPE html>
-<html>
-<head>
-  <style>
-    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-    .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-    .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
-    .button { display: inline-block; background: #667eea; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; font-weight: bold; }
-    .message-box { background: white; padding: 20px; border-left: 4px solid #667eea; margin: 20px 0; }
-    .features { background: white; padding: 20px; border-radius: 5px; margin: 20px 0; }
-    .feature { margin: 10px 0; padding-left: 25px; position: relative; }
-    .feature:before { content: "✓"; position: absolute; left: 0; color: #667eea; font-weight: bold; }
-    .footer { text-align: center; color: #666; font-size: 12px; margin-top: 30px; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1>🔐 You're Invited to SeraVault</h1>
-    </div>
-    <div class="content">
-      <p>Hi there!</p>
-      
-      <p><strong>${invitation.fromUserDisplayName}</strong> (${invitation.fromUserEmail}) has invited you to connect on SeraVault, a secure file sharing platform with end-to-end encryption.</p>
-      
-      ${invitation.message ? `
-      <div class="message-box">
-        <strong>Personal message:</strong>
-        <p>"${invitation.message}"</p>
-      </div>
-      ` : ''}
-      
-      <div style="text-align: center;">
-        <a href="${inviteLink}" class="button">Accept Invitation & Create Account</a>
-      </div>
-      
-      <p style="text-align: center; color: #666; font-size: 14px;">
-        Or copy this link: <br/>
-        <code style="background: #e0e0e0; padding: 5px 10px; border-radius: 3px;">${inviteLink}</code>
-      </p>
-      
-      <div class="features">
-        <h3>Why SeraVault?</h3>
-        <div class="feature">End-to-end encrypted file storage and sharing</div>
-        <div class="feature">Secure contact management</div>
-        <div class="feature">Zero-knowledge architecture - even we can't see your files</div>
-        <div class="feature">Military-grade encryption (ML-KEM-768)</div>
-      </div>
-      
-      <p style="color: #666; font-size: 14px;">
-        <em>This invitation will expire in 30 days.</em>
-      </p>
-      
-      <div class="footer">
-        <p>Best regards,<br/>${invitation.fromUserDisplayName}</p>
-        <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;"/>
-        <p>This invitation was sent through SeraVault.<br/>
-        If you don't want to receive these invitations, please contact the sender directly.</p>
-      </div>
-    </div>
-  </div>
-</body>
-</html>
-      `;
+      // Render email template
+      const html = renderEmailTemplate('invitation-email', {
+        fromUserDisplayName: invitation.fromUserDisplayName,
+        fromUserEmail: invitation.fromUserEmail,
+        inviteLink: inviteLink,
+        message: invitation.message || '',
+        // For {{#if message}} conditional
+        hasMessage: !!invitation.message,
+      });
       
       // Send the email
       await sendEmail(invitation.toEmail, subject, html);

@@ -55,6 +55,7 @@ jspm_packages/
 .env.test.local
 .env.production.local
 .env.*.local
+functions/.env.local
 
 # Service account keys and credentials
 *service-account*.json
@@ -112,3 +113,4 @@ Thumbs.db
 .firebase/
 *-debug.log
 .runtimeconfig.json
+firebase-config.sh

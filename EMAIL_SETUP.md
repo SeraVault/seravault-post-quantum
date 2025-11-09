@@ -4,30 +4,41 @@
 
 The `onUserInvitationCreated` Cloud Function automatically sends invitation emails when users invite others to SeraVault.
 
-## Email Configuration
+## Email Configuration Setup
 
-The Cloud Function uses **nodemailer** to send emails. By default, it's configured for Gmail, but you can use any email service.
+This guide explains how to configure email sending for SeraVault's invitation system.
 
-### Option 1: Gmail with App Password (Recommended for Testing)
+## Modern Configuration with Secret Manager (Recommended)
 
-1. **Enable 2-Factor Authentication** on your Gmail account
-   - Go to: https://myaccount.google.com/security
-   - Enable 2-Step Verification
+⚠️ **Important**: Firebase deprecated `functions.config()` and it will be decommissioned after December 2025. We now use **Cloud Secret Manager** for secure credential storage.
 
-2. **Create an App Password**
-   - Go to: https://myaccount.google.com/apppasswords
-   - Select "Mail" and your device
-   - Copy the generated 16-character password
+### Quick Setup
 
-3. **Set Firebase Environment Variables**
+1. **Edit the configuration script**:
    ```bash
-   firebase functions:config:set email.user="your-email@gmail.com" email.password="your-app-password"
+   nano firebase-config.sh
+   ```
+   
+2. **Update with your credentials**:
+   ```bash
+   EMAIL_USER="your-email@gmail.com"
+   EMAIL_PASSWORD="your-app-password-here"
    ```
 
-4. **Redeploy the function**
+3. **Run the script**:
    ```bash
-   firebase deploy --only functions:onUserInvitationCreated
+   chmod +x firebase-config.sh
+   ./firebase-config.sh
    ```
+
+4. **Deploy**:
+   ```bash
+   firebase deploy --only functions
+   ```
+
+The script will securely store your credentials in Google Cloud Secret Manager.
+
+## Email Service Options
 
 ### Option 2: SendGrid (Recommended for Production)
 
@@ -39,26 +50,34 @@ The Cloud Function uses **nodemailer** to send emails. By default, it's configur
    - Settings → API Keys → Create API Key
    - Give it "Mail Send" permissions
 
-3. **Update the email transporter** in `functions/src/index.ts`:
-   ```typescript
-   const emailTransporter = nodemailer.createTransport({
-     host: 'smtp.sendgrid.net',
-     port: 587,
-     auth: {
-       user: 'apikey',
-       pass: process.env.SENDGRID_API_KEY,
-     },
-   });
-   ```
-
-4. **Set Firebase Environment Variable**
+3. **Set the secret**:
    ```bash
-   firebase functions:config:set sendgrid.api_key="YOUR_SENDGRID_API_KEY"
+   echo -n "YOUR_SENDGRID_API_KEY" | firebase functions:secrets:set SENDGRID_API_KEY
    ```
 
-5. **Update code to use config**:
+4. **Update code** to use the secret (in `functions/src/index.ts`):
    ```typescript
-   pass: functions.config().sendgrid?.api_key || process.env.SENDGRID_API_KEY || '',
+   import {defineSecret} from "firebase-functions/params";
+   
+   const sendgridApiKey = defineSecret('SENDGRID_API_KEY');
+   
+   // Update your function to bind the secret:
+   export const myFunction = onDocumentCreated(
+     {
+       document: "path/{id}",
+       secrets: [sendgridApiKey],
+     },
+     async (event) => {
+       const transporter = nodemailer.createTransport({
+         host: 'smtp.sendgrid.net',
+         port: 587,
+         auth: {
+           user: 'apikey',
+           pass: sendgridApiKey.value(),
+         },
+       });
+     }
+   );
    ```
 
 ### Option 3: Firebase Extensions (Easiest)
@@ -71,9 +90,22 @@ firebase ext:install firebase/firestore-send-email
 
 This requires configuring SMTP settings or using a service like SendGrid.
 
-## Development Mode
+## Local Development with Emulator
 
-In the emulator (when `FUNCTIONS_EMULATOR=true`), emails are logged to the console instead of being sent:
+For local testing, create `functions/.env.local`:
+
+```bash
+EMAIL_USER=your-email@gmail.com
+EMAIL_PASSWORD=your-app-password-here
+```
+
+The emulator will use these values instead of Secret Manager:
+
+```bash
+firebase emulators:start
+```
+
+When `FUNCTIONS_EMULATOR=true`, emails are logged to console instead of being sent:
 
 ```
 📧 [DEV MODE] Would send email:
@@ -118,18 +150,45 @@ firebase functions:log --only onUserInvitationCreated
 Or in Firebase Console:
 - Functions → onUserInvitationCreated → Logs
 
+## Managing Secrets
+
+View your secrets:
+```bash
+# List all secrets
+firebase functions:secrets:get EMAIL_USER
+
+# View secret value
+firebase functions:secrets:access EMAIL_USER
+```
+
+Update a secret:
+```bash
+echo -n "new-value" | firebase functions:secrets:set EMAIL_USER
+# Then redeploy functions
+firebase deploy --only functions
+```
+
+Delete a secret:
+```bash
+firebase functions:secrets:destroy EMAIL_USER
+```
+
 ## Troubleshooting
 
 ### "Invalid login" error with Gmail
 - Make sure 2FA is enabled
 - Use an App Password, not your regular password
-- Check that the email/password are set correctly in Firebase config
+- Run `./firebase-config.sh` to set credentials correctly
 
 ### Emails not sending
 - Check function logs for errors
-- Verify SMTP credentials
+- Verify secrets are set: `firebase functions:secrets:get EMAIL_USER`
 - Check spam folder
 - Ensure the function has internet access (Cloud Functions require Blaze plan)
+
+### "Secret not bound to function" error
+- Make sure the function includes `secrets: [emailUser, emailPassword]` in its configuration
+- Redeploy the function after updating
 
 ### Rate limits
 - Gmail: ~500 emails/day for free accounts
@@ -138,16 +197,29 @@ Or in Firebase Console:
 
 ## Security Notes
 
-- Never commit email credentials to git
-- Use Firebase environment variables or Secret Manager
-- In production, use a dedicated email service (SendGrid, AWS SES, etc.)
-- Consider implementing rate limiting to prevent abuse
+- ✅ Never commit email credentials to git
+- ✅ Use Cloud Secret Manager for production (current setup)
+- ✅ Use `.env.local` for local development only
+- ✅ In production, use a dedicated email service (SendGrid, AWS SES, etc.)
+- ✅ Consider implementing rate limiting to prevent abuse
+- ✅ Secrets are encrypted and access-controlled by Google Cloud
 
-## Environment Variables
+## Secret Manager Billing
 
-Current configuration uses:
-- `EMAIL_USER`: Email address for sending (default: noreply@seravault.app)
-- `EMAIL_PASSWORD`: Email password or API key
+Secret Manager allows:
+- **6 active secret versions** per month at no cost
+- **10,000 access operations** per month at no cost
+- After that: $0.03 per 10,000 access operations
+
+For most projects, this stays within the free tier.
+
+## Configuration Summary
+
+Current setup uses **Cloud Secret Manager** with:
+- `EMAIL_USER`: Email address for sending
+- `EMAIL_PASSWORD`: Email password or App Password
+
+For local testing, use `functions/.env.local` file.
 - `APP_URL`: Base URL for invitation links (default: https://seravault-8c764.web.app)
 
 Set them with:

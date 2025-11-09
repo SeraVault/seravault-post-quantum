@@ -172,47 +172,12 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _, initialTab 
       
       // Check if result is an invitation (for non-existing users)
       if (typeof result === 'object' && result && 'invitationId' in result && 'invitationData' in result) {
-        console.log('📧 Invitation result detected:', result);
-
-        // Generate mailto link for invitation
-        const mailtoLink = ContactService.generateInvitationMailtoLink(
-          (result as any).invitationId,
-          (result as any).invitationData
-        );
+        console.log('📧 Invitation created - email will be sent automatically by Cloud Function');
         
-        console.log('📧 Generated mailto link:', mailtoLink);
-        console.log('📧 Link length:', mailtoLink.length);
-        
-        // Try to open email client, with fallback
-        try {
-          // Create a temporary link element and click it for better browser support
-          const link = document.createElement('a');
-          link.href = mailtoLink;
-          link.target = '_blank';
-          link.rel = 'noopener noreferrer';
-          
-          console.log('📧 Created link element with href:', link.href.substring(0, 100) + '...');
-          
-          // Add to DOM temporarily
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          
-          console.log(`📧 Email client should have opened for invitation to ${newContactEmail.trim()}`);
-          
-          // Also show a user-friendly message
-          alert(`Opening your email client to send invitation to ${newContactEmail.trim()}. If it doesn't open, please check your browser settings for handling mailto links.`);
-        } catch (emailError) {
-          console.error('Failed to open email client:', emailError);
-          // Fallback: copy to clipboard and show instructions
-          navigator.clipboard.writeText(mailtoLink).then(() => {
-            alert(`Invitation link copied to clipboard! Please paste it into your browser's address bar to open your email client.\n\nInviting: ${newContactEmail.trim()}`);
-          }).catch(() => {
-            alert(`Please manually copy this invitation link:\n\n${mailtoLink}\n\nPaste it into your browser to open your email client.`);
-          });
-        }
+        // Show success message - the server will send the email automatically
+        alert(`✅ Invitation sent to ${newContactEmail.trim()}!\n\nThey will receive an email with a link to create their SeraVault account and connect with you.`);
       } else {
-        // Regular contact request sent
+        // Regular contact request sent to existing user
         console.log(`✅ Contact request sent to existing user ${newContactEmail.trim()}`);
       }
       

@@ -808,7 +808,7 @@ export class ContactService {
   static generateInvitationMailtoLink(
     invitationId: string,
     invitation: Omit<UserInvitation, 'id'>,
-    baseUrl: string = 'https://seravault-8c764.web.app'
+    baseUrl: string = 'https://seravault-8c764-app.web.app'
   ): string {
     const inviteLink = `${baseUrl}/signup?invite=${invitationId}`;
     
