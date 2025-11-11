@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useAuth } from '../auth/AuthContext';
+import { getUserRecents, updateUserRecents } from '../firestore';
 
 export interface RecentItem {
   id: string;
@@ -40,42 +41,70 @@ export const RecentsProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [isSharedView, setIsSharedView] = useState(false);
   const MAX_RECENT_ITEMS = 20;
 
-  // Get storage key for user
+  // Get storage key for user (for migration from localStorage)
   const getStorageKey = (userId: string) => `seravault_recent_items_${userId}`;
 
-  // Load recents from localStorage on mount
+  // Load recents from Firestore on mount
   useEffect(() => {
     if (!user) {
       setRecentItems([]);
       return;
     }
 
-    try {
-      const stored = localStorage.getItem(getStorageKey(user.uid));
-      if (stored) {
-        const parsed: RecentItem[] = JSON.parse(stored);
-        // Filter out items older than 30 days
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const loadRecents = async () => {
+      try {
+        // Try loading from Firestore first
+        const firestoreRecents = await getUserRecents(user.uid);
         
-        const validItems = parsed.filter(item => 
-          new Date(item.accessedAt) > thirtyDaysAgo
-        );
-        
-        setRecentItems(validItems);
-        
-        // Update storage if we filtered out old items
-        if (validItems.length !== parsed.length) {
-          localStorage.setItem(getStorageKey(user.uid), JSON.stringify(validItems));
+        if (firestoreRecents && firestoreRecents.length > 0) {
+          // Filter out items older than 30 days
+          const thirtyDaysAgo = new Date();
+          thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+          
+          const validItems = firestoreRecents.filter(item => 
+            new Date(item.accessedAt) > thirtyDaysAgo
+          );
+          
+          setRecentItems(validItems);
+          
+          // Update Firestore if we filtered out old items
+          if (validItems.length !== firestoreRecents.length) {
+            await updateUserRecents(user.uid, validItems);
+          }
+        } else {
+          // Migration path: try loading from localStorage
+          const stored = localStorage.getItem(getStorageKey(user.uid));
+          if (stored) {
+            const parsed: RecentItem[] = JSON.parse(stored);
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+            
+            const validItems = parsed.filter(item => 
+              new Date(item.accessedAt) > thirtyDaysAgo
+            );
+            
+            setRecentItems(validItems);
+            
+            // Migrate to Firestore
+            if (validItems.length > 0) {
+              await updateUserRecents(user.uid, validItems);
+              console.log('✅ Migrated recent items from localStorage to Firestore');
+            }
+            
+            // Clean up localStorage after successful migration
+            localStorage.removeItem(getStorageKey(user.uid));
+          }
         }
+      } catch (error) {
+        console.error('Error loading recent items:', error);
+        setRecentItems([]);
       }
-    } catch (error) {
-      console.error('Error loading recent items:', error);
-      setRecentItems([]);
-    }
+    };
+
+    loadRecents();
   }, [user]);
 
-  const addRecentItem = (newItem: Omit<RecentItem, 'accessedAt'>) => {
+  const addRecentItem = async (newItem: Omit<RecentItem, 'accessedAt'>) => {
     if (!user) return;
 
     // Only store non-sensitive metadata
@@ -93,23 +122,21 @@ export const RecentsProvider: React.FC<{ children: React.ReactNode }> = ({ child
       // Add to beginning and limit to MAX_RECENT_ITEMS
       const updated = [recentItem, ...filtered].slice(0, MAX_RECENT_ITEMS);
       
-      // Save to localStorage
-      try {
-        localStorage.setItem(getStorageKey(user.uid), JSON.stringify(updated));
-      } catch (error) {
-        console.error('Error saving recent items:', error);
-      }
+      // Save to Firestore asynchronously
+      updateUserRecents(user.uid, updated).catch(error => {
+        console.error('Error saving recent items to Firestore:', error);
+      });
       
       return updated;
     });
   };
 
-  const clearRecents = () => {
+  const clearRecents = async () => {
     if (!user) return;
     
     setRecentItems([]);
     try {
-      localStorage.removeItem(getStorageKey(user.uid));
+      await updateUserRecents(user.uid, []);
     } catch (error) {
       console.error('Error clearing recent items:', error);
     }

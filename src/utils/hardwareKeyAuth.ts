@@ -542,20 +542,30 @@ export async function retrievePrivateKeyFromHardware(
   }
 
   try {
+    console.log('[HW Key] Retrieving encrypted data from IndexedDB for credential:', credentialId.substring(0, 20) + '...');
+    
     // Retrieve encrypted data from IndexedDB
     const encrypted = await retrieveFromIndexedDB(`hw_key_${credentialId}`);
     if (!encrypted) {
-      throw new Error('No private key stored for this hardware key');
+      console.error('[HW Key] No encrypted data found in IndexedDB');
+      throw new Error('No private key stored for this hardware key. Please set up hardware key authentication again.');
     }
+    
+    console.log('[HW Key] Found encrypted data, attempting decryption...');
     
     // Decrypt using hardware key (requires user presence)
     const privateKeyBytes = await decryptWithHardwareKey(credentialId, encrypted);
+    console.log('[HW Key] Successfully decrypted private key');
+    
     const { bytesToHex } = await import('../crypto/quantumSafeCrypto');
     return bytesToHex(privateKeyBytes);
     
   } catch (error) {
-    console.error('Failed to retrieve private key from hardware:', error);
-    throw new Error('Failed to retrieve private key from hardware key');
+    console.error('[HW Key] Failed to retrieve private key from hardware:', error);
+    if (error instanceof Error && error.message.includes('No private key stored')) {
+      throw error; // Re-throw with specific message
+    }
+    throw new Error('Failed to decrypt private key. The stored credential may be corrupted.');
   }
 }
 

@@ -20,7 +20,6 @@ import {
   TextField,
   CircularProgress,
   FormControlLabel,
-  Checkbox,
   RadioGroup,
   Radio,
   FormControl,
@@ -77,7 +76,6 @@ const HardwareKeySetup: React.FC<HardwareKeySetupProps> = ({ onEncryptedKeyChang
   // Dialog states
   const [nicknameDialogOpen, setNicknameDialogOpen] = useState(false);
   const [newKeyNickname, setNewKeyNickname] = useState('');
-  const [storePrivateKeyOption, setStorePrivateKeyOption] = useState(false);
   const [removePassphraseKeyDialogOpen, setRemovePassphraseKeyDialogOpen] = useState(false);
   const [restorePassphraseKeyDialogOpen, setRestorePassphraseKeyDialogOpen] = useState(false);
   const [newPassphrase, setNewPassphrase] = useState('');
@@ -130,8 +128,8 @@ const HardwareKeySetup: React.FC<HardwareKeySetupProps> = ({ onEncryptedKeyChang
       const nickname = newKeyNickname.trim() || undefined;
       const newKey = await registerHardwareKey(user.uid, user.email || '', nickname, authenticatorType);
       
-      // If user wants to store private key in hardware
-      if (storePrivateKeyOption && privateKey) {
+      // Always store private key in hardware if available
+      if (privateKey) {
         try {
           await storePrivateKeyInHardware(newKey.id, privateKey);
           newKey.storesPrivateKey = true;
@@ -141,7 +139,6 @@ const HardwareKeySetup: React.FC<HardwareKeySetupProps> = ({ onEncryptedKeyChang
           setRegisteredKeys([...registeredKeys, newKey]);
           setNicknameDialogOpen(false);
           setNewKeyNickname('');
-          setStorePrivateKeyOption(false);
           setAuthenticatorType('cross-platform');
           
           // Now show dialog asking if they want to remove passphrase-protected key
@@ -161,7 +158,6 @@ const HardwareKeySetup: React.FC<HardwareKeySetupProps> = ({ onEncryptedKeyChang
         setRegisteredKeys([...registeredKeys, newKey]);
         setNicknameDialogOpen(false);
         setNewKeyNickname('');
-        setStorePrivateKeyOption(false);
         setAuthenticatorType('cross-platform');
       }
     } catch (err) {
@@ -627,48 +623,36 @@ const HardwareKeySetup: React.FC<HardwareKeySetupProps> = ({ onEncryptedKeyChang
           
           <Alert severity="info" sx={{ mb: 2 }}>
             <Typography variant="subtitle2" gutterBottom>
-              🔐 Maximum Security Option
+              🔐 Automatic Private Key Storage
             </Typography>
             <Typography variant="body2">
-              Store your encryption private key <strong>inside the {authenticatorType === 'cross-platform' ? 'hardware key' : 'passkey'}</strong> instead of on our servers.
+              Your encryption private key will be stored <strong>inside the {authenticatorType === 'cross-platform' ? 'hardware key' : 'passkey'}</strong>.
+              No passphrase needed! Your private key never touches our servers.
             </Typography>
           </Alert>
           
-          <FormControlLabel
-            control={
-              <Checkbox 
-                checked={storePrivateKeyOption}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setStorePrivateKeyOption(e.target.checked)}
-                disabled={registering || !privateKey}
-              />
-            }
-            label={
-              <Box>
-                <Typography variant="body2">
-                  <strong>Store my private key in the {authenticatorType === 'cross-platform' ? 'hardware key' : 'passkey'}</strong>
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {privateKey 
-                    ? "No passphrase needed! Private key never touches our servers. (Recommended for paranoid users)"
-                    : "Unlock your private key with your passphrase first to enable this option"
-                  }
-                </Typography>
-              </Box>
-            }
-          />
-          
-          {storePrivateKeyOption && (
-            <Alert severity="warning" sx={{ mt: 2 }}>
-              <Typography variant="body2" fontWeight="bold" gutterBottom>
-                Important: Hardware Backup Recommendation
+          {!privateKey && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              <Typography variant="body2" fontWeight="bold">
+                Private Key Not Available
               </Typography>
               <Typography variant="body2">
-                After registration, you'll be prompted to remove the passphrase-protected key from the server.
-                <strong> We strongly recommend having at least 2-3 hardware keys</strong> registered before doing so.
-                Losing your only {authenticatorType === 'cross-platform' ? 'hardware key' : 'device'} would mean permanent data loss!
+                You must unlock your private key with your passphrase before registering a hardware key.
+                The hardware key stores your private key locally for future unlocks.
               </Typography>
             </Alert>
           )}
+          
+          <Alert severity="warning" sx={{ mt: 2 }}>
+            <Typography variant="body2" fontWeight="bold" gutterBottom>
+              Important: Hardware Backup Recommendation
+            </Typography>
+            <Typography variant="body2">
+              After registration, you'll be prompted to remove the passphrase-protected key from the server.
+              <strong> We strongly recommend having at least 2-3 hardware keys</strong> registered before doing so.
+              Losing your only {authenticatorType === 'cross-platform' ? 'hardware key' : 'device'} would mean permanent data loss!
+            </Typography>
+          </Alert>
           
           {registering && (
             <Box display="flex" alignItems="center" gap={2} mt={2}>
@@ -689,7 +673,7 @@ const HardwareKeySetup: React.FC<HardwareKeySetupProps> = ({ onEncryptedKeyChang
           <Button 
             onClick={handleRegisterKey} 
             variant="contained" 
-            disabled={registering}
+            disabled={registering || !privateKey}
             startIcon={registering ? <CircularProgress size={16} /> : <VpnKey />}
           >
             {registering ? 'Registering...' : 'Register Key'}

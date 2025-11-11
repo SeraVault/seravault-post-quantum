@@ -28,6 +28,7 @@ import {
   getRegisteredHardwareKeys,
   retrievePrivateKeyFromHardware,
   hasStoredPrivateKey,
+  getHardwareKeyCapabilities,
 } from '../utils/hardwareKeyAuth';
 
 interface BiometricPassphraseDialogProps {
@@ -54,6 +55,7 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
   const [keyFilePassphrase, setKeyFilePassphrase] = useState('');
   const [hasHardwareKeys, setHasHardwareKeys] = useState(false);
   const [hardwareKeysWithStorage, setHardwareKeysWithStorage] = useState<string[]>([]);
+  const [hardwareKeySupported, setHardwareKeySupported] = useState(false);
 
   useEffect(() => {
     const checkBiometric = async () => {
@@ -63,13 +65,53 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
         setBiometricAvailable(available);
         setHasBiometric(setup);
         
+        // Check if current browser supports WebAuthn/hardware keys
+        try {
+          const hwCapabilities = await getHardwareKeyCapabilities();
+          console.log('[BiometricDialog] Hardware key capabilities:', hwCapabilities);
+          setHardwareKeySupported(hwCapabilities.supported);
+        } catch (error) {
+          console.error('Error checking hardware key support:', error);
+          setHardwareKeySupported(false);
+        }
+        
         // Check for hardware keys - add a small delay to ensure credentials are persisted
         try {
           // Small delay to allow browser credential store to sync
           await new Promise(resolve => setTimeout(resolve, 100));
           
           const keys = await getRegisteredHardwareKeys(user.uid);
-          setHasHardwareKeys(keys.length > 0);
+          console.log('[BiometricDialog] Registered keys:', keys.length);
+          
+          // Only show hardware keys if both:
+          // 1. User has registered keys in Firestore
+          // 2. Current browser supports WebAuthn
+          const hwCapabilities = await getHardwareKeyCapabilities();
+          
+          // Check if any registered keys match the device capabilities
+          // - USB/NFC/Bluetooth keys require cross-platform authenticator support
+          // - Internal keys (Touch ID, Windows Hello) require platform authenticator support
+          const hasMatchingKeys = keys.some(key => {
+            if (key.type === 'internal') {
+              return hwCapabilities.platformAuthenticator;
+            } else {
+              // USB, NFC, Bluetooth keys need cross-platform support
+              return hwCapabilities.crossPlatformAuthenticator;
+            }
+          });
+          
+          const showHardwareKeys = keys.length > 0 && hwCapabilities.supported && hasMatchingKeys;
+          
+          console.log('[BiometricDialog] Show hardware keys:', showHardwareKeys, {
+            hasKeys: keys.length > 0,
+            supported: hwCapabilities.supported,
+            crossPlatform: hwCapabilities.crossPlatformAuthenticator,
+            platform: hwCapabilities.platformAuthenticator,
+            hasMatchingKeys,
+            keyTypes: keys.map(k => k.type)
+          });
+          
+          setHasHardwareKeys(showHardwareKeys);
           
           // Check which keys have stored private keys
           const keysWithStorage: string[] = [];
@@ -82,7 +124,7 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
           setHardwareKeysWithStorage(keysWithStorage);
           
           // Default to hardware key tab if available
-          if (keys.length > 0) {
+          if (showHardwareKeys) {
             // Set active tab to hardware key (adjust index based on biometric availability)
             const hardwareTabIndex = (available && setup) ? 2 : 1;
             setActiveTab(hardwareTabIndex);
@@ -173,24 +215,39 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
       setLoading(true);
       setError(null);
 
+      console.log('[Hardware Key Auth] Starting authentication...');
+
       // Get all registered hardware keys
       const keys = await getRegisteredHardwareKeys(user.uid);
+      console.log('[Hardware Key Auth] Registered keys:', keys.length);
+      
       if (keys.length === 0) {
         throw new Error('No hardware keys registered. Please set up a hardware key in your Profile.');
       }
       
       // Try to use the first available hardware key
       const credentialId = keys[0].id;
+      console.log('[Hardware Key Auth] Using credential ID:', credentialId.substring(0, 20) + '...');
+      
+      // Check if private key is stored for this credential
+      const { hasStoredPrivateKey } = await import('../utils/hardwareKeyAuth');
+      const hasKey = await hasStoredPrivateKey(credentialId);
+      console.log('[Hardware Key Auth] Has stored private key:', hasKey);
+      
+      if (!hasKey) {
+        throw new Error('Private key not found for this hardware key. Please set up hardware key authentication again in your Profile.');
+      }
       
       // This will prompt the user to touch their hardware key
       const privateKey = await retrievePrivateKeyFromHardware(credentialId);
+      console.log('[Hardware Key Auth] Successfully retrieved private key');
 
       // Submit the decrypted private key
       await onSubmit(privateKey, true, 'hardware');
     } catch (error) {
-      console.error('Hardware key authentication error:', error);
+      console.error('[Hardware Key Auth] Error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Hardware key authentication failed';
-      setError(`${errorMessage}. Make sure your key is inserted and touch it when prompted.`);
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }

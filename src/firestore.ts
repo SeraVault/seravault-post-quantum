@@ -32,6 +32,13 @@ export interface UserProfile {
   };
   // Security preferences
   showPrintWarning?: boolean; // Default: true, false = never show warning
+  // Recent files (synced across devices)
+  recentItems?: Array<{
+    id: string;
+    type: 'file' | 'form';
+    parent: string | null;
+    accessedAt: string;
+  }>;
 }
 
 export interface Folder {
@@ -128,6 +135,16 @@ export const createUserProfile = async (uid: string, data: UserProfile) => {
 
 export const updateUserProfile = async (uid: string, updates: Partial<UserProfile>) => {
   await backendService.users.update(uid, updates);
+};
+
+export const updateUserRecents = async (uid: string, recentItems: UserProfile['recentItems']) => {
+  const docRef = doc(db, 'users', uid);
+  await updateDoc(docRef, { recentItems });
+};
+
+export const getUserRecents = async (uid: string): Promise<UserProfile['recentItems']> => {
+  const profile = await getUserProfile(uid);
+  return profile?.recentItems || [];
 };
 
 export const createFolder = async (owner: string, name: string, parent: string | null, privateKeyHex: string) => {
