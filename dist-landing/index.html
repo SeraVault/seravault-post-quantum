@@ -12,6 +12,25 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <!-- PWA Install Banner -->
+  <div id="pwaInstallBanner" class="pwa-install-banner" style="display: none;">
+    <div class="pwa-banner-content">
+      <div class="pwa-banner-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+      </div>
+      <div class="pwa-banner-text">
+        <strong>Install SeraVault</strong>
+        <span>Access your encrypted files anytime, even offline</span>
+      </div>
+      <div class="pwa-banner-actions">
+        <button id="pwaInstallBtn" class="btn btn-sm btn-primary">Install</button>
+        <button id="dismissInstallBtn" class="btn btn-sm btn-text">Not now</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Navigation -->
   <nav class="navbar">
     <div class="container">
@@ -52,8 +71,8 @@
             Chat securely with family or colleagues. Everything protected with post-quantum encryption that even future computers can't break.
           </p>
           <div class="hero-cta">
-            <a href="https://seravault-8c764-app.web.app" class="btn btn-large btn-primary">
-              Get Started Free
+            <a href="https://seravault-8c764-app.web.app/signup" class="btn btn-large btn-primary">
+              Get Started
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M5 10h10m0 0l-4-4m4 4l-4 4"/>
               </svg>
@@ -61,20 +80,6 @@
             <a href="#security" class="btn btn-large btn-outline">
               Learn About Security
             </a>
-          </div>
-          <div class="hero-stats">
-            <div class="stat">
-              <div class="stat-value">📁 Files/Forms/Folders</div>
-              <div class="stat-label">Organize Like Desktop</div>
-            </div>
-            <div class="stat">
-              <div class="stat-value">💬 Chat</div>
-              <div class="stat-label">E2E Encrypted</div>
-            </div>
-            <div class="stat">
-              <div class="stat-value">🔐 Quantum-Safe</div>
-              <div class="stat-label">ML-KEM-768</div>
-            </div>
           </div>
         </div>
         
@@ -688,7 +693,7 @@
               <span>Community support</span>
             </li>
           </ul>
-          <a href="https://seravault-8c764-app.web.app" class="btn btn-outline btn-block">Start Free</a>
+          <a href="https://seravault-8c764-app.web.app/signup" class="btn btn-outline btn-block">Get Started</a>
         </div>
 
         <div class="pricing-card featured">
@@ -952,13 +957,13 @@
         <h2 class="cta-title">Ready to secure your <span class="gradient-text">digital life</span>?</h2>
         <p class="cta-subtitle">Join thousands protecting their most sensitive files with post-quantum encryption</p>
         <div class="cta-buttons">
-          <a href="https://seravault-8c764-app.web.app" class="btn btn-large btn-primary">
-            Start Free Today
+          <a href="https://seravault-8c764-app.web.app/signup" class="btn btn-large btn-primary">
+            Get Started
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M5 10h10m0 0l-4-4m4 4l-4 4"/>
             </svg>
           </a>
-          <a href="https://github.com/seravault" class="btn btn-large btn-outline">
+          <a href="https://github.com/SeraVault/seravault-post-quantum" class="btn btn-large btn-outline">
             View on GitHub
           </a>
         </div>
@@ -975,18 +980,6 @@
             <img src="seravault_logo.svg" alt="SeraVault" class="logo-image" height="32">
           </div>
           <p class="footer-tagline">Post-quantum encryption for everyone</p>
-          <div class="footer-social">
-            <a href="#" aria-label="GitHub">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.17 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.167 22 16.418 22 12c0-5.523-4.477-10-10-10z"/>
-              </svg>
-            </a>
-            <a href="#" aria-label="Twitter">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M23 3a10.9 10.9 0 01-3.14 1.53 4.48 4.48 0 00-7.86 3v1A10.66 10.66 0 013 4s-4 9 5 13a11.64 11.64 0 01-7 2c9 5 20 0 20-11.5a4.5 4.5 0 00-.08-.83A7.72 7.72 0 0023 3z"/>
-              </svg>
-            </a>
-          </div>
         </div>
 
         <div class="footer-section">
@@ -1003,7 +996,7 @@
           <h4 class="footer-title">Resources</h4>
           <ul class="footer-links">
             <li><a href="security-whitepaper.html">Security Whitepaper</a></li>
-            <li><a href="https://github.com/seravault">GitHub</a></li>
+            <li><a href="https://github.com/SeraVault/seravault-post-quantum">GitHub</a></li>
           </ul>
         </div>
 
@@ -1017,7 +1010,7 @@
       </div>
 
       <div class="footer-bottom">
-        <p>&copy; 2024 SeraVault. All rights reserved. Built with ML-KEM-768 post-quantum encryption.</p>
+        <p>&copy; <span id="copyrightYear"></span> SeraVault. All rights reserved. Built with ML-KEM-768 post-quantum encryption.</p>
       </div>
     </div>
   </footer>

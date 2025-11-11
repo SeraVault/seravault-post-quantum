@@ -44,6 +44,7 @@ const corsHandler = (0, cors_1.default)({
         'http://localhost:5173',
         'http://localhost:3000',
         'https://seravault-8c764.web.app',
+        'https://seravault-8c764-app.web.app',
         'https://seravault-8c764.firebaseapp.com'
     ],
     credentials: true
@@ -270,15 +271,18 @@ exports.onContactRequest = (0, firestore_1.onDocumentCreated)("contactRequests/{
         console.log(`📪 Contact request notification skipped - user ${toUserId} has notifications disabled`);
         return;
     }
+    const notificationTitle = 'New contact request';
+    const notificationMessage = message
+        ? `${fromUserDisplayName} wants to connect with you: "${message}"`
+        : `${fromUserDisplayName} wants to connect with you`;
+    // Create in-app notification
     await createNotification({
         recipientId: toUserId,
         senderId: fromUserId,
         senderDisplayName: fromUserDisplayName,
         type: 'contact_request',
-        title: 'New contact request',
-        message: message
-            ? `${fromUserDisplayName} wants to connect with you: "${message}"`
-            : `${fromUserDisplayName} wants to connect with you`,
+        title: notificationTitle,
+        message: notificationMessage,
         contactRequestId: requestId,
         isRead: false,
         metadata: {
@@ -287,6 +291,62 @@ exports.onContactRequest = (0, firestore_1.onDocumentCreated)("contactRequests/{
         }
     });
     console.log(`📨 Contact request notification sent to ${toUserId} from ${fromUserId}`);
+    // Send FCM push notification to all user's devices
+    try {
+        const fcmTokensSnapshot = await db.collection('users')
+            .doc(toUserId)
+            .collection('fcmTokens')
+            .get();
+        if (!fcmTokensSnapshot.empty) {
+            const tokens = fcmTokensSnapshot.docs.map(doc => doc.data().token);
+            const fcmMessage = {
+                notification: {
+                    title: notificationTitle,
+                    body: notificationMessage,
+                    icon: '/favicon.ico',
+                },
+                data: {
+                    type: 'contact_request',
+                    contactRequestId: requestId,
+                    senderId: fromUserId,
+                    senderName: fromUserDisplayName,
+                },
+                tokens: tokens,
+            };
+            const response = await admin.messaging().sendEachForMulticast(fcmMessage);
+            console.log(`📱 Sent contact request FCM to ${response.successCount}/${tokens.length} devices`);
+            // Clean up invalid tokens
+            if (response.failureCount > 0) {
+                const tokensToDelete = [];
+                response.responses.forEach((resp, idx) => {
+                    var _a, _b;
+                    if (!resp.success &&
+                        (((_a = resp.error) === null || _a === void 0 ? void 0 : _a.code) === 'messaging/invalid-registration-token' ||
+                            ((_b = resp.error) === null || _b === void 0 ? void 0 : _b.code) === 'messaging/registration-token-not-registered')) {
+                        tokensToDelete.push(tokens[idx]);
+                    }
+                });
+                if (tokensToDelete.length > 0) {
+                    const deleteBatch = db.batch();
+                    tokensToDelete.forEach(token => {
+                        const tokenRef = db.collection('users')
+                            .doc(toUserId)
+                            .collection('fcmTokens')
+                            .doc(token);
+                        deleteBatch.delete(tokenRef);
+                    });
+                    await deleteBatch.commit();
+                    console.log(`🗑️ Cleaned up ${tokensToDelete.length} invalid FCM tokens`);
+                }
+            }
+        }
+        else {
+            console.log(`📵 No FCM tokens found for user ${toUserId}`);
+        }
+    }
+    catch (error) {
+        console.error('❌ Error sending contact request FCM:', error);
+    }
 });
 /**
  * Firestore Trigger: Contact acceptance notifications
@@ -531,6 +591,97 @@ exports.onUserInvitationCreated = (0, firestore_1.onDocumentCreated)({
         // Send the email
         await sendEmail(invitation.toEmail, subject, html);
         console.log(`✅ Invitation email sent to ${invitation.toEmail}`);
+        // Check if the invited user already has an account
+        try {
+            const existingUsers = await db.collection('users')
+                .where('email', '==', invitation.toEmail)
+                .limit(1)
+                .get();
+            if (!existingUsers.empty) {
+                // User exists - send them an in-app notification and FCM push notification
+                const existingUser = existingUsers.docs[0];
+                const userId = existingUser.id;
+                const notificationTitle = `${invitation.fromUserDisplayName} invited you to SeraVault`;
+                const notificationMessage = invitation.message
+                    ? `"${invitation.message}"`
+                    : 'Join them on SeraVault for secure, encrypted collaboration';
+                // Create in-app notification
+                await createNotification({
+                    recipientId: userId,
+                    senderId: invitation.fromUserId,
+                    senderDisplayName: invitation.fromUserDisplayName,
+                    type: 'user_invitation',
+                    title: notificationTitle,
+                    message: notificationMessage,
+                    invitationId: invitationId,
+                    isRead: false,
+                    metadata: {
+                        action: 'user_invitation',
+                        inviteLink: inviteLink,
+                        timestamp: new Date().toISOString()
+                    }
+                });
+                console.log(`📲 In-app notification created for existing user ${userId}`);
+                // Send FCM push notification
+                const fcmTokensSnapshot = await db.collection('users')
+                    .doc(userId)
+                    .collection('fcmTokens')
+                    .get();
+                if (!fcmTokensSnapshot.empty) {
+                    const tokens = fcmTokensSnapshot.docs.map(doc => doc.data().token);
+                    const fcmMessage = {
+                        notification: {
+                            title: notificationTitle,
+                            body: notificationMessage,
+                            icon: '/favicon.ico',
+                        },
+                        data: {
+                            type: 'user_invitation',
+                            invitationId: invitationId,
+                            senderId: invitation.fromUserId,
+                            senderName: invitation.fromUserDisplayName,
+                            inviteLink: inviteLink,
+                        },
+                        tokens: tokens,
+                    };
+                    const response = await admin.messaging().sendEachForMulticast(fcmMessage);
+                    console.log(`📱 Sent invitation FCM to ${response.successCount}/${tokens.length} devices`);
+                    // Clean up invalid tokens
+                    if (response.failureCount > 0) {
+                        const tokensToDelete = [];
+                        response.responses.forEach((resp, idx) => {
+                            var _a, _b;
+                            if (!resp.success &&
+                                (((_a = resp.error) === null || _a === void 0 ? void 0 : _a.code) === 'messaging/invalid-registration-token' ||
+                                    ((_b = resp.error) === null || _b === void 0 ? void 0 : _b.code) === 'messaging/registration-token-not-registered')) {
+                                tokensToDelete.push(tokens[idx]);
+                            }
+                        });
+                        if (tokensToDelete.length > 0) {
+                            const deleteBatch = db.batch();
+                            tokensToDelete.forEach(token => {
+                                const tokenRef = db.collection('users')
+                                    .doc(userId)
+                                    .collection('fcmTokens')
+                                    .doc(token);
+                                deleteBatch.delete(tokenRef);
+                            });
+                            await deleteBatch.commit();
+                            console.log(`🗑️ Cleaned up ${tokensToDelete.length} invalid FCM tokens`);
+                        }
+                    }
+                }
+                else {
+                    console.log(`📵 No FCM tokens found for user ${userId}`);
+                }
+            }
+            else {
+                console.log(`📧 User with email ${invitation.toEmail} not found - email only sent`);
+            }
+        }
+        catch (error) {
+            console.error('⚠️ Error checking for existing user:', error);
+        }
     }
     catch (error) {
         console.error('Error sending invitation email:', error);
@@ -715,7 +866,15 @@ exports.onChatMessageCreated = (0, firestore_1.onDocumentCreated)("files/{chatId
  * This function performs server-side deletion with elevated privileges to ensure
  * complete data removal including cleanup of shared files references.
  */
-exports.deleteUserAccount = (0, https_1.onCall)({ cors: ['http://localhost:5173', 'http://localhost:3000', 'https://seravault-8c764.web.app', 'https://seravault-8c764.firebaseapp.com'] }, async (request) => {
+exports.deleteUserAccount = (0, https_1.onCall)({
+    cors: [
+        'http://localhost:5173',
+        'http://localhost:3000',
+        'https://seravault-8c764.web.app',
+        'https://seravault-8c764-app.web.app',
+        'https://seravault-8c764.firebaseapp.com'
+    ]
+}, async (request) => {
     // Verify the user is authenticated
     if (!request.auth) {
         throw new https_1.HttpsError('unauthenticated', 'User must be authenticated to delete their account');
@@ -970,7 +1129,15 @@ exports.deleteUserAccount = (0, https_1.onCall)({ cors: ['http://localhost:5173'
  * Calculate storage usage for a user
  * Much faster than client-side calculation since it runs server-side
  */
-exports.calculateStorageUsage = (0, https_1.onCall)({ cors: ['http://localhost:5173', 'http://localhost:3000', 'https://seravault-8c764.web.app', 'https://seravault-8c764.firebaseapp.com'] }, async (request) => {
+exports.calculateStorageUsage = (0, https_1.onCall)({
+    cors: [
+        'http://localhost:5173',
+        'http://localhost:3000',
+        'https://seravault-8c764.web.app',
+        'https://seravault-8c764-app.web.app',
+        'https://seravault-8c764.firebaseapp.com'
+    ]
+}, async (request) => {
     var _a;
     const userId = (_a = request.auth) === null || _a === void 0 ? void 0 : _a.uid;
     if (!userId) {
@@ -1168,7 +1335,13 @@ exports.updateStorageOnFileDelete = (0, firestore_1.onDocumentUpdated)({
  */
 exports.getUserStorageUsage = (0, https_1.onCall)({
     region: "us-central1",
-    cors: ['http://localhost:5173', 'http://localhost:3000', 'https://seravault-8c764.web.app', 'https://seravault-8c764.firebaseapp.com'],
+    cors: [
+        'http://localhost:5173',
+        'http://localhost:3000',
+        'https://seravault-8c764.web.app',
+        'https://seravault-8c764-app.web.app',
+        'https://seravault-8c764.firebaseapp.com'
+    ],
 }, async (request) => {
     var _a, _b;
     try {

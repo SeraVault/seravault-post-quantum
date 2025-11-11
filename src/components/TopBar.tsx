@@ -6,6 +6,7 @@ import { useAuth } from '../auth/AuthContext';
 import SecurityStatusIndicator from './SecurityStatusIndicator';
 import UserAvatar from './UserAvatar';
 import NotificationBell from './NotificationBell';
+import InstallButton from './InstallButton';
 
 interface TopBarProps {
   handleDrawerToggle: () => void;
@@ -45,6 +46,7 @@ const TopBar: React.FC<TopBarProps> = ({ handleDrawerToggle }) => {
         </Box>
         {user ? (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 0.5, sm: 1 } }}>
+            <InstallButton />
             <Box sx={{ display: { xs: 'none', sm: 'block' } }}>
               <SecurityStatusIndicator />
             </Box>

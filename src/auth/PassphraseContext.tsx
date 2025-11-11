@@ -159,6 +159,8 @@ const PassphraseProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const clearPrivateKey = () => {
     setPrivateKey(null);
     clearStoredPrivateKey();
+    setUserDismissed(false);
+    setPassphraseDialogOpen(true);
   };
 
   const handlePassphraseSubmit = async (passphraseOrPrivateKey: string, rememberChoice = false, method: 'passphrase' | 'biometric' | 'keyfile' | 'hardware' = 'passphrase') => {

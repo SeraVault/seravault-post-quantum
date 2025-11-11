@@ -205,11 +205,24 @@ The Cloud Function automatically cleans up invalid tokens. If you see these erro
 
 Possible improvements:
 - Notification preferences (per-chat, DND hours, etc.)
-- Rich notifications with message preview
+- Rich notifications with message preview (with encryption considerations)
 - Notification grouping for multiple messages
 - Badge count on app icon
 - Vibration patterns
 - Custom notification sounds
+- Notification action buttons (reply, dismiss, etc.)
+
+## Notification Types
+
+SeraVault sends native push notifications for:
+
+- **Chat Messages** (`chat_message`) - New messages in conversations (only when chat is not already open)
+- **Contact Requests** (`contact_request`) - When someone wants to connect with you
+- **Contact Accepted** (`contact_accepted`) - When someone accepts your contact request
+- **User Invitations** (`user_invitation`) - When someone invites you to join SeraVault (if you already have an account)
+- **File Sharing** - File shared, modified, or unshared notifications (in-app only currently)
+
+All notifications respect user preferences and only send when the relevant content is not already being viewed.
 
 ## Resources
 

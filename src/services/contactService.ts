@@ -803,6 +803,88 @@ export class ContactService {
   }
 
   /**
+   * Get invitations sent by the current user
+   */
+  static async getSentInvitations(userId: string): Promise<UserInvitation[]> {
+    try {
+      const invitationsQuery = query(
+        collection(db, this.USER_INVITATIONS_COLLECTION),
+        where('fromUserId', '==', userId),
+        orderBy('createdAt', 'desc')
+      );
+      
+      const snapshot = await getDocs(invitationsQuery);
+      
+      return snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      } as UserInvitation));
+    } catch (error) {
+      console.error('Error fetching sent invitations:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Cancel/delete a pending invitation
+   */
+  static async cancelInvitation(invitationId: string): Promise<void> {
+    try {
+      const invitationRef = doc(db, this.USER_INVITATIONS_COLLECTION, invitationId);
+      const invitationSnap = await getDoc(invitationRef);
+      
+      if (!invitationSnap.exists()) {
+        throw new Error('Invitation not found');
+      }
+      
+      const invitation = invitationSnap.data() as UserInvitation;
+      
+      // Only allow canceling pending invitations
+      if (invitation.status !== 'pending') {
+        throw new Error(`Cannot cancel invitation with status: ${invitation.status}`);
+      }
+      
+      await deleteDoc(invitationRef);
+      console.log(`🗑️ Invitation ${invitationId} cancelled`);
+    } catch (error) {
+      console.error('Error cancelling invitation:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Resend invitation email (updates createdAt and extends expiry)
+   */
+  static async resendInvitation(invitationId: string): Promise<void> {
+    try {
+      const invitationRef = doc(db, this.USER_INVITATIONS_COLLECTION, invitationId);
+      const invitationSnap = await getDoc(invitationRef);
+      
+      if (!invitationSnap.exists()) {
+        throw new Error('Invitation not found');
+      }
+      
+      const invitation = invitationSnap.data() as UserInvitation;
+      
+      // Only allow resending pending invitations
+      if (invitation.status !== 'pending') {
+        throw new Error(`Cannot resend invitation with status: ${invitation.status}`);
+      }
+      
+      // Update timestamp and extend expiry
+      await updateDoc(invitationRef, {
+        createdAt: serverTimestamp(),
+        expiresAt: new Date(Date.now() + (30 * 24 * 60 * 60 * 1000))
+      });
+      
+      console.log(`📧 Invitation ${invitationId} resent`);
+    } catch (error) {
+      console.error('Error resending invitation:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Generate mailto link for invitation
    */
   static generateInvitationMailtoLink(

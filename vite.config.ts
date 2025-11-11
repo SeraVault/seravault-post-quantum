@@ -55,29 +55,34 @@ export default defineConfig({
         ],
       },
       manifest: {
-        name: 'SeraVault',
+        name: 'SeraVault - Post-Quantum Encrypted Storage',
         short_name: 'SeraVault',
-        description: 'Secure file storage and form management',
-        theme_color: '#242424',
-        background_color: '#121212',
+        description: 'Secure file storage with post-quantum encryption. Store documents, forms, and chat securely.',
+        theme_color: '#42a5f5',
+        background_color: '#0a0a0a',
         display: 'standalone',
+        orientation: 'any',
         scope: '/',
         start_url: '/',
+        categories: ['productivity', 'security', 'utilities'],
         icons: [
           {
             src: 'favicon.ico',
             sizes: '48x48',
-            type: 'image/x-icon'
+            type: 'image/x-icon',
+            purpose: 'any'
           },
           {
             src: 'icon-192x192.png',
             sizes: '192x192',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any maskable'
           },
           {
             src: 'icon-512x512.png',
             sizes: '512x512',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any maskable'
           }
         ]
       }

@@ -1,5 +1,11 @@
 // Mobile menu toggle
 document.addEventListener('DOMContentLoaded', () => {
+  // Set copyright year
+  const copyrightYear = document.getElementById('copyrightYear');
+  if (copyrightYear) {
+    copyrightYear.textContent = new Date().getFullYear();
+  }
+
   const mobileMenuBtn = document.getElementById('mobileMenuBtn');
   const navLinks = document.querySelector('.nav-links');
   
@@ -161,5 +167,80 @@ document.addEventListener('DOMContentLoaded', () => {
       }, 5000);
     }
   }
-});
 
+  // PWA Install Prompt
+  let deferredPrompt;
+  const installBanner = document.getElementById('pwaInstallBanner');
+  const installBtn = document.getElementById('pwaInstallBtn');
+  const dismissInstallBtn = document.getElementById('dismissInstallBtn');
+
+  // Listen for the beforeinstallprompt event
+  window.addEventListener('beforeinstallprompt', (e) => {
+    console.log('[PWA] beforeinstallprompt event fired');
+    // Prevent the default mini-infobar from appearing
+    e.preventDefault();
+    // Stash the event so it can be triggered later
+    deferredPrompt = e;
+    // Show the install banner
+    if (installBanner) {
+      installBanner.style.display = 'flex';
+    }
+  });
+
+  // Handle install button click
+  if (installBtn) {
+    installBtn.addEventListener('click', async () => {
+      if (!deferredPrompt) {
+        console.log('[PWA] No deferred prompt available');
+        return;
+      }
+
+      console.log('[PWA] Showing install prompt');
+      // Show the install prompt
+      deferredPrompt.prompt();
+
+      // Wait for the user to respond to the prompt
+      const { outcome } = await deferredPrompt.userChoice;
+      console.log(`[PWA] User response: ${outcome}`);
+
+      if (outcome === 'accepted') {
+        console.log('[PWA] User accepted the install prompt');
+      } else {
+        console.log('[PWA] User dismissed the install prompt');
+      }
+
+      // Clear the deferred prompt
+      deferredPrompt = null;
+      // Hide the install banner
+      if (installBanner) {
+        installBanner.style.display = 'none';
+      }
+    });
+  }
+
+  // Handle dismiss button click
+  if (dismissInstallBtn) {
+    dismissInstallBtn.addEventListener('click', () => {
+      if (installBanner) {
+        installBanner.style.display = 'none';
+      }
+      // Remember dismissal for this session
+      sessionStorage.setItem('pwaInstallDismissed', 'true');
+    });
+  }
+
+  // Check if already dismissed this session
+  if (sessionStorage.getItem('pwaInstallDismissed') === 'true') {
+    if (installBanner) {
+      installBanner.style.display = 'none';
+    }
+  }
+
+  // Listen for successful installation
+  window.addEventListener('appinstalled', (evt) => {
+    console.log('[PWA] App successfully installed');
+    if (installBanner) {
+      installBanner.style.display = 'none';
+    }
+  });
+});

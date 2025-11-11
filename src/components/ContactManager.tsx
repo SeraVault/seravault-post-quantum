@@ -43,7 +43,7 @@ import {
 } from '@mui/icons-material';
 import { useAuth } from '../auth/AuthContext';
 import { usePassphrase } from '../auth/PassphraseContext';
-import { ContactService, type Contact, type ContactRequest, type ContactSettings } from '../services/contactService';
+import { ContactService, type Contact, type ContactRequest, type ContactSettings, type UserInvitation } from '../services/contactService';
 import { type Group as GroupType, getUserGroups } from '../firestore';
 import { hexToBytes } from '../crypto/quantumSafeCrypto';
 import GroupManagement from './GroupManagement';
@@ -76,6 +76,7 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _, initialTab 
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [contactRequests, setContactRequests] = useState<ContactRequest[]>([]);
   const [sentRequests, setSentRequests] = useState<ContactRequest[]>([]);
+  const [sentInvitations, setSentInvitations] = useState<UserInvitation[]>([]);
   const [contactSettings, setContactSettings] = useState<ContactSettings | null>(null);
   const [groups, setGroups] = useState<GroupType[]>([]);
   const [loading, setLoading] = useState(true);
@@ -110,10 +111,11 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _, initialTab 
         // Convert private key string to Uint8Array if available
         const privateKeyBytes = privateKey ? hexToBytes(privateKey) : undefined;
         
-        const [contactsData, requestsData, sentRequestsData, settingsData, groupsData] = await Promise.all([
+        const [contactsData, requestsData, sentRequestsData, sentInvitationsData, settingsData, groupsData] = await Promise.all([
           ContactService.getUserContacts(user.uid),
           ContactService.getPendingContactRequests(user.uid),
           ContactService.getSentContactRequests(user.uid),
+          ContactService.getSentInvitations(user.uid),
           ContactService.getContactSettings(user.uid),
           getUserGroups(user.uid, privateKeyBytes)
         ]);
@@ -121,11 +123,16 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _, initialTab 
         setContacts(contactsData);
         setContactRequests(requestsData);
         setSentRequests(sentRequestsData);
+        setSentInvitations(sentInvitationsData);
         setContactSettings(settingsData);
         setGroups(groupsData);
       } catch (err) {
-        setError('Failed to load contact data');
         console.error('Error loading contact data:', err);
+        // Only show error if it's a real error, not just empty data
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        if (!errorMessage.includes('No such document') && !errorMessage.includes('not found')) {
+          setError('Failed to load contact data. Please try again.');
+        }
       } finally {
         setLoading(false);
       }
@@ -250,6 +257,34 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _, initialTab 
     }
   };
 
+  const handleCancelInvitation = async (invitationId: string) => {
+    if (!user) return;
+    
+    try {
+      await ContactService.cancelInvitation(invitationId);
+      // Refresh invitations list
+      const invitationsData = await ContactService.getSentInvitations(user.uid);
+      setSentInvitations(invitationsData);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to cancel invitation');
+    }
+  };
+
+  const handleResendInvitation = async (invitationId: string) => {
+    if (!user) return;
+    
+    try {
+      await ContactService.resendInvitation(invitationId);
+      // Refresh invitations list to show updated timestamp
+      const invitationsData = await ContactService.getSentInvitations(user.uid);
+      setSentInvitations(invitationsData);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to resend invitation');
+    }
+  };
+
   const getContactDisplayInfo = (contact: Contact, currentUserId: string) => {
     const isUser1 = contact.userId1 === currentUserId;
     return {
@@ -363,6 +398,14 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _, initialTab 
                   <Email />
                 </Badge>
                 Requests ({contactRequests.length})
+              </Box>
+            } 
+          />
+          <Tab 
+            label={
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Schedule />
+                Invitations ({sentInvitations.filter(inv => inv.status === 'pending').length})
               </Box>
             } 
           />
@@ -543,8 +586,99 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _, initialTab 
         )}
       </TabPanel>
 
-      {/* Groups Tab */}
+      {/* Sent Invitations Tab */}
       <TabPanel value={tabValue} index={2}>
+        {sentInvitations.length === 0 ? (
+          <Box sx={{ textAlign: 'center', py: 4 }}>
+            <Schedule sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
+            <Typography variant="h6" color="text.secondary" gutterBottom>
+              No pending invitations
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Invitations you send to non-registered users will appear here
+            </Typography>
+          </Box>
+        ) : (
+          <>
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="body2" color="text.secondary">
+                Invitations expire after 30 days
+              </Typography>
+            </Box>
+            <List>
+              {sentInvitations.map((invitation) => {
+                const isPending = invitation.status === 'pending';
+                const isExpired = invitation.expiresAt && new Date() > new Date((invitation.expiresAt as any).toDate ? (invitation.expiresAt as any).toDate() : invitation.expiresAt);
+                
+                return (
+                  <ListItem key={invitation.id} divider>
+                    <ListItemAvatar>
+                      <Avatar sx={{ bgcolor: isPending ? 'warning.main' : 'grey.500' }}>
+                        {isPending ? <Schedule /> : <Email />}
+                      </Avatar>
+                    </ListItemAvatar>
+                    <ListItemText
+                      primary={invitation.toEmail}
+                      secondary={
+                        <>
+                          <Typography component="span" variant="body2" color="text.primary">
+                            Status: 
+                          </Typography>
+                          {' '}
+                          <Chip
+                            label={isExpired ? 'Expired' : invitation.status}
+                            size="small"
+                            color={
+                              isExpired ? 'error' :
+                              invitation.status === 'pending' ? 'warning' :
+                              invitation.status === 'accepted' ? 'success' :
+                              'default'
+                            }
+                            sx={{ ml: 1 }}
+                          />
+                          <br />
+                          {`Sent: ${formatDate(invitation.createdAt)}`}
+                          {invitation.message && (
+                            <>
+                              <br />
+                              Message: "{invitation.message}"
+                            </>
+                          )}
+                        </>
+                      }
+                    />
+                    {isPending && !isExpired && (
+                      <ListItemSecondaryAction>
+                        <Tooltip title="Resend invitation (extends expiry)">
+                          <IconButton
+                            edge="end"
+                            onClick={() => handleResendInvitation(invitation.id!)}
+                            sx={{ mr: 1 }}
+                          >
+                            <Email />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Cancel invitation">
+                          <IconButton
+                            edge="end"
+                            onClick={() => handleCancelInvitation(invitation.id!)}
+                            color="error"
+                          >
+                            <Close />
+                          </IconButton>
+                        </Tooltip>
+                      </ListItemSecondaryAction>
+                    )}
+                  </ListItem>
+                );
+              })}
+            </List>
+          </>
+        )}
+      </TabPanel>
+
+      {/* Groups Tab */}
+      <TabPanel value={tabValue} index={3}>
         {groups.length === 0 ? (
           <Box sx={{ textAlign: 'center', py: 4 }}>
             <Group sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />

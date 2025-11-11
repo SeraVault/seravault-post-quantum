@@ -17,6 +17,8 @@ import { RecentsProvider } from './context/RecentsContext';
 import { MetadataProvider } from './context/MetadataContext';
 import { UpdatePrompt } from './components/UpdatePrompt';
 import ImportProgressIndicator from './components/ImportProgressIndicator';
+import PWAInstallPrompt from './components/PWAInstallPrompt';
+import PWADebugInfo from './components/PWADebugInfo';
 // Import migration utility to make it available in console
 import './utils/migrateFormTags';
 
@@ -128,6 +130,8 @@ const App: React.FC = () => {
           <MetadataProvider>
             <TermsEnforcement>
               <UpdatePrompt />
+              <PWAInstallPrompt />
+              <PWADebugInfo />
               <GlobalLoadingSpinner />
               <ImportProgressIndicator />
               <Suspense fallback={<PageLoadingFallback />}>

@@ -4,7 +4,6 @@ import { Security, SecurityOutlined, LockOutlined } from '@mui/icons-material';
 import { usePassphrase } from '../auth/PassphraseContext';
 import { useAuth } from '../auth/AuthContext';
 import { secureStorage } from '../utils/secureStorage';
-import BiometricPassphraseDialog from './BiometricPassphraseDialog';
 
 const SecurityStatusIndicator: React.FC = () => {
   const { privateKey, clearPrivateKey, requestUnlock } = usePassphrase();
@@ -117,17 +116,38 @@ const SecurityStatusIndicator: React.FC = () => {
     // Key is locked - show red indicator with unlock button
     return (
       <Tooltip title="🔒 Private key is locked • Click to unlock and access encrypted files">
-        <Box sx={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          gap: 1,
-          backgroundColor: 'rgba(244, 67, 54, 0.15)',
-          padding: '4px 8px',
-          borderRadius: '16px',
-          border: '1px solid rgba(244, 67, 54, 0.3)',
-          cursor: 'pointer',
-        }}
-        onClick={requestUnlock}
+        <Box 
+          sx={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: 1,
+            backgroundColor: 'rgba(244, 67, 54, 0.15)',
+            padding: '4px 8px',
+            borderRadius: '16px',
+            border: '1px solid rgba(244, 67, 54, 0.3)',
+            cursor: 'pointer',
+            '&:hover': {
+              backgroundColor: 'rgba(244, 67, 54, 0.25)',
+              borderColor: 'rgba(244, 67, 54, 0.5)',
+            },
+            '&:active': {
+              backgroundColor: 'rgba(244, 67, 54, 0.35)',
+            },
+          }}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('Unlock widget clicked');
+            requestUnlock();
+          }}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              requestUnlock();
+            }
+          }}
         >
           <LockOutlined sx={{ color: '#f44336', fontSize: '16px' }} />
           <Typography 

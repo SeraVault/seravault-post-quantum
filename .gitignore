@@ -100,6 +100,9 @@ build/
 # IDE - IntelliJ
 .idea/
 
+# Claude AI workspace
+.claude/
+
 # OS generated files
 .DS_Store
 .DS_Store?
@@ -114,3 +117,6 @@ Thumbs.db
 *-debug.log
 .runtimeconfig.json
 firebase-config.sh
+
+# Firebase Service Worker (auto-generated from environment variables)
+public/firebase-messaging-sw.js

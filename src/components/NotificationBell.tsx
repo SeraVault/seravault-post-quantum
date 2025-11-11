@@ -119,6 +119,12 @@ const NotificationBell: React.FC<NotificationBellProps> = ({ className }) => {
         // Navigate to contacts page with requests tab selected
         navigate('/contacts?tab=requests');
       }
+      // Handle user invitation notifications
+      else if (notification.type === 'user_invitation') {
+        console.log(`📩 User invitation notification`);
+        // User is already registered, just show them in contacts
+        navigate('/contacts');
+      }
       // Handle chat message notifications
       else if (notification.type === 'chat_message' && notification.conversationId) {
         console.log(`💬 Opening chat: ${notification.conversationId}`);

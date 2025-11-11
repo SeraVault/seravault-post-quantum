@@ -82,7 +82,7 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
           setHardwareKeysWithStorage(keysWithStorage);
           
           // Default to hardware key tab if available
-          if (keysWithStorage.length > 0) {
+          if (keys.length > 0) {
             // Set active tab to hardware key (adjust index based on biometric availability)
             const hardwareTabIndex = (available && setup) ? 2 : 1;
             setActiveTab(hardwareTabIndex);
@@ -167,14 +167,20 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
   };
 
   const handleHardwareKeyAuth = async () => {
-    if (!user || hardwareKeysWithStorage.length === 0) return;
+    if (!user) return;
 
     try {
       setLoading(true);
       setError(null);
 
-      // Use the first hardware key that has a stored private key
-      const credentialId = hardwareKeysWithStorage[0];
+      // Get all registered hardware keys
+      const keys = await getRegisteredHardwareKeys(user.uid);
+      if (keys.length === 0) {
+        throw new Error('No hardware keys registered. Please set up a hardware key in your Profile.');
+      }
+      
+      // Try to use the first available hardware key
+      const credentialId = keys[0].id;
       
       // This will prompt the user to touch their hardware key
       const privateKey = await retrievePrivateKeyFromHardware(credentialId);
@@ -334,7 +340,7 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
           <Tabs value={activeTab} onChange={(_, value) => setActiveTab(value)} centered>
             <Tab icon={<VpnKey />} label="Passphrase" />
             {(biometricAvailable && hasBiometric) && <Tab icon={<Fingerprint />} label="Biometric" />}
-            {hardwareKeysWithStorage.length > 0 && <Tab icon={<Key />} label="Hardware Key" />}
+            {hasHardwareKeys && <Tab icon={<Key />} label="Hardware Key" />}
             <Tab icon={<Upload />} label="Key File" />
           </Tabs>
         </Box>
@@ -427,7 +433,7 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
         {(() => {
           let hardwareTabIndex = 1;
           if (biometricAvailable && hasBiometric) hardwareTabIndex = 2;
-          return activeTab === hardwareTabIndex && hardwareKeysWithStorage.length > 0;
+          return activeTab === hardwareTabIndex && hasHardwareKeys;
         })() && (
           <Box sx={{ textAlign: 'center', py: 3 }}>
             <Key sx={{ fontSize: 64, color: 'primary.main', mb: 2 }} />

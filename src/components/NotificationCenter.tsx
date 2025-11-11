@@ -204,6 +204,15 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onFileClick }) 
       if (notification.type === 'contact_request' || notification.type === 'contact_accepted') {
         navigate('/contacts?tab=requests');
       }
+      // Handle user invitation notifications
+      else if (notification.type === 'user_invitation') {
+        // User is already registered, just show them they were invited
+        navigate('/contacts');
+      }
+      // Handle chat message notifications
+      else if (notification.type === 'chat_message' && notification.conversationId) {
+        navigate(`/?chat=${notification.conversationId}`);
+      }
       // Navigate to file if callback provided and fileId exists
       else if (onFileClick && notification.fileId) {
         onFileClick(notification.fileId);
@@ -245,6 +254,10 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onFileClick }) 
         return <PersonAdd color="primary" />;
       case 'contact_accepted':
         return <Person color="success" />;
+      case 'user_invitation':
+        return <PersonAdd color="secondary" />;
+      case 'chat_message':
+        return <Notifications color="info" />;
       default:
         return <Notifications />;
     }

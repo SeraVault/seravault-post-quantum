@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node copy-pdf-worker.js && tsc -b && vite build",
-    "build:deploy": "node copy-pdf-worker.js && vite build",
+    "build": "node scripts/generate-sw-config.cjs && node copy-pdf-worker.js && tsc -b && vite build",
+    "build:deploy": "node scripts/generate-sw-config.cjs && node copy-pdf-worker.js && vite build",
     "build:landing": "./build-landing-with-env.sh",
     "postinstall": "node copy-pdf-worker.js",
     "lint": "eslint .",
@@ -68,6 +68,7 @@
     "@types/react-dom": "^19.1.7",
     "@vitejs/plugin-react": "^5.0.0",
     "@vitest/ui": "^3.2.4",
+    "dotenv": "^17.2.3",
     "eslint": "^9.33.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
