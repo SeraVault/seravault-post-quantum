@@ -118,14 +118,14 @@ body {
   gap: var(--spacing-lg);
 }
 
-.nav-links a {
+.nav-links a:not(.btn) {
   text-decoration: none;
   color: var(--text-primary);
   font-weight: 500;
   transition: color 0.2s;
 }
 
-.nav-links a:hover {
+.nav-links a:not(.btn):hover {
   color: var(--primary);
 }
 
@@ -1203,15 +1203,6 @@ body {
   display: flex;
   justify-content: center;
   gap: var(--spacing-md);
-}
-
-.cta-section .btn-primary {
-  background: white;
-  color: var(--primary);
-}
-
-.cta-section .btn-primary:hover {
-  background: rgba(255, 255, 255, 0.9);
 }
 
 .cta-section .btn-outline {

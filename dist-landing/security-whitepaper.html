@@ -269,7 +269,7 @@
       
       <h4>2.1.1 Server Compromise</h4>
       <p>
-        We assume the server infrastructure (Firebase) can be fully compromised. An attacker gaining complete access 
+        We assume the server infrastructure can be fully compromised. An attacker gaining complete access 
         to our servers should not be able to decrypt user files or messages. This is achieved through client-side 
         encryption where encryption keys never reach the server in plaintext form.
       </p>
@@ -342,11 +342,11 @@
         <li>Handles file encryption/decryption, metadata encryption, and secure sharing</li>
       </ul>
 
-      <h4>3.2.2 Firebase Backend</h4>
+      <h4>3.2.2 Cloud Backend</h4>
       <ul>
         <li><strong>Backend Database:</strong> Stores encrypted file metadata, user profiles, sharing permissions</li>
-        <li><strong>Firebase Storage:</strong> Stores encrypted file blobs</li>
-        <li><strong>Firebase Authentication:</strong> Handles user authentication (email/password, not used for encryption keys)</li>
+        <li><strong>Object Storage:</strong> Stores encrypted file blobs</li>
+        <li><strong>Authentication Service:</strong> Handles user authentication (email/password, not used for encryption keys)</li>
         <li><strong>Cloud Functions:</strong> Minimal server-side logic for notifications and cleanup (no access to plaintext data)</li>
       </ul>
 
@@ -360,7 +360,7 @@
           <li>Client encrypts file content with AES-256-GCM using File Key</li>
           <li>Client encrypts file metadata (name, size, type) with user's Shared Secret</li>
           <li>Client encapsulates File Key for user's public key using ML-KEM-768</li>
-          <li>Client uploads encrypted blob to Firebase Storage</li>
+          <li>Client uploads encrypted blob to cloud storage</li>
           <li>Client writes encrypted metadata and encapsulated key to backend database</li>
         </ol>
       </div>
@@ -371,7 +371,7 @@
           <li>Client retrieves encrypted metadata from backend database</li>
           <li>Client decrypts metadata using user's Shared Secret</li>
           <li>Client decapsulates File Key using ML-KEM-768 with user's private key</li>
-          <li>Client downloads encrypted blob from Firebase Storage</li>
+          <li>Client downloads encrypted blob from cloud storage</li>
           <li>Client decrypts file content with AES-256-GCM using File Key</li>
           <li>Client presents plaintext file to user</li>
         </ol>
@@ -760,7 +760,7 @@ Backend.grantAccess(fileId, recipientUserId, recipientCiphertext, recipientEncry
         SeraVault separates account authentication from encryption key access:
       </p>
       <ul>
-        <li><strong>Account Authentication:</strong> Proves you are the account owner (Firebase Auth)</li>
+        <li><strong>Account Authentication:</strong> Proves you are the account owner (authentication service)</li>
         <li><strong>Key Access:</strong> Proves you can access the encryption keys (passphrase, biometric, hardware key)</li>
       </ul>
 
@@ -901,11 +901,11 @@ Backend.addMessage(conversationId, encryptedMessage, messageNonce, timestamp)
         </tr>
         <tr>
           <td>Backend</td>
-          <td>Firebase (Database, Storage, Auth, Functions)</td>
+          <td>Cloud Database, Object Storage, Authentication Service, Serverless Functions</td>
         </tr>
         <tr>
           <td>Authentication</td>
-          <td>WebAuthn, FIDO2, Firebase Auth</td>
+          <td>WebAuthn, FIDO2, OAuth 2.0</td>
         </tr>
       </table>
 
@@ -966,7 +966,7 @@ function secureWipe(array: Uint8Array): void {
       <h3>11.1 Threat Analysis</h3>
 
       <h4>11.1.1 Server Compromise</h4>
-      <p><strong>Threat:</strong> Attacker gains full access to Firebase infrastructure.</p>
+      <p><strong>Threat:</strong> Attacker gains full access to cloud infrastructure.</p>
       <p><strong>Impact:</strong> Low. Attacker obtains encrypted files, encrypted private keys, public keys, encrypted metadata.</p>
       <p><strong>Mitigation:</strong> Without user passphrases or hardware keys, attacker cannot decrypt. Zero-knowledge architecture limits damage to encrypted data collection.</p>
 

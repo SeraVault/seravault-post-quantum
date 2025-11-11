@@ -21,9 +21,6 @@ import {
   Alert,
   CircularProgress,
   Tooltip,
-  Switch,
-  FormControlLabel,
-  FormGroup,
   Divider,
   Badge,
   useTheme,
@@ -35,15 +32,14 @@ import {
   Block,
   Check,
   Close,
-  Settings,
   Email,
   Schedule,
   Group,
-  Security,
+  Edit,
 } from '@mui/icons-material';
 import { useAuth } from '../auth/AuthContext';
 import { usePassphrase } from '../auth/PassphraseContext';
-import { ContactService, type Contact, type ContactRequest, type ContactSettings, type UserInvitation } from '../services/contactService';
+import { ContactService, type Contact, type ContactRequest, type UserInvitation } from '../services/contactService';
 import { type Group as GroupType, getUserGroups } from '../firestore';
 import { hexToBytes } from '../crypto/quantumSafeCrypto';
 import GroupManagement from './GroupManagement';
@@ -77,7 +73,6 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _, initialTab 
   const [contactRequests, setContactRequests] = useState<ContactRequest[]>([]);
   const [sentRequests, setSentRequests] = useState<ContactRequest[]>([]);
   const [sentInvitations, setSentInvitations] = useState<UserInvitation[]>([]);
-  const [contactSettings, setContactSettings] = useState<ContactSettings | null>(null);
   const [groups, setGroups] = useState<GroupType[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -87,9 +82,6 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _, initialTab 
   const [newContactEmail, setNewContactEmail] = useState('');
   const [newContactMessage, setNewContactMessage] = useState('');
   const [addingContact, setAddingContact] = useState(false);
-  
-  // Settings dialog
-  const [settingsOpen, setSettingsOpen] = useState(false);
   
   // Group management dialog
   const [groupManagementOpen, setGroupManagementOpen] = useState(false);
@@ -111,20 +103,26 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _, initialTab 
         // Convert private key string to Uint8Array if available
         const privateKeyBytes = privateKey ? hexToBytes(privateKey) : undefined;
         
-        const [contactsData, requestsData, sentRequestsData, sentInvitationsData, settingsData, groupsData] = await Promise.all([
+        // Load groups separately since it might fail if no private key
+        let groupsData: GroupType[] = [];
+        try {
+          groupsData = await getUserGroups(user.uid, privateKeyBytes);
+        } catch (groupError) {
+          console.warn('Failed to load groups:', groupError);
+          // Don't fail the entire load if groups fail
+        }
+        
+        const [contactsData, requestsData, sentRequestsData, sentInvitationsData] = await Promise.all([
           ContactService.getUserContacts(user.uid),
           ContactService.getPendingContactRequests(user.uid),
           ContactService.getSentContactRequests(user.uid),
-          ContactService.getSentInvitations(user.uid),
-          ContactService.getContactSettings(user.uid),
-          getUserGroups(user.uid, privateKeyBytes)
+          ContactService.getSentInvitations(user.uid)
         ]);
 
         setContacts(contactsData);
         setContactRequests(requestsData);
         setSentRequests(sentRequestsData);
         setSentInvitations(sentInvitationsData);
-        setContactSettings(settingsData);
         setGroups(groupsData);
       } catch (err) {
         console.error('Error loading contact data:', err);
@@ -245,18 +243,6 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _, initialTab 
   };
 
 
-  const handleUpdateSettings = async (updates: Partial<ContactSettings>) => {
-    if (!user || !contactSettings) return;
-    
-    try {
-      await ContactService.updateContactSettings(user.uid, updates);
-      setContactSettings({ ...contactSettings, ...updates });
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update settings');
-    }
-  };
-
   const handleCancelInvitation = async (invitationId: string) => {
     if (!user) return;
     
@@ -369,9 +355,6 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _, initialTab 
                 Add Contact
               </Button>
             )}
-            <IconButton onClick={() => setSettingsOpen(true)}>
-              <Settings />
-            </IconButton>
           </Box>
         </Box>
 
@@ -770,7 +753,7 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _, initialTab 
                         edge="end" 
                         onClick={() => setGroupManagementOpen(true)}
                       >
-                        <Settings />
+                        <Edit />
                       </IconButton>
                     </Tooltip>
                   </ListItemSecondaryAction>
@@ -819,78 +802,6 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _, initialTab 
             startIcon={addingContact ? <CircularProgress size={16} /> : <PersonAdd />}
           >
             {addingContact ? 'Sending...' : 'Send Request'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Settings Dialog */}
-      <Dialog open={settingsOpen} onClose={() => setSettingsOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Contact Settings</DialogTitle>
-        <DialogContent>
-          {contactSettings && (
-            <FormGroup>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={contactSettings.allowFileShareFromUnknown}
-                    onChange={(e) => handleUpdateSettings({ allowFileShareFromUnknown: e.target.checked })}
-                  />
-                }
-                label="Allow file sharing from unknown users (with approval prompt)"
-              />
-              
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={contactSettings.blockUnknownUsers}
-                    onChange={(e) => handleUpdateSettings({ blockUnknownUsers: e.target.checked })}
-                  />
-                }
-                label="Block all interactions from unknown users"
-              />
-              
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={contactSettings.notifyOnContactRequest}
-                    onChange={(e) => handleUpdateSettings({ notifyOnContactRequest: e.target.checked })}
-                  />
-                }
-                label="Notify me about new contact requests"
-              />
-              
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={contactSettings.notifyOnFileShareFromUnknown}
-                    onChange={(e) => handleUpdateSettings({ notifyOnFileShareFromUnknown: e.target.checked })}
-                  />
-                }
-                label="Notify me when unknown users try to share files"
-              />
-              
-              <Divider sx={{ my: 2 }} />
-              
-              <Typography variant="subtitle2" gutterBottom>
-                <Security sx={{ fontSize: 16, mr: 1 }} />
-                Auto-Accept Settings
-              </Typography>
-              
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={contactSettings.autoAcceptFromContacts}
-                    onChange={(e) => handleUpdateSettings({ autoAcceptFromContacts: e.target.checked })}
-                  />
-                }
-                label="Auto-accept requests from friends of friends"
-              />
-            </FormGroup>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setSettingsOpen(false)}>
-            Close
           </Button>
         </DialogActions>
       </Dialog>
