@@ -921,7 +921,7 @@ const FileTable: React.FC<FileTableProps> = ({
                   <Box sx={{ display: 'flex', alignItems: 'center' }}>
                     <Icon sx={{ mr: 1 }} />
                     <Typography variant="body1" sx={{ flexGrow: 1 }}>
-                      {isForm ? fileName.replace(/\.\w+\.form$/, '') : fileName}
+                      {isForm ? fileName.replace(/\.form$/, '') : fileName}
                     </Typography>
                     {onToggleFavorite && (
                       <IconButton
