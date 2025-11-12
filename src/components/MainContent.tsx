@@ -1102,7 +1102,24 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
         console.log(`📁 Setting files state: ${sortedFiles.length} total (${chatCount} chats)`);
         
         setFiles(sortedFiles);
-        setFilteredFiles(sortedFiles);
+        
+        // Apply search filter immediately to prevent visual flash
+        let displayFiles = sortedFiles;
+        if (searchQuery.trim()) {
+          const searchTerm = searchQuery.toLowerCase();
+          displayFiles = sortedFiles.filter(file => {
+            const fileName = typeof file.name === 'string' ? file.name.toLowerCase() : '';
+            if (fileName.includes(searchTerm)) return true;
+            
+            const cached = metadataCache.get(file.id!);
+            if (cached && 'tags' in cached && cached.tags) {
+              return cached.tags.some((tag: string) => tag.toLowerCase().includes(searchTerm));
+            }
+            return false;
+          });
+        }
+        
+        setFilteredFiles(displayFiles);
         setIsDataLoading(false);
       } catch (error) {
         console.error('Error processing files:', error);
