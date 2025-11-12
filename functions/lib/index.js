@@ -1352,7 +1352,9 @@ exports.getUserStorageUsage = (0, https_1.onCall)({
         const userId = request.auth.uid;
         const userRef = db.collection('users').doc(userId);
         const userDoc = await userRef.get();
-        const storageUsed = ((_a = userDoc.data()) === null || _a === void 0 ? void 0 : _a.storageUsed) || 0;
+        // Ensure storageUsed is a valid number, default to 0
+        const storageUsedRaw = (_a = userDoc.data()) === null || _a === void 0 ? void 0 : _a.storageUsed;
+        const storageUsed = typeof storageUsedRaw === 'number' && !isNaN(storageUsedRaw) ? storageUsedRaw : 0;
         const storageUpdatedAt = (_b = userDoc.data()) === null || _b === void 0 ? void 0 : _b.storageUpdatedAt;
         // Count files for verification
         const filesSnapshot = await db

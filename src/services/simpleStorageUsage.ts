@@ -15,7 +15,15 @@ const DEFAULT_STORAGE_LIMIT_BYTES = DEFAULT_STORAGE_LIMIT_GB * 1024 * 1024 * 102
 /**
  * Format bytes to human readable format
  */
+/**
+ * Format bytes to human readable format
+ */
 function formatBytes(bytes: number): string {
+  // Ensure we have a valid number
+  if (typeof bytes !== 'number' || isNaN(bytes) || bytes < 0) {
+    return '0 B';
+  }
+  
   if (bytes === 0) return '0 B';
   
   const k = 1024;
@@ -27,19 +35,21 @@ function formatBytes(bytes: number): string {
 
 /**
  * Calculate storage usage for a user by calling the Cloud Function
- * Uses the user's profile storageUsed field which is maintained by Firestore triggers
- * Much faster than client-side calculation
+ * Uses the calculateStorageUsage function which actually calculates from storage files
  */
 export async function calculateStorageUsage(userId: string): Promise<StorageUsage> {
   try {
     const functions = getFunctions();
-    const getUserStorageUsageFn = httpsCallable<void, { usedBytes: number; fileCount: number; lastUpdated?: any }>(
+    const calculateStorageUsageFn = httpsCallable<void, { usedBytes: number; fileCount: number }>(
       functions,
-      'getUserStorageUsage'
+      'calculateStorageUsage'
     );
     
-    const result = await getUserStorageUsageFn();
-    const totalUsedBytes = result.data.usedBytes;
+    const result = await calculateStorageUsageFn();
+    // Ensure we have a valid number, default to 0 if undefined/null/NaN
+    const totalUsedBytes = typeof result.data.usedBytes === 'number' && !isNaN(result.data.usedBytes) 
+      ? result.data.usedBytes 
+      : 0;
     
     const percentage = Math.round((totalUsedBytes / DEFAULT_STORAGE_LIMIT_BYTES) * 100);
     
@@ -50,6 +60,8 @@ export async function calculateStorageUsage(userId: string): Promise<StorageUsag
       totalFormatted: formatBytes(DEFAULT_STORAGE_LIMIT_BYTES),
       percentage: Math.min(percentage, 100), // Cap at 100%
     };
+    
+    console.log('📊 Storage usage calculated:', usage);
     
     return usage;
     

@@ -1527,7 +1527,9 @@ export const getUserStorageUsage = onCall(
       const userRef = db.collection('users').doc(userId);
       const userDoc = await userRef.get();
 
-      const storageUsed = userDoc.data()?.storageUsed || 0;
+      // Ensure storageUsed is a valid number, default to 0
+      const storageUsedRaw = userDoc.data()?.storageUsed;
+      const storageUsed = typeof storageUsedRaw === 'number' && !isNaN(storageUsedRaw) ? storageUsedRaw : 0;
       const storageUpdatedAt = userDoc.data()?.storageUpdatedAt;
 
       // Count files for verification
