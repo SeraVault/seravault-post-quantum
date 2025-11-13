@@ -239,7 +239,7 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
       }
       
       // This will prompt the user to touch their hardware key
-      const privateKey = await retrievePrivateKeyFromHardware(credentialId);
+      const privateKey = await retrievePrivateKeyFromHardware(credentialId, user.uid);
       console.log('[Hardware Key Auth] Successfully retrieved private key');
 
       // Submit the decrypted private key
