@@ -44,6 +44,7 @@ import { metadataCache, getOrDecryptMetadata } from '../services/metadataCache';
 import FileUploadArea from './FileUploadArea';
 import SearchBar from './SearchBar';
 import FileTable from './FileTable';
+import { EmptyState } from './EmptyState';
 
 // Existing dialogs
 import NewFolderDialog from './NewFolderDialog';
@@ -2207,26 +2208,42 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
           </Box>
         )}
 
-        {/* File Table - shared between folder, recents, favorites, and shared view */}
-        <FileTable
-          folders={isRecentsView || isFavoritesView || isSharedView || (selectedTags && selectedTags.length > 0) ? [] : filteredFolders}
-          files={filteredFiles}
-          onFolderClick={setCurrentFolder}
-          onFileClick={handleFormFileClick}
-          onContextMenu={handleRightClick}
-          onLongPressStart={handleLongPressStart}
-          onLongPressEnd={handleLongPressEnd}
-          onOpenMobileActionMenu={handleOpenMobileActionMenu}
-          onToggleFavorite={handleToggleFavorite}
-          userId={user?.uid}
-          currentUserId={user?.uid}
-          selectedFolders={selectedFolders}
-          clipboardItem={clipboardItem}
-          selectedFiles={selectedFiles}
-          onToggleFolderSelection={toggleFolderSelection}
-          onToggleFileSelection={toggleFileSelection}
-          onMoveItem={handleMoveItem}
-        />
+        {/* Empty State or File Table */}
+        {filteredFiles.length === 0 && filteredFolders.length === 0 ? (
+          <EmptyState
+            view={isRecentsView ? 'recents' : isFavoritesView ? 'favorites' : isSharedView ? 'shared' : 'home'}
+            onUploadClick={() => {
+              // Trigger file upload
+              const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+              if (fileInput) fileInput.click();
+            }}
+            onNewFolderClick={() => setNewFolderDialogOpen(true)}
+            onNewFormClick={() => {
+              // Open form builder dialog
+              setFormEditorOpen(true);
+            }}
+          />
+        ) : (
+          <FileTable
+            folders={isRecentsView || isFavoritesView || isSharedView || (selectedTags && selectedTags.length > 0) ? [] : filteredFolders}
+            files={filteredFiles}
+            onFolderClick={setCurrentFolder}
+            onFileClick={handleFormFileClick}
+            onContextMenu={handleRightClick}
+            onLongPressStart={handleLongPressStart}
+            onLongPressEnd={handleLongPressEnd}
+            onOpenMobileActionMenu={handleOpenMobileActionMenu}
+            onToggleFavorite={handleToggleFavorite}
+            userId={user?.uid}
+            currentUserId={user?.uid}
+            selectedFolders={selectedFolders}
+            clipboardItem={clipboardItem}
+            selectedFiles={selectedFiles}
+            onToggleFolderSelection={toggleFolderSelection}
+            onToggleFileSelection={toggleFileSelection}
+            onMoveItem={handleMoveItem}
+          />
+        )}
 
         {/* Dialogs */}
         <NewFolderDialog
