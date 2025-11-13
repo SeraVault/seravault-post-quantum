@@ -145,8 +145,8 @@ const KeyGenerationForm: React.FC<KeyGenerationFormProps> = ({
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
                   Maximum paranoid mode: Your private key will be encrypted and stored in your browser, 
-                  decryptable only by your physical hardware key. It will NEVER be sent to our servers, 
-                  even in encrypted form.
+                  decryptable only by your physical hardware key. Without a backup passphrase, it will NEVER 
+                  be sent to our servers. With a backup passphrase, only the passphrase-encrypted version is stored.
                 </Typography>
               </Box>
             }
@@ -155,11 +155,10 @@ const KeyGenerationForm: React.FC<KeyGenerationFormProps> = ({
           {useHardwareStorage && (
             <Alert severity="warning" sx={{ mt: 2 }}>
               <Typography variant="body2">
-                <strong>Important:</strong> You'll need your hardware key every time you access your files
-                {passphrase && passphrase.length >= 12 ? ' (or your backup passphrase)' : ''}. 
-                We recommend {passphrase && passphrase.length >= 12 ? 'also ' : ''}registering at least 2 hardware keys 
-                {passphrase && passphrase.length >= 12 ? ' in addition to your passphrase backup' : ' or setting a backup passphrase'} 
-                to avoid losing access to your data.
+                <strong>Critical Warning:</strong> Hardware keys cannot be copied or cloned. 
+                {passphrase && passphrase.length >= 12 
+                  ? 'If you lose all your hardware keys AND forget your backup passphrase, you will permanently lose access to your files. We strongly recommend registering at least one additional backup hardware key in Profile → Security.'
+                  : 'Without a backup passphrase, losing your only hardware key means permanent data loss. We strongly recommend registering additional backup hardware keys immediately after signup (Profile → Security → Hardware Keys) while you still have access to this hardware key.'}
               </Typography>
             </Alert>
           )}
