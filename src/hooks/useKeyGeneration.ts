@@ -117,10 +117,10 @@ export const useKeyGeneration = (): UseKeyGenerationReturn => {
         
         try {
           // Register the hardware key
-          const credential = await registerHardwareKey(user.uid, 'Primary Security Key');
+          const { keyData: credential, signature } = await registerHardwareKey(user.uid, user.email || '', 'Primary Security Key');
           
-          // Store the private key in the hardware key
-          await storePrivateKeyInHardware(credential.id, privateKey);
+          // Store the private key in the hardware key (pass signature to avoid double-prompt)
+          await storePrivateKeyInHardware(credential.id, privateKey, user.uid, signature);
           
           console.log('✅ Private key stored in hardware key');
           

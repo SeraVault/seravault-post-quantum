@@ -126,12 +126,13 @@ const HardwareKeySetup: React.FC<HardwareKeySetupProps> = ({ onEncryptedKeyChang
 
     try {
       const nickname = newKeyNickname.trim() || undefined;
-      const newKey = await registerHardwareKey(user.uid, user.email || '', nickname, authenticatorType);
+      const { keyData: newKey, signature } = await registerHardwareKey(user.uid, user.email || '', nickname, authenticatorType);
       
       // Always store private key in hardware if available
       if (privateKey) {
         try {
-          await storePrivateKeyInHardware(newKey.id, privateKey);
+          // Pass the signature to avoid double-prompting
+          await storePrivateKeyInHardware(newKey.id, privateKey, user.uid, signature);
           newKey.storesPrivateKey = true;
           const authTypeLabel = authenticatorType === 'cross-platform' ? 'Hardware key' : 'Passkey';
           

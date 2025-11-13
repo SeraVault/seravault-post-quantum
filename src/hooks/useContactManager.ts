@@ -54,15 +54,26 @@ export const useContactManager = (): UseContactManagerReturn => {
 
     refreshContacts();
 
+    // Subscribe to real-time contacts
+    const unsubscribeContacts = ContactService.subscribeToContacts(
+      user.uid,
+      (contactsData) => {
+        setContacts(contactsData);
+      }
+    );
+
     // Subscribe to real-time contact requests
-    const unsubscribe = ContactService.subscribeToContactRequests(
+    const unsubscribeRequests = ContactService.subscribeToContactRequests(
       user.uid,
       (requests) => {
         setContactRequests(requests);
       }
     );
 
-    return unsubscribe;
+    return () => {
+      unsubscribeContacts();
+      unsubscribeRequests();
+    };
   }, [user]);
 
   const sendContactRequest = async (email: string, message?: string) => {
@@ -83,7 +94,7 @@ export const useContactManager = (): UseContactManagerReturn => {
     
     try {
       await ContactService.acceptContactRequest(requestId, user.uid);
-      await refreshContacts(); // Refresh to show new contact
+      // No need to refresh - real-time listener will update contacts automatically
       setError(null);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to accept request';

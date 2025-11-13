@@ -175,6 +175,71 @@ export class ContactService {
   }
 
   /**
+   * Subscribe to real-time contact updates
+   * Returns unsubscribe function
+   */
+  static subscribeToContacts(
+    userId: string,
+    callback: (contacts: Contact[]) => void
+  ): () => void {
+    // Query where user is userId1
+    const q1 = query(
+      collection(db, this.CONTACTS_COLLECTION),
+      where('userId1', '==', userId),
+      where('status', '==', 'accepted')
+    );
+    
+    // Query where user is userId2
+    const q2 = query(
+      collection(db, this.CONTACTS_COLLECTION),
+      where('userId2', '==', userId),
+      where('status', '==', 'accepted')
+    );
+
+    const contacts = new Map<string, Contact>();
+    let unsubscribed = false;
+    let unsubscribe1: (() => void) | null = null;
+    let unsubscribe2: (() => void) | null = null;
+
+    const updateCallback = () => {
+      if (!unsubscribed) {
+        callback(Array.from(contacts.values()));
+      }
+    };
+
+    // Subscribe to first query
+    unsubscribe1 = onSnapshot(q1, (snapshot) => {
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === 'added' || change.type === 'modified') {
+          contacts.set(change.doc.id, { id: change.doc.id, ...change.doc.data() } as Contact);
+        } else if (change.type === 'removed') {
+          contacts.delete(change.doc.id);
+        }
+      });
+      updateCallback();
+    });
+
+    // Subscribe to second query
+    unsubscribe2 = onSnapshot(q2, (snapshot) => {
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === 'added' || change.type === 'modified') {
+          contacts.set(change.doc.id, { id: change.doc.id, ...change.doc.data() } as Contact);
+        } else if (change.type === 'removed') {
+          contacts.delete(change.doc.id);
+        }
+      });
+      updateCallback();
+    });
+
+    // Return combined unsubscribe function
+    return () => {
+      unsubscribed = true;
+      if (unsubscribe1) unsubscribe1();
+      if (unsubscribe2) unsubscribe2();
+    };
+  }
+
+  /**
    * Send contact request
    */
   static async sendContactRequest(

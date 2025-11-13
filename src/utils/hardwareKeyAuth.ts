@@ -121,7 +121,7 @@ export async function registerHardwareKey(
   userEmail: string,
   nickname?: string,
   authenticatorType: 'cross-platform' | 'platform' = 'cross-platform'
-): Promise<HardwareKeyCredential> {
+): Promise<{ keyData: HardwareKeyCredential; signature?: Uint8Array }> {
   if (!await isHardwareKeySupported()) {
     throw new Error('Hardware security keys are not supported on this browser');
   }
@@ -199,7 +199,36 @@ export async function registerHardwareKey(
     // Store in Firestore
     await saveHardwareKey(userId, keyData);
 
-    return keyData;
+    // Immediately authenticate to get a signature (while user still has key ready)
+    // This signature can be reused for encryption to avoid double-prompting
+    let signature: Uint8Array | undefined;
+    try {
+      console.log('[HW Key] Getting signature for encryption (requires one more touch)...');
+      const authChallenge = crypto.getRandomValues(new Uint8Array(32));
+      const assertion = await navigator.credentials.get({
+        publicKey: {
+          challenge: authChallenge,
+          rpId,
+          allowCredentials: [{
+            type: 'public-key',
+            id: credential.rawId,
+          }],
+          userVerification: 'required',
+          timeout: 60000,
+        },
+      }) as PublicKeyCredential;
+      
+      if (assertion && assertion.response) {
+        const assertionResponse = assertion.response as AuthenticatorAssertionResponse;
+        signature = new Uint8Array(assertionResponse.signature);
+        console.log('[HW Key] Got signature for encryption');
+      }
+    } catch (sigError) {
+      console.warn('[HW Key] Failed to get signature, will prompt again during encryption:', sigError);
+      // Not critical - encryption will just prompt again
+    }
+
+    return { keyData, signature };
   } catch (error) {
     if (error instanceof Error) {
       if (error.name === 'NotAllowedError') {
@@ -384,6 +413,15 @@ export async function removeHardwareKey(userId: string, credentialId: string): P
     keys: updatedKeys,
     updatedAt: new Date(),
   });
+  
+  // Also remove the stored private key from IndexedDB
+  try {
+    await removeStoredPrivateKey(credentialId);
+    console.log('[HW Key] Removed stored private key from IndexedDB for credential:', credentialId.substring(0, 20) + '...');
+  } catch (error) {
+    console.warn('[HW Key] Failed to remove stored private key (may not exist):', error);
+    // Don't throw - the Firestore removal was successful
+  }
 }
 
 /**
@@ -505,10 +543,17 @@ export function getAuthenticatorName(aaguid?: string): string {
  * 
  * The private key is encrypted by the hardware key and stored locally.
  * It can only be retrieved by touching the same physical key.
+ * 
+ * @param credentialId - The credential ID
+ * @param privateKeyHex - The private key in hex format
+ * @param userId - The user ID
+ * @param precomputedSignature - Optional pre-computed signature to avoid double-prompt
  */
 export async function storePrivateKeyInHardware(
   credentialId: string,
-  privateKeyHex: string
+  privateKeyHex: string,
+  userId: string,
+  precomputedSignature?: Uint8Array
 ): Promise<void> {
   if (!await isHardwareKeySupported()) {
     throw new Error('Hardware security keys are not supported');
@@ -519,10 +564,16 @@ export async function storePrivateKeyInHardware(
     const privateKeyBytes = hexToBytes(privateKeyHex);
     
     // Store in browser's local storage, encrypted with the hardware key's credential
-    // Note: In a production environment, this could use the Large Blob extension
-    // For now, we'll use IndexedDB with the credential ID as the key
-    const encrypted = await encryptWithHardwareKey(credentialId, privateKeyBytes);
+    // REQUIRES physical hardware key to be present for encryption
+    const encrypted = await encryptWithHardwareKey(
+      credentialId, 
+      privateKeyBytes, 
+      userId,
+      precomputedSignature
+    );
     await storeInIndexedDB(`hw_key_${credentialId}`, encrypted);
+    
+    console.log('[HW Key] Private key securely stored with hardware key protection');
     
   } catch (error) {
     console.error('Failed to store private key in hardware:', error);
@@ -565,7 +616,27 @@ export async function retrievePrivateKeyFromHardware(
     if (error instanceof Error && error.message.includes('No private key stored')) {
       throw error; // Re-throw with specific message
     }
-    throw new Error('Failed to decrypt private key. The stored credential may be corrupted.');
+    
+    // Check if this is likely an old format that needs migration
+    if (error instanceof Error && (
+      error.message.includes('Failed to execute') ||
+      error.message.includes('offset') ||
+      error.name === 'OperationError'
+    )) {
+      console.error('[HW Key] Detected incompatible data format - likely old encryption format');
+      
+      // Clean up the old data
+      try {
+        await removeFromIndexedDB(`hw_key_${credentialId}`);
+        console.log('[HW Key] Removed old format data');
+      } catch (cleanupError) {
+        console.error('[HW Key] Failed to cleanup:', cleanupError);
+      }
+      
+      throw new Error('Your hardware key data uses an old format. Please remove this hardware key from Settings and register it again with the new secure format.');
+    }
+    
+    throw new Error('Failed to decrypt private key. The stored credential may be corrupted or uses an incompatible format. Try removing and re-registering your hardware key.');
   }
 }
 
@@ -595,11 +666,15 @@ export async function removeStoredPrivateKey(credentialId: string): Promise<void
 
 /**
  * Encrypt data using the hardware key's credential
- * This creates a challenge that requires the hardware key to decrypt
+ * This encrypts with a random key that will be protected by requiring the physical key
+ * 
+ * @param precomputedSignature - Optional pre-computed signature to avoid prompting user again
  */
 async function encryptWithHardwareKey(
   credentialId: string,
-  data: Uint8Array
+  data: Uint8Array,
+  userId: string,
+  precomputedSignature?: Uint8Array
 ): Promise<string> {
   // Generate a random encryption key
   const encryptionKey = crypto.getRandomValues(new Uint8Array(32));
@@ -610,7 +685,7 @@ async function encryptWithHardwareKey(
     'raw',
     encryptionKey,
     { name: 'AES-GCM' },
-    true, // Must be extractable for wrapKey to work
+    false,
     ['encrypt']
   );
   
@@ -620,12 +695,49 @@ async function encryptWithHardwareKey(
     data
   );
   
-  // Now encrypt the encryption key using a derivation from the hardware key
-  // We'll use the credential ID as a salt for key derivation
-  const credBytes = base64ToArrayBuffer(credentialId);
-  const derivedKey = await crypto.subtle.importKey(
+  let signature: Uint8Array;
+  
+  if (precomputedSignature) {
+    // Use the provided signature (from recent registration/authentication)
+    console.log('[HW Key] Using precomputed signature for encryption (no additional prompt)');
+    signature = precomputedSignature;
+  } else {
+    // CRITICAL SECURITY: Require the physical hardware key to authenticate
+    // This ensures the encryption key can only be retrieved with the physical key present
+    const rpId = getRelyingPartyId();
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+    
+    console.log('[HW Key] Requesting hardware key authentication for encryption...');
+    
+    // Request authentication with the specific hardware key
+    const assertion = await navigator.credentials.get({
+      publicKey: {
+        challenge,
+        rpId,
+        allowCredentials: [{
+          type: 'public-key',
+          id: base64ToArrayBuffer(credentialId),
+        }],
+        userVerification: 'required',
+        timeout: 60000,
+      },
+    }) as PublicKeyCredential;
+
+    if (!assertion) {
+      throw new Error('Hardware key authentication required to store private key');
+    }
+
+    const assertionResponse = assertion.response as AuthenticatorAssertionResponse;
+    
+    // Use the authenticator signature as a key derivation input
+    // This signature can ONLY be generated by the physical hardware key
+    signature = new Uint8Array(assertionResponse.signature);
+  }
+  
+  // Derive a wrapping key from the hardware key's signature
+  const importedKey = await crypto.subtle.importKey(
     'raw',
-    new Uint8Array(credBytes),
+    signature.slice(0, 32), // Use first 32 bytes of signature
     { name: 'PBKDF2' },
     false,
     ['deriveKey']
@@ -634,31 +746,42 @@ async function encryptWithHardwareKey(
   const wrapKey = await crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt: new TextEncoder().encode('SeraVault-HW-Key'),
+      salt: new TextEncoder().encode('SeraVault-HW-Key-V2'),
       iterations: 100000,
       hash: 'SHA-256'
     },
-    derivedKey,
+    importedKey,
     { name: 'AES-GCM', length: 256 },
     false,
     ['wrapKey']
   );
   
+  // Re-import the encryption key as extractable for wrapping
+  const extractableKey = await crypto.subtle.importKey(
+    'raw',
+    encryptionKey,
+    { name: 'AES-GCM' },
+    true,
+    ['encrypt']
+  );
+  
+  const wrapIv = crypto.getRandomValues(new Uint8Array(12));
   const wrappedKey = await crypto.subtle.wrapKey(
     'raw',
-    cryptoKey,
+    extractableKey,
     wrapKey,
-    { name: 'AES-GCM', iv: new Uint8Array(12) }
+    { name: 'AES-GCM', iv: wrapIv }
   );
   
   // Combine everything and return as base64
-  // Format: [12-byte IV][4-byte wrapped key length][wrapped key][encrypted data]
+  // Format: [12-byte data IV][12-byte wrap IV][4-byte wrapped key length][wrapped key][encrypted data]
   const wrappedKeyArray = new Uint8Array(wrappedKey);
   const wrappedKeyLength = new Uint8Array(4);
   new DataView(wrappedKeyLength.buffer).setUint32(0, wrappedKeyArray.length, false);
   
   const combined = new Uint8Array(
     iv.length + 
+    wrapIv.length +
     wrappedKeyLength.length + 
     wrappedKeyArray.length + 
     encryptedData.byteLength
@@ -666,6 +789,8 @@ async function encryptWithHardwareKey(
   let offset = 0;
   combined.set(iv, offset);
   offset += iv.length;
+  combined.set(wrapIv, offset);
+  offset += wrapIv.length;
   combined.set(wrappedKeyLength, offset);
   offset += wrappedKeyLength.length;
   combined.set(wrappedKeyArray, offset);
@@ -677,6 +802,7 @@ async function encryptWithHardwareKey(
 
 /**
  * Decrypt data using the hardware key's credential
+ * REQUIRES the physical hardware key to be present and user verification
  */
 async function decryptWithHardwareKey(
   credentialId: string,
@@ -685,12 +811,15 @@ async function decryptWithHardwareKey(
   const combined = new Uint8Array(base64ToArrayBuffer(encryptedData));
   
   // Extract components
-  // Format: [12-byte IV][4-byte wrapped key length][wrapped key][encrypted data]
+  // Format: [12-byte data IV][12-byte wrap IV][4-byte wrapped key length][wrapped key][encrypted data]
   let offset = 0;
   const iv = combined.slice(offset, offset + 12);
   offset += 12;
   
-  const wrappedKeyLength = new DataView(combined.buffer, offset, 4).getUint32(0, false);
+  const wrapIv = combined.slice(offset, offset + 12);
+  offset += 12;
+  
+  const wrappedKeyLength = new DataView(combined.buffer, combined.byteOffset + offset, 4).getUint32(0, false);
   offset += 4;
   
   const wrappedKey = combined.slice(offset, offset + wrappedKeyLength);
@@ -698,11 +827,43 @@ async function decryptWithHardwareKey(
   
   const encrypted = combined.slice(offset);
   
-  // Derive unwrap key from credential ID
-  const credBytes = base64ToArrayBuffer(credentialId);
-  const derivedKey = await crypto.subtle.importKey(
+  // CRITICAL SECURITY: Require the physical hardware key to authenticate
+  // This ensures decryption can ONLY happen with the physical key present
+  const rpId = getRelyingPartyId();
+  const challenge = crypto.getRandomValues(new Uint8Array(32));
+  
+  console.log('[HW Key] Requesting hardware key authentication for decryption...');
+  
+  // Request authentication with the specific hardware key
+  const assertion = await navigator.credentials.get({
+    publicKey: {
+      challenge,
+      rpId,
+      allowCredentials: [{
+        type: 'public-key',
+        id: base64ToArrayBuffer(credentialId),
+      }],
+      userVerification: 'required',
+      timeout: 60000,
+    },
+  }) as PublicKeyCredential;
+
+  if (!assertion) {
+    throw new Error('Hardware key authentication required to decrypt private key');
+  }
+
+  console.log('[HW Key] Hardware key authentication successful');
+
+  const assertionResponse = assertion.response as AuthenticatorAssertionResponse;
+  
+  // Use the authenticator signature to derive the unwrap key
+  // This signature can ONLY be generated by the physical hardware key
+  const signature = new Uint8Array(assertionResponse.signature);
+  
+  // Derive unwrap key from the hardware key's signature
+  const importedKey = await crypto.subtle.importKey(
     'raw',
-    new Uint8Array(credBytes),
+    signature.slice(0, 32), // Use first 32 bytes of signature
     { name: 'PBKDF2' },
     false,
     ['deriveKey']
@@ -711,22 +872,22 @@ async function decryptWithHardwareKey(
   const unwrapKey = await crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt: new TextEncoder().encode('SeraVault-HW-Key'),
+      salt: new TextEncoder().encode('SeraVault-HW-Key-V2'),
       iterations: 100000,
       hash: 'SHA-256'
     },
-    derivedKey,
+    importedKey,
     { name: 'AES-GCM', length: 256 },
     false,
     ['unwrapKey']
   );
   
-  // Unwrap the encryption key
+  // Unwrap the encryption key using the wrapIv extracted earlier
   const cryptoKey = await crypto.subtle.unwrapKey(
     'raw',
     wrappedKey,
     unwrapKey,
-    { name: 'AES-GCM', iv: new Uint8Array(12) },
+    { name: 'AES-GCM', iv: wrapIv },
     { name: 'AES-GCM' },
     false,
     ['decrypt']
@@ -864,6 +1025,79 @@ async function removeFromIndexedDB(key: string): Promise<void> {
       deleteRequest.onerror = () => {
         db.close();
         reject(deleteRequest.error);
+      };
+    };
+  });
+}
+
+/**
+ * DEBUG UTILITY: List all keys in IndexedDB
+ * This is useful for debugging orphaned entries
+ */
+export async function listIndexedDBKeys(): Promise<string[]> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('SeraVaultHardwareKeys', 1);
+    
+    request.onerror = () => reject(request.error);
+    
+    request.onsuccess = () => {
+      const db = request.result;
+      
+      if (!db.objectStoreNames.contains('keys')) {
+        db.close();
+        resolve([]);
+        return;
+      }
+      
+      const transaction = db.transaction(['keys'], 'readonly');
+      const store = transaction.objectStore('keys');
+      const getAllKeysRequest = store.getAllKeys();
+      
+      getAllKeysRequest.onsuccess = () => {
+        db.close();
+        resolve(getAllKeysRequest.result as string[]);
+      };
+      
+      getAllKeysRequest.onerror = () => {
+        db.close();
+        reject(getAllKeysRequest.error);
+      };
+    };
+  });
+}
+
+/**
+ * DEBUG UTILITY: Clear all IndexedDB entries for hardware keys
+ * WARNING: This will remove ALL stored hardware key data!
+ */
+export async function clearAllIndexedDBKeys(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('SeraVaultHardwareKeys', 1);
+    
+    request.onerror = () => reject(request.error);
+    
+    request.onsuccess = () => {
+      const db = request.result;
+      
+      if (!db.objectStoreNames.contains('keys')) {
+        db.close();
+        resolve();
+        return;
+      }
+      
+      const transaction = db.transaction(['keys'], 'readwrite');
+      const store = transaction.objectStore('keys');
+      const clearRequest = store.clear();
+      
+      clearRequest.onsuccess = () => {
+        db.close();
+        console.log('[HW Key] Cleared all IndexedDB entries');
+        resolve();
+      };
+      
+      clearRequest.onerror = () => {
+        db.close();
+        reject(clearRequest.error);
       };
     };
   });

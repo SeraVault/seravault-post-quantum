@@ -514,8 +514,8 @@ const BiometricPassphraseDialog: React.FC<BiometricPassphraseDialogProps> = ({
             
             <Alert severity="info" sx={{ mt: 3, textAlign: 'left' }}>
               <Typography variant="body2">
-                <strong>Paranoid Mode Active:</strong> Your private key is stored in your browser, 
-                encrypted with your hardware key. It has never been sent to our servers.
+                <strong>Paranoid Mode Active:</strong> Your private key is stored ONLY in your browser, 
+                encrypted with your hardware key. It is never stored on our servers—not even in encrypted form.
               </Typography>
             </Alert>
           </Box>
