@@ -247,7 +247,7 @@ export class ContactService {
     toUserEmail: string, 
     message?: string,
     triggerEvent?: ContactRequest['triggerEvent']
-  ): Promise<string> {
+  ): Promise<string | { invitationId: string; invitationData: Omit<UserInvitation, 'id'> }> {
     console.log('🚀 sendContactRequest called with:', {
       fromUserId,
       toUserEmail,
@@ -479,6 +479,44 @@ export class ContactService {
   }
 
   /**
+   * Cancel a sent contact request (for the sender to withdraw it)
+   */
+  static async cancelContactRequest(requestId: string): Promise<void> {
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        throw new Error('Not authenticated');
+      }
+
+      const requestRef = doc(db, this.CONTACT_REQUESTS_COLLECTION, requestId);
+      const requestSnap = await getDoc(requestRef);
+      
+      if (!requestSnap.exists()) {
+        throw new Error('Contact request not found');
+      }
+
+      const request = requestSnap.data() as ContactRequest;
+      
+      // Verify the canceling user is the sender
+      if (request.fromUserId !== user.uid) {
+        throw new Error('Not authorized to cancel this request');
+      }
+
+      if (request.status !== 'pending') {
+        throw new Error('Request is no longer pending');
+      }
+
+      // Delete the request
+      await deleteDoc(requestRef);
+
+      console.log(`🚫 Contact request canceled: ${request.fromUserId} -> ${request.toUserId}`);
+    } catch (error) {
+      console.error('Error canceling contact request:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Block a user
    */
   static async blockUser(blockingUserId: string, blockedUserId: string): Promise<void> {
@@ -637,14 +675,16 @@ export class ContactService {
     userId: string,
     callback: (requests: ContactRequest[]) => void
   ): () => void {
+    console.log(`📤 Setting up real-time subscription for sent contact requests from user: ${userId}`);
+    
     const q = query(
       collection(db, this.CONTACT_REQUESTS_COLLECTION),
       where('fromUserId', '==', userId),
-      where('status', '==', 'sent'),
       orderBy('createdAt', 'desc')
     );
 
     return onSnapshot(q, (querySnapshot) => {
+      console.log(`📤 Sent requests snapshot received: ${querySnapshot.docs.length} requests`);
       const requests: ContactRequest[] = [];
       
       querySnapshot.forEach((doc) => {
@@ -652,6 +692,7 @@ export class ContactService {
         requests.push({ id: doc.id, ...data });
       });
 
+      console.log(`📤 Parsed sent requests:`, requests);
       callback(requests);
     });
   }
@@ -812,7 +853,7 @@ export class ContactService {
     toEmail: string,
     message?: string,
     triggerEvent?: UserInvitation['triggerEvent']
-  ): Promise<string> {
+  ): Promise<{ invitationId: string; invitationData: Omit<UserInvitation, 'id'> }> {
     try {
       console.log(`📧 Creating invitation for ${toEmail} from ${fromUserId}`);
       
@@ -888,6 +929,40 @@ export class ContactService {
       console.error('Error fetching sent invitations:', error);
       throw error;
     }
+  }
+
+  /**
+   * Subscribe to real-time updates for sent invitations
+   */
+  static subscribeToSentInvitations(
+    userId: string,
+    callback: (invitations: UserInvitation[]) => void
+  ): () => void {
+    console.log(`📧 Setting up real-time subscription for invitations from user: ${userId}`);
+    
+    const invitationsQuery = query(
+      collection(db, this.USER_INVITATIONS_COLLECTION),
+      where('fromUserId', '==', userId),
+      orderBy('createdAt', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(
+      invitationsQuery,
+      (snapshot) => {
+        console.log(`📧 Invitations snapshot received: ${snapshot.docs.length} invitations`);
+        const invitations = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        } as UserInvitation));
+        console.log('📧 Parsed invitations:', invitations);
+        callback(invitations);
+      },
+      (error) => {
+        console.error('❌ Error in sent invitations subscription:', error);
+      }
+    );
+
+    return unsubscribe;
   }
 
   /**

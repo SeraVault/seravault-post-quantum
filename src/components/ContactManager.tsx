@@ -36,6 +36,7 @@ import {
   Schedule,
   Group,
   Edit,
+  Send,
 } from '@mui/icons-material';
 import { useAuth } from '../auth/AuthContext';
 import { usePassphrase } from '../auth/PassphraseContext';
@@ -112,17 +113,10 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _, initialTab 
           // Don't fail the entire load if groups fail
         }
         
-        const [contactsData, requestsData, sentRequestsData, sentInvitationsData] = await Promise.all([
-          ContactService.getUserContacts(user.uid),
-          ContactService.getPendingContactRequests(user.uid),
-          ContactService.getSentContactRequests(user.uid),
-          ContactService.getSentInvitations(user.uid)
-        ]);
+        // Only load contacts initially - real-time listeners will handle requests and invitations
+        const contactsData = await ContactService.getUserContacts(user.uid);
 
         setContacts(contactsData);
-        setContactRequests(requestsData);
-        setSentRequests(sentRequestsData);
-        setSentInvitations(sentInvitationsData);
         setGroups(groupsData);
       } catch (err) {
         console.error('Error loading contact data:', err);
@@ -150,13 +144,24 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _, initialTab 
     const unsubscribeOutgoing = ContactService.subscribeToSentContactRequests(
       user.uid,
       (requests) => {
+        console.log('📤 Real-time sent requests update:', requests);
         setSentRequests(requests);
+      }
+    );
+
+    // Subscribe to real-time sent invitations
+    const unsubscribeInvitations = ContactService.subscribeToSentInvitations(
+      user.uid,
+      (invitations) => {
+        console.log('📧 Real-time invitations update:', invitations);
+        setSentInvitations(invitations);
       }
     );
 
     return () => {
       unsubscribeIncoming();
       unsubscribeOutgoing();
+      unsubscribeInvitations();
     };
   }, [user, privateKey]);
 
@@ -186,12 +191,7 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _, initialTab 
         console.log(`✅ Contact request sent to existing user ${newContactEmail.trim()}`);
       }
       
-      // Refresh contact requests to show the newly sent request
-      if (user) {
-        const updatedRequests = await ContactService.getPendingContactRequests(user.uid);
-        setContactRequests(updatedRequests);
-      }
-      
+      // Real-time listeners will update the lists automatically
       setAddContactOpen(false);
       setNewContactEmail('');
       setNewContactMessage('');
@@ -228,6 +228,18 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _, initialTab 
     }
   };
 
+  const handleCancelRequest = async (requestId: string) => {
+    if (!user) return;
+    
+    try {
+      await ContactService.cancelContactRequest(requestId);
+      // Real-time listener will update the list automatically
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to cancel request');
+    }
+  };
+
   const handleBlockUser = async (contactUserId: string) => {
     if (!user) return;
     
@@ -248,9 +260,7 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _, initialTab 
     
     try {
       await ContactService.cancelInvitation(invitationId);
-      // Refresh invitations list
-      const invitationsData = await ContactService.getSentInvitations(user.uid);
-      setSentInvitations(invitationsData);
+      // Real-time listener will update the list automatically
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to cancel invitation');
@@ -320,7 +330,7 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _, initialTab 
   }
 
   return (
-    <Box sx={{ width: '100%', maxWidth: 800, mx: 'auto' }}>
+    <Box sx={{ width: '100%', maxWidth: 1200, mx: 'auto' }}>
       {/* Header */}
       <Box sx={{ p: 3, pb: 0 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
@@ -365,7 +375,13 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _, initialTab 
         )}
 
         {/* Tabs */}
-        <Tabs value={tabValue} onChange={handleTabChange}>
+        <Tabs 
+          value={tabValue} 
+          onChange={handleTabChange}
+          variant={isMobile ? "scrollable" : "standard"}
+          scrollButtons={isMobile ? "auto" : false}
+          allowScrollButtonsMobile
+        >
           <Tab 
             label={
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -381,6 +397,14 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _, initialTab 
                   <Email />
                 </Badge>
                 Requests ({contactRequests.length})
+              </Box>
+            } 
+          />
+          <Tab 
+            label={
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Send />
+                Sent ({sentRequests.filter(req => req.status === 'pending').length})
               </Box>
             } 
           />
@@ -569,8 +593,94 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _, initialTab 
         )}
       </TabPanel>
 
-      {/* Sent Invitations Tab */}
+      {/* Sent Requests Tab */}
       <TabPanel value={tabValue} index={2}>
+        {sentRequests.length === 0 ? (
+          <Box sx={{ textAlign: 'center', py: 4 }}>
+            <Send sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
+            <Typography variant="h6" color="text.secondary" gutterBottom>
+              No pending sent requests
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Contact requests you send to existing users will appear here
+            </Typography>
+          </Box>
+        ) : (
+          <List>
+            {sentRequests.map((request) => {
+              const isPending = request.status === 'pending';
+              
+              return (
+                <ListItem key={request.id} divider>
+                  <ListItemAvatar>
+                    <Avatar sx={{ bgcolor: isPending ? 'warning.main' : 'success.main' }}>
+                      {request.toUserDisplayName.charAt(0).toUpperCase()}
+                    </Avatar>
+                  </ListItemAvatar>
+                  <ListItemText
+                    primary={
+                      <Box>
+                        <Typography component="span" variant="subtitle1">
+                          {request.toUserDisplayName}
+                        </Typography>
+                        <Typography component="span" variant="body2" color="text.secondary" sx={{ display: 'block' }}>
+                          {request.toUserEmail}
+                        </Typography>
+                      </Box>
+                    }
+                    secondary={
+                      <>
+                        <Typography component="span" variant="body2" color="text.primary">
+                          Status: 
+                        </Typography>
+                        {' '}
+                        <Chip
+                          label={request.status}
+                          size="small"
+                          color={
+                            request.status === 'pending' ? 'warning' :
+                            request.status === 'accepted' ? 'success' :
+                            'default'
+                          }
+                          sx={{ ml: 1 }}
+                        />
+                        {request.message && (
+                          <>
+                            <br />
+                            <Typography component="span" variant="body2" sx={{ mt: 1, display: 'block' }}>
+                              Message: "{request.message}"
+                            </Typography>
+                          </>
+                        )}
+                        <Typography component="span" variant="caption" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
+                          <Schedule sx={{ fontSize: 16, mr: 0.5 }} />
+                          Sent {formatDate(request.createdAt)}
+                        </Typography>
+                      </>
+                    }
+                  />
+                  {isPending && (
+                    <ListItemSecondaryAction>
+                      <Tooltip title="Cancel request">
+                        <IconButton
+                          edge="end"
+                          onClick={() => handleCancelRequest(request.id!)}
+                          color="error"
+                        >
+                          <Close />
+                        </IconButton>
+                      </Tooltip>
+                    </ListItemSecondaryAction>
+                  )}
+                </ListItem>
+              );
+            })}
+          </List>
+        )}
+      </TabPanel>
+
+      {/* Sent Invitations Tab */}
+      <TabPanel value={tabValue} index={3}>
         {sentInvitations.length === 0 ? (
           <Box sx={{ textAlign: 'center', py: 4 }}>
             <Schedule sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
@@ -661,7 +771,7 @@ const ContactManager: React.FC<ContactManagerProps> = ({ onClose: _, initialTab 
       </TabPanel>
 
       {/* Groups Tab */}
-      <TabPanel value={tabValue} index={3}>
+      <TabPanel value={tabValue} index={4}>
         {groups.length === 0 ? (
           <Box sx={{ textAlign: 'center', py: 4 }}>
             <Group sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />

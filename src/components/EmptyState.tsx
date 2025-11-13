@@ -135,7 +135,7 @@ export const EmptyState = ({
                   <strong>• Use the FAB button:</strong> Click the floating action button (➕) in the bottom-right corner to quickly create new content
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                  <strong>• Add contacts:</strong> Go to Profile → Contacts to add people you want to share files with
+                  <strong>• Add contacts first:</strong> Go to Profile → Contacts to invite people. You'll need contacts to use chat and file sharing features
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
                   <strong>• Share files:</strong> Right-click any file and select "Share" to collaborate with your contacts
