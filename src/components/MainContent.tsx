@@ -141,6 +141,7 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
   // New chat dialog state
   const [newChatDialogOpen, setNewChatDialogOpen] = useState(false);
   const [selectedContacts, setSelectedContacts] = useState<string[]>([]);
+  const [hasContacts, setHasContacts] = useState(false);
   
   // Back navigation confirmation (for mobile)
   const [showBackConfirmation, setShowBackConfirmation] = useState(false);
@@ -285,6 +286,27 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
   // Get folders for current directory from shared hook
   const folders = getFoldersByParent(currentFolder);
   const breadcrumbs = buildFolderPath(currentFolder);
+
+  // Check if user has contacts
+  useEffect(() => {
+    const checkContacts = async () => {
+      if (!user) {
+        setHasContacts(false);
+        return;
+      }
+
+      try {
+        const { ContactService } = await import('../services/contactService');
+        const contacts = await ContactService.getUserContacts(user.uid);
+        setHasContacts(contacts.length > 0);
+      } catch (error) {
+        console.error('Error checking contacts:', error);
+        setHasContacts(false);
+      }
+    };
+
+    checkContacts();
+  }, [user]);
 
   // Recursive search functionality - searches through all folders
   const searchItemsRecursively = async (query: string): Promise<FileData[]> => {
@@ -2222,6 +2244,8 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
               // Open form builder dialog
               setFormEditorOpen(true);
             }}
+            onNewChatClick={() => setNewChatDialogOpen(true)}
+            hasContacts={hasContacts}
           />
         ) : (
           <FileTable

@@ -3,13 +3,16 @@ import {
   CloudUpload, 
   CreateNewFolder, 
   NoteAdd, 
-  Add
+  Add,
+  Chat
 } from '@mui/icons-material';
 
 interface EmptyStateProps {
   onUploadClick?: () => void;
   onNewFolderClick?: () => void;
   onNewFormClick?: () => void;
+  onNewChatClick?: () => void;
+  hasContacts?: boolean;
   view?: 'home' | 'recents' | 'favorites' | 'shared';
 }
 
@@ -17,6 +20,8 @@ export const EmptyState = ({
   onUploadClick, 
   onNewFolderClick, 
   onNewFormClick,
+  onNewChatClick,
+  hasContacts = false,
   view = 'home'
 }: EmptyStateProps) => {
   const getEmptyStateContent = () => {
@@ -114,6 +119,16 @@ export const EmptyState = ({
                     size="large"
                   >
                     Create Form
+                  </Button>
+                )}
+                {hasContacts && onNewChatClick && (
+                  <Button
+                    variant="outlined"
+                    startIcon={<Chat />}
+                    onClick={onNewChatClick}
+                    size="large"
+                  >
+                    Start Chat
                   </Button>
                 )}
               </Box>
