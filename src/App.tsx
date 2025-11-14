@@ -12,7 +12,7 @@ import { useAuth } from './auth/AuthContext';
 import { usePassphrase } from './auth/PassphraseContext';
 import { CircularProgress, Typography, useTheme, Dialog, DialogContent, Box } from '@mui/material';
 import { ClipboardProvider } from './context/ClipboardContext';
-import { LoadingProvider, useGlobalLoading } from './context/LoadingContext';
+import { LoadingProvider } from './context/LoadingContext';
 import { RecentsProvider } from './context/RecentsContext';
 import { MetadataProvider } from './context/MetadataContext';
 import { UpdatePrompt } from './components/UpdatePrompt';
@@ -59,14 +59,13 @@ const GlobalLoadingSpinner: React.FC = () => {
   const theme = useTheme();
   const { loading: authLoading } = useAuth();
   const { loading: passphraseLoading, privateKey } = usePassphrase();
-  const { isDataLoading } = useGlobalLoading();
   
-  // Show loading for any of the stages
-  const isLoading = authLoading || passphraseLoading || isDataLoading;
+  // Only show loading for auth and passphrase stages (not data loading)
+  const isLoading = authLoading || passphraseLoading;
   
   // Debug the loading states (temporarily)
   if (isLoading) {
-    console.log('Loading states:', { authLoading, passphraseLoading, isDataLoading, privateKey: !!privateKey });
+    console.log('Loading states:', { authLoading, passphraseLoading, privateKey: !!privateKey });
   }
   
   if (!isLoading) return null;
@@ -77,8 +76,6 @@ const GlobalLoadingSpinner: React.FC = () => {
     loadingMessage = 'Authenticating...';
   } else if (passphraseLoading) {
     loadingMessage = 'Decrypting your vault...';
-  } else if (isDataLoading) {
-    loadingMessage = 'Loading your files...';
   }
   
   return (

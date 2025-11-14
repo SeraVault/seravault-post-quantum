@@ -22,6 +22,7 @@ import Chip from '@mui/material/Chip';
 import IconButton from '@mui/material/IconButton';
 import Checkbox from '@mui/material/Checkbox';
 import FormControlLabel from '@mui/material/FormControlLabel';
+import CircularProgress from '@mui/material/CircularProgress';
 import { useTheme } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import AccessTime from '@mui/icons-material/AccessTime';
@@ -103,7 +104,7 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
     copyItems, 
     clearClipboard 
   } = useClipboard();
-  const { setIsDataLoading } = useGlobalLoading();
+  const { isDataLoading, setIsDataLoading } = useGlobalLoading();
   const { 
     isRecentsView, 
     isFavoritesView,
@@ -118,6 +119,7 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
 
   // State management
   const [files, setFiles] = useState<FileData[]>([]);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredFiles, setFilteredFiles] = useState<FileData[]>([]);
   
@@ -1143,11 +1145,13 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
         }
         
         setFilteredFiles(displayFiles);
+        setHasLoadedOnce(true);
         setIsDataLoading(false);
       } catch (error) {
         console.error('Error processing files:', error);
         setFiles([]);
         setFilteredFiles([]);
+        setHasLoadedOnce(true);
         setIsDataLoading(false);
       }
     };
@@ -2232,21 +2236,35 @@ const MainContentComponent = (props: MainContentProps, ref: React.Ref<MainConten
 
         {/* Empty State or File Table */}
         {filteredFiles.length === 0 && filteredFolders.length === 0 ? (
-          <EmptyState
-            view={isRecentsView ? 'recents' : isFavoritesView ? 'favorites' : isSharedView ? 'shared' : 'home'}
-            onUploadClick={() => {
-              // Trigger file upload
-              const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
-              if (fileInput) fileInput.click();
-            }}
-            onNewFolderClick={() => setNewFolderDialogOpen(true)}
-            onNewFormClick={() => {
-              // Open form builder dialog
-              setFormEditorOpen(true);
-            }}
-            onNewChatClick={() => setNewChatDialogOpen(true)}
-            hasContacts={hasContacts}
-          />
+          isDataLoading ? (
+            <Box
+              sx={{
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                minHeight: '400px',
+                width: '100%',
+              }}
+            >
+              <CircularProgress size={60} />
+            </Box>
+          ) : hasLoadedOnce ? (
+            <EmptyState
+              view={isRecentsView ? 'recents' : isFavoritesView ? 'favorites' : isSharedView ? 'shared' : 'home'}
+              onUploadClick={() => {
+                // Trigger file upload
+                const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+                if (fileInput) fileInput.click();
+              }}
+              onNewFolderClick={() => setNewFolderDialogOpen(true)}
+              onNewFormClick={() => {
+                // Open form builder dialog
+                setFormEditorOpen(true);
+              }}
+              onNewChatClick={() => setNewChatDialogOpen(true)}
+              hasContacts={hasContacts}
+            />
+          ) : null
         ) : (
           <FileTable
             folders={isRecentsView || isFavoritesView || isSharedView || (selectedTags && selectedTags.length > 0) ? [] : filteredFolders}
