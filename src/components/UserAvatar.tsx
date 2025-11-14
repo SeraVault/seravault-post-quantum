@@ -7,24 +7,20 @@ import {
   ListItemText,
   IconButton,
   Divider,
-  Box,
-  Typography,
-  Select,
-  FormControl
 } from '@mui/material';
 import {
   AccountCircle as ProfileIcon,
   Logout as LogoutIcon,
   Brightness4,
   Brightness7,
-  Language as LanguageIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { useThemeContext } from '../theme/ThemeContext';
 import { useTranslation } from 'react-i18next';
-import { getUserProfile, updateUserProfile } from '../firestore';
+import { getUserProfile } from '../firestore';
 
+/* Language definitions - temporarily disabled
 interface Language {
   code: string;
   name: string;
@@ -37,6 +33,7 @@ const languages: Language[] = [
   { code: 'fr', name: 'French', nativeName: 'Français', flag: '🇫🇷' },
   { code: 'es', name: 'Spanish', nativeName: 'Español', flag: '🇪🇸' },
 ];
+*/
 
 const UserAvatar: React.FC = () => {
   const { user, logout } = useAuth();
@@ -82,6 +79,7 @@ const UserAvatar: React.FC = () => {
     handleClose();
   };
 
+  /* Language change handler - temporarily disabled
   const handleLanguageChange = async (languageCode: string) => {
     i18n.changeLanguage(languageCode);
     // Don't close the menu when changing language - let user see the change
@@ -95,13 +93,14 @@ const UserAvatar: React.FC = () => {
       }
     }
   };
+  */
 
   if (!user) return null;
 
   // Get first letter of display name or email
   const displayName = user.displayName || user.email || 'U';
   const avatarLetter = displayName.charAt(0).toUpperCase();
-  const currentLanguage = languages.find(lang => lang.code === i18n.language) || languages[0];
+  // const currentLanguage = languages.find(lang => lang.code === i18n.language) || languages[0];
 
   return (
     <>
@@ -162,6 +161,7 @@ const UserAvatar: React.FC = () => {
             {mode === 'light' ? 'Dark Theme' : 'Light Theme'}
           </ListItemText>
         </MenuItem>
+        {/* Language selection temporarily disabled
         <MenuItem sx={{ py: 1 }}>
           <ListItemIcon>
             <LanguageIcon fontSize="small" />
@@ -204,6 +204,7 @@ const UserAvatar: React.FC = () => {
             </FormControl>
           </Box>
         </MenuItem>
+        */}
         <Divider />
         <MenuItem onClick={handleLogout}>
           <ListItemIcon>

@@ -36,6 +36,9 @@ const AppThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children })
       createTheme({
         palette: {
           mode,
+          primary: {
+            main: '#00CC00',
+          },
         },
       }),
     [mode]

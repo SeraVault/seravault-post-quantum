@@ -124,7 +124,7 @@ const PWAInstallPrompt: React.FC = () => {
                 width: 48,
                 height: 48,
                 borderRadius: 2,
-                background: 'linear-gradient(135deg, #42a5f5 0%, #667eea 100%)',
+                background: 'linear-gradient(135deg, #00CC00 0%, #00bf5f 100%)',
                 color: 'white',
                 flexShrink: 0,
               }}

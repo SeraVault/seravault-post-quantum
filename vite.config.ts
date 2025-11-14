@@ -58,7 +58,7 @@ export default defineConfig({
         name: 'SeraVault - Post-Quantum Encrypted Storage',
         short_name: 'SeraVault',
         description: 'Secure file storage with post-quantum encryption. Store documents, forms, and chat securely.',
-        theme_color: '#42a5f5',
+        theme_color: '#00EC75',
         background_color: '#0a0a0a',
         display: 'standalone',
         orientation: 'any',

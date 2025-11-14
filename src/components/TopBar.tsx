@@ -16,7 +16,14 @@ const TopBar: React.FC<TopBarProps> = ({ handleDrawerToggle }) => {
   const { user } = useAuth();
 
   return (
-    <AppBar position="fixed" sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}>
+    <AppBar 
+      position="fixed" 
+      sx={{ 
+        zIndex: (theme) => theme.zIndex.drawer + 1,
+        bgcolor: (theme) => theme.palette.mode === 'light' ? '#1a1a1a' : undefined,
+        color: 'white',
+      }}
+    >
       <Toolbar>
         <IconButton
           color="inherit"
