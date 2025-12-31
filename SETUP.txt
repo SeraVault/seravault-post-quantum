@@ -1,0 +1,16 @@
+SeraVault Firebase Setup (no markdown)
+--------------------------------------
+Prerequisites:
+- Node.js 18+ and npm installed.
+- Firebase CLI installed and logged in (`firebase login`).
+- Access to the target Firebase project.
+
+Local development:
+- Install dependencies: `npm install`.
+- Configure environment variables (copy from `.env.test` and fill secrets).
+- Start dev server: `npm run dev`.
+
+Build & deploy:
+- Build app: `npm run build`.
+- Deploy hosting/app only: `npm run deploy:app`.
+- Deploy all Firebase targets (no landing): `npm run deploy:all`.

@@ -1,0 +1,166 @@
+{
+  "name": "SeraVault - Votre Coffre-Fort Numérique",
+  "short_name": "SeraVault",
+  "description": "Votre coffre-fort numérique pour les mots de passe, cartes bancaires, clés cryptographiques et documents importants. Protégé contre le feu, les inondations, le vol et les regards indiscrets avec un chiffrement post-quantique.",
+  "start_url": "/?utm_source=pwa&lang=fr",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#667eea",
+  "lang": "fr",
+  "dir": "ltr",
+  "scope": "/",
+  "orientation": "any",
+  "id": "com.seravault.app",
+  "categories": [
+    "productivity",
+    "security",
+    "utilities",
+    "finance",
+    "lifestyle"
+  ],
+  "iarc_rating_id": "e84b072d-71b3-4d3e-86ae-31a8ce4e53b7",
+  "screenshots": [
+    {
+      "src": "/screenshots/desktop-home.png",
+      "sizes": "1920x1080",
+      "type": "image/png",
+      "platform": "wide",
+      "label": "Tableau de bord SeraVault - Organisez tous vos fichiers sécurisés"
+    },
+    {
+      "src": "/screenshots/desktop-forms.png",
+      "sizes": "1920x1080",
+      "type": "image/png",
+      "platform": "wide",
+      "label": "Formulaires Sécurisés - Stockez mots de passe, cartes bancaires et clés crypto"
+    },
+    {
+      "src": "/screenshots/mobile-home.png",
+      "sizes": "750x1334",
+      "type": "image/png",
+      "platform": "narrow",
+      "label": "Tableau de bord Mobile - Accédez à vos fichiers partout"
+    },
+    {
+      "src": "/screenshots/mobile-sharing.png",
+      "sizes": "750x1334",
+      "type": "image/png",
+      "platform": "narrow",
+      "label": "Partage Sécurisé - Partagez des fichiers avec chiffrement de bout en bout"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Télécharger des Fichiers",
+      "short_name": "Télécharger",
+      "description": "Téléchargez de nouveaux fichiers en toute sécurité",
+      "url": "/?action=upload&lang=fr",
+      "icons": [
+        {
+          "src": "/icons/upload-96x96.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Nouveau Mot de Passe",
+      "short_name": "Mot de Passe",
+      "description": "Créer un nouveau formulaire de mot de passe",
+      "url": "/?action=new-password&lang=fr",
+      "icons": [
+        {
+          "src": "/icons/password-96x96.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Nouvelle Carte Bancaire",
+      "short_name": "Carte",
+      "description": "Enregistrer une nouvelle carte bancaire",
+      "url": "/?action=new-card&lang=fr",
+      "icons": [
+        {
+          "src": "/icons/card-96x96.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    }
+  ],
+  "share_target": {
+    "action": "/share",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [
+        {
+          "name": "file",
+          "accept": [
+            "image/*",
+            "application/pdf",
+            "text/*",
+            "application/*"
+          ]
+        }
+      ]
+    }
+  },
+  "related_applications": [],
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "48x48",
+      "type": "image/x-icon",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-72x72.png",
+      "sizes": "72x72",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-96x96.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-144x144.png",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

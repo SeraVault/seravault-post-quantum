@@ -1,0 +1,50 @@
+--- a/src/components/NotificationBell.tsx
++++ b/src/components/NotificationBell.tsx
+@@ -77,12 +77,15 @@ const NotificationBell: React.FC<NotificationBellProps> = ({ className }) => {
+   };
+
+     const handleNotificationClick = async (notification: Notification) => {
++    // Close the menu immediately to prevent rapid clicks and race conditions
++    handleClose();
++
+     try {
+       console.log('👆 Notification clicked:', notification);
+
+-      // Mark as read FIRST and wait for it to complete
++      // Mark as read and update local state for responsive UI
+       if (!notification.isRead && notification.id) {
+         console.log(`🗑️ Deleting notification ${notification.id}...`);
+-        await NotificationService.markAsRead(notification.id);
+-        console.log(`✅ Successfully deleted notification ${notification.id}`);
+
+         // Remove from local state immediately for responsive UI
+@@ -90,8 +93,9 @@ const NotificationBell: React.FC<NotificationBellProps> = ({ className }) => {
+         setUnreadCount(prev => Math.max(0, prev - 1));
+
+-        // Give a small delay for Firestore real-time update to propagate
+-        await new Promise(resolve => setTimeout(resolve, 100));
++        // Mark as read in background (don't block navigation)
++        NotificationService.markAsRead(notification.id)
++          .then(() => console.log(`✅ Successfully deleted notification ${notification.id}`))
++          .catch(err => console.error('❌ Error marking notification as read:', err));
+       } else if (!notification.id) {
+         console.warn('⚠️ Notification has no ID, cannot mark as read');
+       } else {
+@@ -107,9 +111,6 @@ const NotificationBell: React.FC<NotificationBellProps> = ({ className }) => {
+         contactRequestId: notification.contactRequestId
+       });
+
+-      // Close the menu BEFORE navigating
+-      handleClose();
+-
+       // Handle contact request notifications
+       if (notification.type === 'contact_request' || notification.type === 'contact_accepted') {
+         console.log(`👥 Navigating to contacts page for ${notification.type}`);
+@@ -137,8 +138,6 @@ const NotificationBell: React.FC<NotificationBellProps> = ({ className }) => {
+       }
+     } catch (error) {
+       console.error('❌ Error handling notification click:', error);
+-      // Close menu even on error
+-      handleClose();
+     }
+   };

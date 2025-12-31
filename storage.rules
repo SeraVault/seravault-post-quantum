@@ -1,0 +1,33 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Files stored under /files/{ownerId}/{fileId}
+    // Enforce both storage path ownership and Firestore document sharing rules
+    match /files/{ownerId}/{fileId}/{rest=**} {
+      function fileDoc() {
+        return get(/databases/$(database)/documents/files/$(fileId));
+      }
+
+      // A user can access a blob if they are the owner or explicitly in sharedWith on the file doc
+      function canAccessFile() {
+        return request.auth != null &&
+          (request.auth.uid == ownerId ||
+           (fileDoc().exists &&
+            fileDoc().data.sharedWith is list &&
+            request.auth.uid in fileDoc().data.sharedWith));
+      }
+
+      // Read/download
+      allow read: if canAccessFile();
+      
+      // Upload/update/delete restricted to owner
+      allow write, create, delete: if request.auth != null && request.auth.uid == ownerId;
+    }
+    
+    // Deny all other storage access
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

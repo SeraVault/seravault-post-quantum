@@ -1,0 +1,61 @@
+{
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "functions": {
+    "source": "functions"
+  },
+  "hosting": {
+    "public": "dist",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/app",
+        "destination": "/app-index.html"
+      },
+      {
+        "source": "/app/**",
+        "destination": "/app-index.html"
+      },
+      {
+        "source": "/login",
+        "destination": "/app-index.html"
+      },
+      {
+        "source": "/signup",
+        "destination": "/app-index.html"
+      },
+      {
+        "source": "/settings",
+        "destination": "/app-index.html"
+      },
+      {
+        "source": "/chat",
+        "destination": "/app-index.html"
+      },
+      {
+        "source": "/chat/**",
+        "destination": "/app-index.html"
+      }
+    ],
+    "headers": [
+      {
+        "source": "**/*.@(jpg|jpeg|gif|png|svg|webp|js|css|woff|woff2|ttf|eot)",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "max-age=31536000"
+          }
+        ]
+      }
+    ]
+  },
+  "storage": {
+    "rules": "storage.rules"
+  }
+}

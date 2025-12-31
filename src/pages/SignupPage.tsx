@@ -1,0 +1,957 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  Box, 
+  Button, 
+  TextField, 
+  Typography, 
+  Alert, 
+  Container, 
+  Paper, 
+  Divider,
+  IconButton,
+  InputAdornment,
+} from '@mui/material';
+import { 
+  Visibility, 
+  VisibilityOff, 
+  Google,
+  CheckCircleOutline,
+  Phone as PhoneIcon,
+  Email
+} from '@mui/icons-material';
+import { backendService } from '../backend/BackendService';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { createUserProfile, getUserProfile } from '../firestore';
+import PasswordStrengthIndicator from '../components/PasswordStrengthIndicator';
+import PasswordRequirements from '../components/PasswordRequirements';
+import TermsAcceptanceDialog from '../components/TermsAcceptanceDialog';
+import { PhoneAuth } from '../components/PhoneAuth';
+import { STORAGE_KEYS } from '../constants/storage-keys';
+import { validatePasswordComplexity } from '../utils/passwordStrength';
+
+const SignupPage: React.FC = () => {
+  const { t, i18n } = useTranslation();
+  const [searchParams] = useSearchParams();
+  const invitationId = searchParams.get('invite');
+  const selectedPlan = searchParams.get('plan');
+  const preferredLanguage = searchParams.get('lang') || 'en';
+  
+  const [signupMethod, setSignupMethod] = useState<'email' | 'phone'>('email');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [phoneVerified, setPhoneVerified] = useState(false);
+  const [waitingForVerification, setWaitingForVerification] = useState(false);
+  const [verificationCheckCount, setVerificationCheckCount] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [showTermsDialog, setShowTermsDialog] = useState(false);
+  const [pendingSignupType, setPendingSignupType] = useState<'email' | 'google' | 'phone' | null>(null);
+  const [invitationInfo, setInvitationInfo] = useState<{
+    fromUserDisplayName: string;
+    fromUserEmail: string;
+    message?: string;
+  } | null>(null);
+  const navigate = useNavigate();
+
+  // Set language from URL parameter immediately
+  useEffect(() => {
+    if (preferredLanguage && ['en', 'es', 'fr'].includes(preferredLanguage)) {
+      i18n.changeLanguage(preferredLanguage);
+    }
+  }, [preferredLanguage, i18n]);
+
+  // Load invitation info if invitation ID is present
+  useEffect(() => {
+    const loadInvitation = async () => {
+      if (invitationId) {
+        try {
+          const inviteData = await backendService.documents.get('userInvitations', invitationId);
+          if (inviteData) {
+            setInvitationInfo({
+              fromUserDisplayName: inviteData.fromUserDisplayName || 'Someone',
+              fromUserEmail: inviteData.fromUserEmail || '',
+              message: inviteData.message
+            });
+            // Pre-fill email if available
+            if (inviteData.toEmail) {
+              setEmail(inviteData.toEmail);
+            }
+          }
+        } catch (error) {
+          console.error('Error loading invitation:', error);
+        }
+      }
+    };
+    
+    loadInvitation();
+  }, [invitationId]);
+
+  // Poll for email verification
+  const startVerificationPolling = (userId: string) => {
+    const pollInterval = setInterval(async () => {
+      try {
+        setVerificationCheckCount(prev => prev + 1);
+        
+        // Check verification status from Firestore
+        const userDoc = await backendService.documents.get('users', userId);
+        
+        if (userDoc?.emailVerified) {
+          console.log('[SignupPage] Email verified! Showing terms dialog');
+          clearInterval(pollInterval);
+          setWaitingForVerification(false);
+          setShowTermsDialog(true);
+        }
+        
+        // Stop polling after 10 minutes (120 checks at 5-second intervals)
+        if (verificationCheckCount > 120) {
+          clearInterval(pollInterval);
+          console.log('[SignupPage] Verification polling timeout');
+        }
+      } catch (error) {
+        console.error('[SignupPage] Error checking verification status:', error);
+      }
+    }, 5000); // Check every 5 seconds
+    
+    // Cleanup on unmount
+    return () => clearInterval(pollInterval);
+  };
+
+  const handleResendVerification = async () => {
+    const user = backendService.auth.getCurrentUser();
+    if (!user) return;
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      await backendService.auth.sendEmailVerification();
+      
+      console.log('[SignupPage] Verification email resent');
+      setVerificationCheckCount(0); // Reset counter
+    } catch (error) {
+      console.error('[SignupPage] Failed to resend verification email:', error);
+      setError(t('signup.resendFailed', { defaultValue: 'Failed to resend email. Please try again.' }));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSignup = async () => {
+    setError(null);
+    if (password !== confirmPassword) {
+      setError(t('signup.passwordsDoNotMatch'));
+      return;
+    }
+    
+    // Validate password complexity
+    const validationErrors = validatePasswordComplexity(password);
+    if (validationErrors.length > 0) {
+      setError(validationErrors.join(' '));
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      // Sign up/sign in the user first
+      const user = await backendService.auth.signUp(email, password);
+      
+      // For email/password signup, always treat as new user and send verification email
+      // (Email/password can't be reused - Firebase will throw auth/email-already-in-use)
+      console.log('[SignupPage] New email/password user - sending verification email');
+      sessionStorage.setItem(STORAGE_KEYS.SIGNUP_PASSWORD, password);
+      
+      // Send verification email via Cloud Function
+      try {
+        // Add small delay to ensure auth state is fully propagated
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        await backendService.auth.sendEmailVerification(preferredLanguage);
+        
+        console.log('[SignupPage] Verification email sent successfully');
+        setWaitingForVerification(true);
+        setPendingSignupType('email');
+        setLoading(false);
+        
+        // Start polling for verification
+        startVerificationPolling(user.uid);
+      } catch (emailError) {
+        console.error('[SignupPage] Failed to send verification email:', emailError);
+        setError(t('signup.verificationEmailFailed', { defaultValue: 'Failed to send verification email. Please try again or contact support.' }));
+        // Sign out the user since verification failed
+        await backendService.auth.signOut();
+      }
+    } catch (error: any) {
+      console.error('[SignupPage] Signup error:', error);
+      
+      // Handle Firebase auth errors with user-friendly messages
+      if (error.code === 'auth/email-already-in-use') {
+        setError(t('signup.emailAlreadyInUse', { defaultValue: 'This email is already registered. Please sign in or use a different email.' }));
+      } else if (error.code === 'auth/invalid-email') {
+        setError(t('signup.invalidEmail', { defaultValue: 'Invalid email address.' }));
+      } else if (error.code === 'auth/weak-password') {
+        setError(t('signup.weakPassword', { defaultValue: 'Password is too weak. Please use a stronger password.' }));
+      } else if (error.code === 'auth/operation-not-allowed') {
+        setError(t('signup.operationNotAllowed', { defaultValue: 'Email/password sign-up is not enabled.' }));
+      } else {
+        setError(error.message || t('signup.genericError', { defaultValue: 'Failed to sign up. Please try again.' }));
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setError(null);
+    setLoading(true);
+    
+    try {
+      // Sign in with Google first
+      const user = await backendService.auth.signInWithGoogle();
+      
+      // Check if profile already exists (returning user)
+      const existingProfile = await getUserProfile(user.uid);
+      
+      if (existingProfile) {
+        // Existing user - skip terms, navigate based on their state
+        console.log('[SignupPage] Existing Google user detected - skipping terms');
+        
+        // Store invitation ID if present
+        if (invitationId) {
+          localStorage.setItem(STORAGE_KEYS.PENDING_INVITATION, invitationId);
+        }
+        
+        // Handle plan selection
+        if (selectedPlan && selectedPlan !== 'free') {
+          await backendService.documents.update('users', user.uid, {
+            pendingPlan: selectedPlan,
+            pendingPlanTimestamp: backendService.utils.serverTimestamp(),
+          });
+          navigate(`/checkout?plan=${selectedPlan}`);
+        } else if (existingProfile.publicKey) {
+          navigate('/');
+        } else {
+          navigate('/profile');
+        }
+      } else {
+        // New user - show terms dialog
+        console.log('[SignupPage] New Google user detected - showing terms');
+        setPendingSignupType('google');
+        setShowTermsDialog(true);
+      }
+    } catch (error: any) {
+      console.error('[SignupPage] Google sign-in error:', error);
+      
+      // Handle Firebase auth errors with user-friendly messages
+      if (error.code === 'auth/popup-closed-by-user') {
+        setError(t('signup.popupClosed', { defaultValue: 'Sign-in popup was closed. Please try again.' }));
+      } else if (error.code === 'auth/cancelled-popup-request') {
+        // User opened multiple popups, ignore this error
+        return;
+      } else if (error.code === 'auth/popup-blocked') {
+        setError(t('signup.popupBlocked', { defaultValue: 'Popup was blocked by browser. Please allow popups for this site.' }));
+      } else if (error.code === 'auth/account-exists-with-different-credential') {
+        setError(t('signup.accountExistsWithDifferentCredential', { defaultValue: 'An account already exists with this email using a different sign-in method.' }));
+      } else {
+        setError(error.message || t('signup.googleSignInError', { defaultValue: 'Failed to sign in with Google. Please try again.' }));
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePhoneWithEmailBackup = async () => {
+    if (password !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Get current phone-authenticated user
+      const currentUser = backendService.auth.getCurrentUser();
+      if (!currentUser) {
+        throw new Error('Phone authentication session expired. Please start over.');
+      }
+
+      // Link email/password credential to phone account
+      const { EmailAuthProvider, linkWithCredential } = await import('firebase/auth');
+      const { legacyAuth: auth } = await import('../backend/FirebaseBackend');
+      
+      const emailCredential = EmailAuthProvider.credential(email, password);
+      const firebaseUser = auth.currentUser;
+      
+      if (!firebaseUser) {
+        throw new Error('No authenticated user found');
+      }
+
+      await linkWithCredential(firebaseUser, emailCredential);
+      console.log('Email/password linked successfully to phone account');
+
+      // Store password temporarily for credentials form
+      sessionStorage.setItem(STORAGE_KEYS.SIGNUP_PASSWORD, password);
+      
+      // Now proceed with terms acceptance
+      setPendingSignupType('phone');
+      setShowTermsDialog(true);
+    } catch (err: any) {
+      console.error('Error linking email/password:', err);
+      if (err.code === 'auth/email-already-in-use') {
+        setError('This email is already registered. Please use a different email or sign in.');
+      } else if (err.code === 'auth/invalid-email') {
+        setError('Invalid email address');
+      } else if (err.code === 'auth/weak-password') {
+        setError('Password is too weak. Please use a stronger password.');
+      } else {
+        setError(err.message || 'Failed to set up backup authentication');
+      }
+      setLoading(false);
+    }
+  };
+
+  const handleTermsAccept = async () => {
+    setShowTermsDialog(false);
+    setLoading(true);
+    
+    try {
+      const user = backendService.auth.getCurrentUser();
+      if (!user) {
+        throw new Error('No authenticated user found');
+      }
+      
+      // Create profile with terms acceptance (only called for new users)
+      if (pendingSignupType === 'email' || pendingSignupType === 'google') {
+        await createUserProfile(user.uid, {
+          displayName: user.displayName || user.email || 'User',
+          email: user.email || '',
+          theme: 'dark',
+          language: preferredLanguage,
+          termsAcceptedAt: new Date().toISOString(),
+          emailVerified: true, // Already verified before reaching this point
+        });
+        
+        console.log('[SignupPage] New user profile created with terms acceptance');
+        
+        // Store invitation ID in localStorage before navigation
+        if (invitationId) {
+          console.log('[SignupPage] Storing pending invitation in localStorage:', invitationId);
+          localStorage.setItem(STORAGE_KEYS.PENDING_INVITATION, invitationId);
+        }
+        
+        // Handle paid plan - store in Firestore 
+        if (selectedPlan && selectedPlan !== 'free') {
+          console.log('[SignupPage] Storing pending plan in Firestore:', selectedPlan);
+          await backendService.documents.update('users', user.uid, {
+            pendingPlan: selectedPlan,
+            pendingPlanTimestamp: backendService.utils.serverTimestamp(),
+          });
+          navigate(`/checkout?plan=${selectedPlan}`);
+        } else {
+          navigate('/profile');
+        }
+      } else if (pendingSignupType === 'phone') {
+        // Phone user already authenticated and has email/password linked
+        await createUserProfile(user.uid, {
+          displayName: user.displayName || user.email || user.phoneNumber || 'User',
+          email: user.email || '',
+          theme: 'dark',
+          language: preferredLanguage,
+          termsAcceptedAt: new Date().toISOString(),
+        });
+        
+        // Store invitation ID in localStorage before navigation
+        if (invitationId) {
+          console.log('[SignupPage] Storing pending invitation in localStorage:', invitationId);
+          localStorage.setItem(STORAGE_KEYS.PENDING_INVITATION, invitationId);
+        }
+        
+        // Handle paid plan - store in Firestore and redirect to checkout
+        if (selectedPlan && selectedPlan !== 'free') {
+          console.log('[SignupPage] Storing pending plan in Firestore:', selectedPlan);
+          await backendService.documents.update('users', user.uid, {
+            pendingPlan: selectedPlan,
+            pendingPlanTimestamp: backendService.utils.serverTimestamp(),
+          });
+          console.log('[SignupPage] Navigating to checkout for payment');
+          navigate(`/checkout?plan=${selectedPlan}`);
+        } else {
+          console.log('[SignupPage] Free plan - navigating to profile for key generation');
+          navigate('/profile');
+        }
+      }
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'An error occurred';
+      setError(errorMessage);
+    } finally {
+      setPendingSignupType(null);
+      setLoading(false);
+    }
+  };
+
+  const handleTermsDecline = () => {
+    setShowTermsDialog(false);
+    setPendingSignupType(null);
+    setError(t('signup.mustAcceptTerms', 'You must accept the Terms of Service and Privacy Policy to create an account'));
+  };
+
+  return (
+    <>
+      <TermsAcceptanceDialog
+        open={showTermsDialog}
+        onAccept={handleTermsAccept}
+        onDecline={handleTermsDecline}
+      />
+      
+      <Box
+        sx={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: { xs: 'flex-start', sm: 'center' },
+          // Landing page background style
+          background: '#0a0a0a',
+          backgroundImage: `
+            radial-gradient(circle at 50% 0%, rgba(66, 165, 245, 0.15) 0%, transparent 50%),
+            radial-gradient(circle at 85% 30%, rgba(171, 71, 188, 0.1) 0%, transparent 40%)
+          `,
+          py: 4,
+          overflowY: 'auto',
+        }}
+      >
+        <Container component="main" maxWidth="sm">
+          <Paper 
+            elevation={0} 
+            sx={{ 
+              p: { xs: 3, sm: 5 }, 
+              borderRadius: 4,
+              // Landing page card style
+              background: '#151515',
+              border: '1px solid #2a2a2a',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.6), 0 10px 10px -5px rgba(0, 0, 0, 0.5)',
+            }}
+          >
+            {/* Logo/Brand Section */}
+            <Box sx={{ textAlign: 'center', mb: 4 }}>
+              <Box
+                sx={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  mb: 2,
+                  maxWidth: '100%',
+                  overflow: 'hidden',
+                }}
+              >
+                <img 
+                  src="/seravault_logo.svg" 
+                  alt="SeraVault" 
+                  style={{ height: '60px', width: 'auto', maxWidth: '100%', objectFit: 'contain' }}
+                />
+              </Box>
+              <Typography component="h1" variant="h4" sx={{ fontWeight: 'bold', mb: 1, color: '#e0e0e0' }}>
+                {t('signup.title')}
+              </Typography>
+              <Typography variant="body1" sx={{ color: '#a0a0a0' }}>
+                {t('signup.joinSeraVault')}
+              </Typography>
+            </Box>
+
+            {/* Invitation Banner */}
+            {invitationInfo && (
+              <Alert 
+                severity="info" 
+                icon={<CheckCircleOutline />}
+                sx={{ mb: 3, borderRadius: 2 }}
+              >
+                <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 0.5 }}>
+                  {t('signup.invitedBy', { name: invitationInfo.fromUserDisplayName })}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {invitationInfo.fromUserEmail}
+                </Typography>
+                {invitationInfo.message && (
+                  <Typography variant="body2" sx={{ mt: 1, fontStyle: 'italic' }}>
+                    "{invitationInfo.message}"
+                  </Typography>
+                )}
+              </Alert>
+            )}
+
+            {error && (
+              <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }}>
+                {error}
+              </Alert>
+            )}
+
+            {waitingForVerification && !error && (
+              <Alert 
+                severity="info" 
+                icon={<Email />} 
+                sx={{ 
+                  mb: 3, 
+                  borderRadius: 2,
+                  backgroundColor: 'rgba(66, 165, 245, 0.1)',
+                  border: '1px solid rgba(66, 165, 245, 0.3)',
+                }}
+              >
+                <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 1 }}>
+                  {t('signup.verifyYourEmail', { defaultValue: '📧 Please Verify Your Email' })}
+                </Typography>
+                <Typography variant="body2" sx={{ mb: 1.5 }}>
+                  {t('signup.verificationInstructions', { 
+                    defaultValue: 'We sent a verification email to {{email}}. Please click the link in the email to continue. The page will automatically proceed once verified.',
+                    email
+                  })}
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    onClick={handleResendVerification}
+                    disabled={loading}
+                  >
+                    {t('signup.resendEmail', { defaultValue: 'Resend Email' })}
+                  </Button>
+                  <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                    {t('signup.checkingStatus', { defaultValue: 'Checking verification status...' })}
+                  </Typography>
+                </Box>
+              </Alert>
+            )}
+
+            {!waitingForVerification && (
+            <Box 
+              component="form" 
+              onSubmit={(e) => { 
+                e.preventDefault(); 
+                handleSignup(); 
+              }}
+            >
+              <TextField
+                margin="normal"
+                required
+                fullWidth
+                id="email"
+                label={t('signup.emailAddress')}
+                name="email"
+                autoComplete="email"
+                autoFocus
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                disabled={loading}
+                sx={{ 
+                  mb: 2,
+                  '& .MuiOutlinedInput-root': {
+                    color: '#e0e0e0',
+                    '& fieldset': {
+                      borderColor: '#2a2a2a',
+                    },
+                    '&:hover fieldset': {
+                      borderColor: '#42a5f5',
+                    },
+                    '&.Mui-focused fieldset': {
+                      borderColor: '#42a5f5',
+                    },
+                  },
+                  '& .MuiInputLabel-root': {
+                    color: '#a0a0a0',
+                    '&.Mui-focused': {
+                      color: '#42a5f5',
+                    },
+                  },
+                }}
+                InputProps={{
+                  sx: { borderRadius: 2 }
+                }}
+              />
+
+              <TextField
+                margin="normal"
+                required
+                fullWidth
+                name="password"
+                label={t('signup.password')}
+                type={showPassword ? 'text' : 'password'}
+                id="password"
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={loading}
+                sx={{ 
+                  mb: 1,
+                  '& .MuiOutlinedInput-root': {
+                    color: '#e0e0e0',
+                    '& fieldset': {
+                      borderColor: '#2a2a2a',
+                    },
+                    '&:hover fieldset': {
+                      borderColor: '#42a5f5',
+                    },
+                    '&.Mui-focused fieldset': {
+                      borderColor: '#42a5f5',
+                    },
+                  },
+                  '& .MuiInputLabel-root': {
+                    color: '#a0a0a0',
+                    '&.Mui-focused': {
+                      color: '#42a5f5',
+                    },
+                  },
+                }}
+                InputProps={{
+                  sx: { borderRadius: 2 },
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton
+                        aria-label={showPassword ? t('signup.hidePassword') : t('signup.showPassword')}
+                        onClick={() => setShowPassword(!showPassword)}
+                        edge="end"
+                      >
+                        {showPassword ? <VisibilityOff /> : <Visibility />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                }}
+              />
+
+              <PasswordStrengthIndicator password={password} />
+              <PasswordRequirements password={password} />
+
+              <TextField
+                margin="normal"
+                required
+                fullWidth
+                name="confirmPassword"
+                label={t('signup.confirmPassword')}
+                type={showConfirmPassword ? 'text' : 'password'}
+                id="confirmPassword"
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                disabled={loading}
+                error={confirmPassword.length > 0 && password !== confirmPassword}
+                helperText={confirmPassword.length > 0 && password !== confirmPassword ? t('signup.passwordsDoNotMatch') : ''}
+                sx={{ 
+                  mb: 3,
+                  '& .MuiOutlinedInput-root': {
+                    color: '#e0e0e0',
+                    '& fieldset': {
+                      borderColor: '#2a2a2a',
+                    },
+                    '&:hover fieldset': {
+                      borderColor: '#42a5f5',
+                    },
+                    '&.Mui-focused fieldset': {
+                      borderColor: '#42a5f5',
+                    },
+                  },
+                  '& .MuiInputLabel-root': {
+                    color: '#a0a0a0',
+                    '&.Mui-focused': {
+                      color: '#42a5f5',
+                    },
+                  },
+                }}
+                InputProps={{
+                  sx: { borderRadius: 2 },
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton
+                        aria-label={showConfirmPassword ? t('signup.hidePassword') : t('signup.showPassword')}
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        edge="end"
+                      >
+                        {showConfirmPassword ? <VisibilityOff /> : <Visibility />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                }}
+              />
+
+              <Button
+                type="submit"
+                fullWidth
+                variant="contained"
+                size="large"
+                disabled={loading || password !== confirmPassword}
+                sx={{ 
+                  py: 1.5, 
+                  mb: 2,
+                  borderRadius: 2,
+                  textTransform: 'none',
+                  fontSize: '1rem',
+                  fontWeight: 600,
+                  // Landing page gradient
+                  background: 'linear-gradient(135deg, #00F078 0%, #42a5f5 50%, #667eea 100%)',
+                  boxShadow: '0 4px 15px rgba(66, 165, 245, 0.3)',
+                  border: 'none',
+                  color: '#fff',
+                  '&:hover': {
+                    background: 'linear-gradient(135deg, #00F078 0%, #42a5f5 50%, #667eea 100%)',
+                    opacity: 0.9,
+                    boxShadow: '0 6px 20px rgba(66, 165, 245, 0.4)',
+                  },
+                  '&:disabled': {
+                    background: 'rgba(255, 255, 255, 0.12)',
+                    color: 'rgba(255, 255, 255, 0.3)',
+                  }
+                }}
+              >
+                {loading ? t('signup.signingUp') : t('signup.createAccountButton')}
+              </Button>
+
+              <Divider sx={{ my: 3, borderColor: 'rgba(255, 255, 255, 0.1)' }}>
+                <Typography variant="body2" sx={{ color: '#a0a0a0' }}>
+                  OR
+                </Typography>
+              </Divider>
+
+              <Button
+                fullWidth
+                variant="outlined"
+                size="large"
+                disabled={loading}
+                onClick={handleGoogleSignIn}
+                startIcon={<Google />}
+                sx={{ 
+                  py: 1.5,
+                  borderRadius: 2,
+                  textTransform: 'none',
+                  fontSize: '1rem',
+                  fontWeight: 600,
+                  mb: 2,
+                  // Landing page outline button style
+                  borderColor: 'rgba(255, 255, 255, 0.2)',
+                  color: '#e0e0e0',
+                  '&:hover': {
+                    borderColor: '#e0e0e0',
+                    background: 'rgba(255, 255, 255, 0.05)',
+                  }
+                }}
+              >
+                {t('signup.signUpWithGoogle')}
+              </Button>
+
+              <Button
+                fullWidth
+                variant="outlined"
+                size="large"
+                disabled={loading}
+                onClick={() => setSignupMethod(signupMethod === 'phone' ? 'email' : 'phone')}
+                startIcon={<PhoneIcon />}
+                sx={{ 
+                  py: 1.5,
+                  borderRadius: 2,
+                  textTransform: 'none',
+                  fontSize: '1rem',
+                  fontWeight: 600,
+                  // Landing page outline button style
+                  borderColor: 'rgba(255, 255, 255, 0.2)',
+                  color: '#e0e0e0',
+                  '&:hover': {
+                    borderColor: '#e0e0e0',
+                    background: 'rgba(255, 255, 255, 0.05)',
+                  }
+                }}
+              >
+                {signupMethod === 'phone' ? 'Back to Email Signup' : 'Sign Up with Phone'}
+              </Button>
+
+              {signupMethod === 'phone' && !phoneVerified && (
+                <Box sx={{ mt: 3 }}>
+                  <Alert severity="info" sx={{ mb: 2 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                      {t('profile.secureAccountTitle', 'Secure Your Account')}
+                    </Typography>
+                    <Typography variant="body2">
+                      {t('profile.phoneBackupExplanation', "After verifying your phone number, you'll set up an email and password as a backup authentication method. This ensures you can always access your account even if you lose your phone number.")}
+                    </Typography>
+                  </Alert>
+                  <PhoneAuth 
+                    onSuccess={() => {
+                      setPhoneVerified(true);
+                      setError(null);
+                    }}
+                    onError={(err) => setError(err)}
+                    mode="signup"
+                  />
+                </Box>
+              )}
+
+              {signupMethod === 'phone' && phoneVerified && (
+                <Box sx={{ mt: 3 }}>
+                  <Alert severity="success" sx={{ mb: 2 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      {t('profile.phoneVerified', '✓ Phone Verified')}
+                    </Typography>
+                  </Alert>
+                  
+                  <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
+                    {t('profile.setBackupAuth', 'Set Backup Authentication')}
+                  </Typography>
+                  
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                    {t('profile.backupAuthDescription', "Create an email and password to secure your account. You'll be able to sign in with either your phone number or email.")}
+                  </Typography>
+
+                  <TextField
+                    fullWidth
+                    label={t('auth.email', 'Email Address')}
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    disabled={loading}
+                    autoComplete="email"
+                    sx={{ mb: 2 }}
+                  />
+
+                  <TextField
+                    fullWidth
+                    label={t('auth.password', 'Password')}
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    disabled={loading}
+                    autoComplete="new-password"
+                    InputProps={{
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton
+                            onClick={() => setShowPassword(!showPassword)}
+                            edge="end"
+                          >
+                            {showPassword ? <VisibilityOff /> : <Visibility />}
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                    }}
+                    sx={{ mb: 1 }}
+                  />
+
+                  {password && <PasswordStrengthIndicator password={password} />}
+
+                  <TextField
+                    fullWidth
+                    label={t('auth.confirmPassword', 'Confirm Password')}
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    disabled={loading}
+                    autoComplete="new-password"
+                    InputProps={{
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton
+                            onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                            edge="end"
+                          >
+                            {showConfirmPassword ? <VisibilityOff /> : <Visibility />}
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                    }}
+                    sx={{ mb: 2 }}
+                  />
+
+                  <Button
+                    fullWidth
+                    variant="contained"
+                    size="large"
+                    onClick={handlePhoneWithEmailBackup}
+                    disabled={loading || !email || !password || !confirmPassword}
+                    sx={{ 
+                      py: 1.5,
+                      borderRadius: 2,
+                      textTransform: 'none',
+                      fontSize: '1rem',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {loading ? t('auth.signingUp', 'Setting up...') : t('profile.completeSignup', 'Complete Signup')}
+                  </Button>
+
+                  <Button
+                    fullWidth
+                    variant="text"
+                    size="small"
+                    onClick={() => {
+                      setPhoneVerified(false);
+                      setEmail('');
+                      setPassword('');
+                      setConfirmPassword('');
+                    }}
+                    disabled={loading}
+                    sx={{ mt: 1 }}
+                  >
+                    Start Over
+                  </Button>
+                </Box>
+              )}
+
+              <Box sx={{ mt: 3, textAlign: 'center' }}>
+                <Typography variant="body2" sx={{ color: '#a0a0a0' }}>
+                  {t('signup.alreadyHaveAccount')}{' '}
+                  <Link 
+                    to="/login" 
+                    style={{ 
+                      color: '#42a5f5', 
+                      textDecoration: 'none',
+                      fontWeight: 600
+                    }}
+                  >
+                    {t('signup.signInHere')}
+                  </Link>
+                </Typography>
+              </Box>
+            </Box>
+            )}
+
+            {/* Security Features */}
+            <Box 
+              sx={{ 
+                mt: 4, 
+                pt: 3, 
+                borderTop: '1px solid #2a2a2a',
+              }}
+            >
+              <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600, textAlign: 'center', color: '#e0e0e0' }}>
+                {t('signup.whatYouGet', 'What you get:')}
+              </Typography>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  <CheckCircleOutline sx={{ fontSize: 20, color: '#66bb6a' }} />
+                  <Typography variant="body2" sx={{ color: '#a0a0a0' }}>
+                    {t('signup.quantumResistant', 'Quantum-resistant ML-KEM-768 encryption')}
+                  </Typography>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  <CheckCircleOutline sx={{ fontSize: 20, color: '#66bb6a' }} />
+                  <Typography variant="body2" sx={{ color: '#a0a0a0' }}>
+                    {t('signup.zeroKnowledge', 'Zero-knowledge architecture')}
+                  </Typography>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  <CheckCircleOutline sx={{ fontSize: 20, color: '#66bb6a' }} />
+                  <Typography variant="body2" sx={{ color: '#a0a0a0' }}>
+                    {t('signup.endToEndEncrypted', 'End-to-end encrypted file sharing')}
+                  </Typography>
+                </Box>
+              </Box>
+            </Box>
+          </Paper>
+        </Container>
+      </Box>
+    </>
+  );
+};
+
+export default SignupPage;
